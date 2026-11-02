@@ -231,3 +231,27 @@ def test_a_prompt_longer_than_the_teacher_is_rejected(lm, task):
     many = [("word " * 50, i % 3) for i in range(model.config.max_position_embeddings // 10)]
     with pytest.raises(ValueError, match="more than the teacher"):
         LabelScorer(model, tok, shots, examples=many)
+
+
+@pytest.mark.parametrize(
+    "arch", ["MistralForCausalLM", "PhiForCausalLM", "Gemma2ForCausalLM", "GPT2LMHeadModel"]
+)
+def test_other_teacher_architectures(arch, task):
+    """Tree and packed scoring are exact for other model families too, so any causal LM can be the teacher."""
+    name = f"hf-internal-testing/tiny-random-{arch}"
+    model, tok = AutoModelForCausalLM.from_pretrained(name).eval(), AutoTokenizer.from_pretrained(name)
+    scorer = LabelScorer(model, tok, task, max_tokens=10_000)
+    texts = ["great product, would buy again", "meh"]
+    got = scorer.form_scores_many(texts)
+    for t, row in zip(texts, got, strict=True):
+        assert row.tolist() == pytest.approx(reference(scorer, t), abs=1e-3)
+
+
+def test_ensemble_averages_probabilities():
+    from tinydistill.teacher import combine_scores
+
+    one = [0.0, -1.0, -2.0]
+    assert combine_scores([one]) == one  # a single teacher is passed through unchanged
+    # teacher 1: [0.5, 0.5]; teacher 2: [0.75, 0.25] -> mean [0.625, 0.375]
+    got = combine_scores([[0.0, 0.0], [math.log(3.0), 0.0]])
+    assert got == pytest.approx([math.log(0.625), math.log(0.375)], abs=1e-12)

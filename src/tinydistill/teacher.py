@@ -208,6 +208,16 @@ class LabelScorer:
             out.append(self._score_pack(pack))
         return torch.cat(out) if out else torch.empty((0, len(self.forms)), device=self.device)
 
+    def _additive(self, allow: torch.Tensor) -> torch.Tensor:
+        """The mask as additive biases (0 where attention is allowed): every attention implementation reads
+        this form, while some (eager) would misread a boolean mask."""
+        dtype = next(self.model.parameters()).dtype
+        if not dtype.is_floating_point:  # quantised weights: use the compute dtype
+            dtype = torch.bfloat16
+        return torch.zeros(allow.shape, dtype=dtype, device=allow.device).masked_fill_(
+            ~allow, torch.finfo(dtype).min
+        )
+
     def _score_pack(self, pack: list[list[int]]) -> torch.Tensor:
         dev, P, N = self.device, len(self.prefix_ids), len(self._node_tokens)
         L = sum(len(x) for x in pack) + N * len(pack)
@@ -245,7 +255,7 @@ class LabelScorer:
         try:
             logits = self.model(
                 tokens[None],
-                attention_mask=allow[None, None],
+                attention_mask=self._additive(allow)[None, None],
                 position_ids=positions[None],
                 past_key_values=self._prefix_cache,
                 use_cache=True,
@@ -263,6 +273,15 @@ class LabelScorer:
             total = torch.zeros(len(self.forms), dtype=per_token.dtype, device=dev)
             results.append(total.index_add_(0, self._owner, per_token))
         return torch.stack(results)
+
+
+def combine_scores(per_teacher: list[list[float]]) -> list[float]:
+    """Ensemble of several teachers' label scores: the log of the mean of their label probabilities (each
+    teacher's softmax). With one teacher the scores are returned unchanged."""
+    if len(per_teacher) == 1:
+        return per_teacher[0]
+    probs = torch.tensor(per_teacher, dtype=torch.float64).softmax(-1).mean(0)
+    return probs.log().tolist()
 
 
 def load_teacher(

@@ -92,7 +92,7 @@ def test_end_to_end(tmp_path, capsys):
             "cpu",
         ]
     )
-    assert "train: 18 texts (0 scored now" in capsys.readouterr().err
+    assert "train: 0 texts scored now" in capsys.readouterr().err
 
     main(["predict", str(run / "onnx"), "what a great day", "--fp32"])
     out = json.loads(capsys.readouterr().out.strip())
@@ -149,7 +149,7 @@ def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
         ]
     )
     err = capsys.readouterr().err
-    assert "train: 18 texts (0 scored now" in err  # the second run labels nothing: shared cache
+    assert "train: 0 texts scored now" in err  # the second run labels nothing: shared cache
 
     results = json.loads((tmp_path / "b" / "results.json").read_text())
     assert results["training"]["gold_per_class"] == 2
@@ -310,3 +310,55 @@ def test_python_pipeline_from_the_readme(tmp_path):
     )
     export_onnx(tmp_path / "student", tmp_path / "student-onnx", int8=True)
     assert Predictor(tmp_path / "student-onnx").predict(["hello"])[0] in task.labels
+
+
+def test_teacher_ensemble(tmp_path):
+    (tmp_path / "task.yaml").write_text(TASK)
+    rows = [
+        {"review": f"it was {w}", "sentiment": "pos" if i % 2 == 0 else "neg"}
+        for i, w in enumerate(["good", "bad", "great", "awful", "fine", "poor"])
+    ]
+    write_jsonl(tmp_path / "d.jsonl", rows)
+    run = tmp_path / "run"
+    mistral = "hf-internal-testing/tiny-random-MistralForCausalLM"
+    main(
+        [
+            "run",
+            str(tmp_path / "task.yaml"),
+            "--data",
+            str(tmp_path / "d.jsonl"),
+            "--test",
+            str(tmp_path / "d.jsonl"),
+            "--out",
+            str(run),
+            "--teacher",
+            f"{TINY_LM},{mistral}",
+            "--student",
+            TINY_ENCODER,
+            "--epochs",
+            "1",
+            "--batch-size",
+            "4",
+            "--reps",
+            "2",
+            "--teacher-reps",
+            "2",
+            "--device",
+            "cpu",
+        ]
+    )
+    row = json.loads((run / "train.jsonl").read_text().splitlines()[0])
+    assert len(row["teacher_scores"]) == 2
+    import torch
+
+    want = torch.tensor(row["teacher_scores"], dtype=torch.float64).softmax(-1).mean(0)
+    assert torch.tensor(row["scores"], dtype=torch.float64).exp().tolist() == pytest.approx(
+        want.tolist(), abs=1e-9
+    )
+    results = json.loads((run / "results.json").read_text())
+    roles = [(m["role"], m["name"]) for m in results["models"]]
+    assert roles[0] == ("teacher", "teacher ensemble of 2, zero-shot")
+    assert [r for r, _ in roles].count("teacher member") == 2
+    ens, members = results["models"][0], [m for m in results["models"] if m["role"] == "teacher member"]
+    assert ens["latency_ms_b1"] == pytest.approx(sum(m["latency_ms_b1"] for m in members))
+    assert "Speed-up is relative to the teacher ensemble" in (run / "results.md").read_text()

@@ -50,9 +50,17 @@ def _argmax(xs) -> int:
 # ---------- steps ----------
 
 
+def _teachers(spec: str) -> list[str]:
+    return [t.strip() for t in spec.split(",") if t.strip()]
+
+
 def cmd_label(a: argparse.Namespace) -> None:
+    import gc
+
+    import torch
+
     from .data import read_examples
-    from .teacher import ScoreCache, iter_unique, load_teacher
+    from .teacher import ScoreCache, combine_scores, iter_unique, load_teacher
 
     task = load_task(a.task)
     run = Path(a.out)
@@ -60,12 +68,10 @@ def cmd_label(a: argparse.Namespace) -> None:
     (run / "task.yaml").write_text(
         yaml.safe_dump(task.to_dict(), sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
-    log(f"loading teacher {a.teacher}")
     examples = None
     if a.few_shot and "{examples}" not in task.prompt:
         raise SystemExit("--few-shot needs an {examples} line in the task's prompt")
     if a.few_shot:
-        from .data import read_examples
         from .student import few_shot_examples
 
         rows = list(read_examples(a.data, task, a.limit))
@@ -76,42 +82,64 @@ def cmd_label(a: argparse.Namespace) -> None:
             for text, y in examples:
                 f.write(json.dumps({"text": text, "gold": y}) + "\n")
         log(f"few-shot prompt with {len(examples)} gold examples ({a.few_shot} per class)")
-    scorer = load_teacher(a.teacher, task, a.device, a.load_4bit, a.teacher_tokens, examples)
-    fp = scorer.fingerprint()
     cache_dir = Path(a.cache_dir) if a.cache_dir else run
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache = ScoreCache(cache_dir / f"teacher-{fp}.jsonl")
-    if cache.scores:
-        log(f"resuming: {len(cache.scores)} texts already scored")
+    splits = [
+        (n, spec, lim)
+        for n, spec, lim in (("train", a.data, a.limit), ("test", a.test, a.test_limit))
+        if spec
+    ]
+
+    caches, fingerprints, device = [], [], "cpu"
     seconds, scored = 0.0, 0
-    for split, spec, limit in (("train", a.data, a.limit), ("test", a.test, a.test_limit)):
-        if not spec:
-            continue
-        t0 = time.perf_counter()
+    for name in _teachers(a.teacher):  # one teacher in memory at a time
+        log(f"loading teacher {name}")
+        scorer = load_teacher(name, task, a.device, a.load_4bit, a.teacher_tokens, examples)
+        fingerprints.append(scorer.fingerprint())
+        device = str(scorer.device)
+        cache = ScoreCache(cache_dir / f"teacher-{fingerprints[-1]}.jsonl")
+        if cache.scores:
+            log(f"resuming: {len(cache.scores)} texts already scored")
+        for split, spec, limit in splits:
+            t0 = time.perf_counter()
 
-        def progress(n: int, split=split, t0=t0) -> None:
-            if n % 100 == 0:
-                log(f"{split}: scored {n} new texts ({n / (time.perf_counter() - t0):.1f}/s)")
+            def progress(n: int, split=split, t0=t0) -> None:
+                if n % 100 == 0:
+                    log(f"{split}: scored {n} new texts ({n / (time.perf_counter() - t0):.1f}/s)")
 
-        texts = iter_unique(e.text for e in read_examples(spec, task, limit, with_gold=False))
-        n = cache.fill(scorer, texts, progress)
-        seconds += time.perf_counter() - t0
-        scored += n
+            texts = iter_unique(e.text for e in read_examples(spec, task, limit, with_gold=False))
+            n = cache.fill(scorer, texts, progress)
+            seconds += time.perf_counter() - t0
+            scored += n
+            log(f"{split}: {n} texts scored now by {name}, the rest from the cache")
+        caches.append(cache)
+        del scorer
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    for split, spec, limit in splits:
         rows = 0
         with (run / f"{split}.jsonl").open("w", encoding="utf-8") as f:
             for e in read_examples(spec, task, limit):
-                f.write(json.dumps({"text": e.text, "gold": e.gold, "scores": cache.get(e.text)}) + "\n")
+                per = [c.get(e.text) for c in caches]
+                row = {"text": e.text, "gold": e.gold, "scores": combine_scores(per)}
+                if len(per) > 1:
+                    row["teacher_scores"] = per
+                f.write(json.dumps(row) + "\n")
                 rows += 1
-        log(f"{split}: {rows} texts ({n} scored now, the rest from the cache)")
+        log(f"{split}: {rows} texts")
     _meta(
         run,
         {
             "teacher": a.teacher,
+            "teachers": _teachers(a.teacher),
             "few_shot": a.few_shot,
             "n_examples": len(examples or []),
             "load_4bit": a.load_4bit,
-            "teacher_device": str(scorer.device),
-            "fingerprint": fp,
+            "teacher_device": device,
+            "fingerprint": fingerprints[0],
+            "fingerprints": fingerprints,
             "data": a.data,
             "test": a.test,
             "label_seconds": round(seconds, 1),
@@ -266,40 +294,66 @@ def cmd_eval(a: argparse.Namespace) -> None:
         }
 
     models: list[dict] = []
-    teacher_q = quality(teacher_pred)
-    teacher_q.pop("agreement", None)
+    teachers = meta.get("teachers") or [meta["teacher"]]
+    prompt = (f"{meta['few_shot']}-shot" if meta.get("few_shot") else "zero-shot") + (
+        ", 4-bit" if meta.get("load_4bit") else ""
+    )
+    examples = [(r["text"], r["gold"]) for r in _read_jsonl(run / "examples.jsonl")] or None
     devices = [d for d in (a.teacher_devices or meta.get("teacher_device", "cpu")).split(",") if d]
-    for dev in devices:
-        row = {
-            "role": "teacher",
-            "name": "teacher, "
-            + (f"{meta['few_shot']}-shot" if meta.get("few_shot") else "zero-shot")
-            + (", 4-bit" if meta.get("load_4bit") else ""),
-            "device": dev,
-            **teacher_q,
-            "size_mb": hf_weights_mb(meta["teacher"]),
-        }
-        if not a.skip_teacher_bench:
-            log(f"benchmarking the teacher on {dev}")
-            scorer = load_teacher(
-                meta["teacher"],
-                task,
-                dev,
-                meta.get("load_4bit", False),
-                meta.get("teacher_tokens", 2048),
-                [(r["text"], r["gold"]) for r in _read_jsonl(run / "examples.jsonl")] or None,
-            )
-            row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
-            row["size_mb"] = scorer.model.get_memory_footprint() / 1e6  # weights as loaded (e.g. 4-bit)
-            score = scorer.score_many  # several texts are packed into shared forward passes
-            row.update(bench(score, bench_texts, a.teacher_reps))
-            if row["latency_ms_b1"] * 32 * 4 < 180_000:  # batch 32 only when it takes under three minutes
-                row["latency_ms_b32"] = time_calls(score, bench_texts, 32, 3)
+    members: list[dict] = []
+    for ti, name in enumerate(teachers):
+        own = [_argmax(r["teacher_scores"][ti]) for r in labelled] if len(teachers) > 1 else teacher_pred
+        q = quality(own)
+        q.pop("agreement", None)
+        for dev in devices:
+            label = f"teacher, {prompt}" + (f": {name.split('/')[-1]}" if len(teachers) > 1 else "")
+            row = {
+                "role": "teacher",
+                "name": label,
+                "device": dev,
+                "model": name,
+                **q,
+                "size_mb": hf_weights_mb(name),
+            }
+            if not a.skip_teacher_bench:
+                log(f"benchmarking the teacher {name} on {dev}")
+                scorer = load_teacher(
+                    name, task, dev, meta.get("load_4bit", False), meta.get("teacher_tokens", 2048), examples
+                )
+                row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
+                row["size_mb"] = scorer.model.get_memory_footprint() / 1e6  # weights as loaded (e.g. 4-bit)
+                score = scorer.score_many  # several texts are packed into shared forward passes
+                row.update(bench(score, bench_texts, a.teacher_reps))
+                if row["latency_ms_b1"] * 32 * 4 < 180_000:  # batch 32 only when it takes under three minutes
+                    row["latency_ms_b32"] = time_calls(score, bench_texts, 32, 3)
+                    row["throughput_per_s"] = 32 / (row["latency_ms_b32"] / 1000)
+                del scorer
+                if dev.startswith("cuda"):
+                    torch.cuda.empty_cache()
+            members.append(row)
+    if len(teachers) == 1:
+        models.extend(members)
+    else:  # the ensemble is the actual teacher: it runs every member, so its latency is their sum
+        models.extend(m | {"role": "teacher member"} for m in members)
+        q = quality(teacher_pred)
+        q.pop("agreement", None)
+        for dev in devices:
+            on_dev = [m for m in members if m["device"] == dev]
+            row = {
+                "role": "teacher",
+                "name": f"teacher ensemble of {len(teachers)}, {prompt}",
+                "device": dev,
+                **q,
+                "size_mb": sum(m.get("size_mb") or 0 for m in on_dev) or None,
+            }
+            for key in ("latency_ms_b1", "latency_ms_b32"):
+                if all(m.get(key) for m in on_dev):
+                    row[key] = sum(m[key] for m in on_dev)
+            if row.get("latency_ms_b32"):
                 row["throughput_per_s"] = 32 / (row["latency_ms_b32"] / 1000)
-            del scorer
-            if dev.startswith("cuda"):
-                torch.cuda.empty_cache()
-        models.append(row)
+            elif row.get("latency_ms_b1"):
+                row["throughput_per_s"] = 1000 / row["latency_ms_b1"]
+            models.insert(len(models), row)
 
     for name, role, row_name in VARIANTS:
         dirs = _seed_dirs(run, name)
@@ -343,7 +397,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
         row.update(bench(lambda b, pr=pr: pr.logits(b), bench_texts, a.reps, max(3, a.reps // 5)))
         models.append(row)
 
-    order = {"teacher": 0, "student": 1, "baseline": 2, "upper bound": 3}
+    order = {"teacher": 0, "teacher member": 1, "student": 2, "baseline": 3, "upper bound": 4}
     models.sort(key=lambda m: order[m["role"]])  # deployable rows first, reference rows last
     results = {
         "task": task.name,
@@ -468,7 +522,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     label.add_argument("--test", help="optional gold-labelled test set, same formats")
     label.add_argument("--out", required=True, help="run directory")
-    label.add_argument("--teacher", default=DEFAULT_TEACHER, help="Hugging Face causal LM")
+    label.add_argument(
+        "--teacher",
+        default=DEFAULT_TEACHER,
+        help="Hugging Face causal LM; several, comma-separated, are ensembled",
+    )
     label.add_argument(
         "--load-4bit", action="store_true", help="load the teacher in 4 bit (bitsandbytes, CUDA)"
     )
