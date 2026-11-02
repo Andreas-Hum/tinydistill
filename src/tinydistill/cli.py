@@ -202,7 +202,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
     for dev in devices:
         row = {
             "role": "teacher",
-            "name": "teacher, zero-shot",
+            "name": "teacher, zero-shot" + (", 4-bit" if meta.get("load_4bit") else ""),
             "device": dev,
             **teacher_q,
             "size_mb": hf_weights_mb(meta["teacher"]),
@@ -211,6 +211,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
             log(f"benchmarking the teacher on {dev}")
             scorer = load_teacher(meta["teacher"], task, dev, meta.get("load_4bit", False))
             row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
+            row["size_mb"] = scorer.model.get_memory_footprint() / 1e6  # weights as loaded (e.g. 4-bit)
             row.update(
                 bench(
                     lambda b, s=scorer: [s.score(t) for t in b],

@@ -169,6 +169,8 @@ def load_teacher(name: str, task: Task, device: str = "auto", load_4bit: bool = 
     tok = AutoTokenizer.from_pretrained(name)
     kwargs: dict = {}
     if load_4bit:
+        if not device.startswith("cuda"):
+            raise SystemExit("--load-4bit needs a CUDA device (bitsandbytes); use --device cuda")
         from transformers import BitsAndBytesConfig
 
         kwargs["quantization_config"] = BitsAndBytesConfig(

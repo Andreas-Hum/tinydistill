@@ -93,3 +93,10 @@ def test_tree_scoring_equals_previous_implementation(lm, task):
         assert scorer.score(text) == pytest.approx(previous_implementation(scorer, text), abs=1e-4)
         # repeated calls reuse the cropped prompt cache and give the same scores
         assert scorer.score(text) == pytest.approx(scorer.score(text), abs=1e-6)
+
+
+def test_4bit_needs_cuda(task):
+    from tinydistill.teacher import load_teacher
+
+    with pytest.raises(SystemExit, match="CUDA"):
+        load_teacher(TINY_LM, task, device="cpu", load_4bit=True)
