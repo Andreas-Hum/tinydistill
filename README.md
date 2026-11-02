@@ -11,17 +11,17 @@ It continues my bachelor's project on inference optimisation by distilling LLMs.
 
 ## Results
 
-Two tasks, both with `Qwen/Qwen2.5-1.5B-Instruct` as the zero-shot teacher and
-`sentence-transformers/all-MiniLM-L6-v2` as the student. Quality is measured on gold-labelled test texts that
+Two tasks with `Qwen/Qwen2.5-1.5B-Instruct` as the zero-shot teacher, and Banking77 also with
+`Qwen/Qwen2.5-7B-Instruct`; the student is always `sentence-transformers/all-MiniLM-L6-v2`. Quality is measured on gold-labelled test texts that
 neither model trains on. Every table is written by the task's `run.sh` from its saved `results*.json` file in
-[`examples/`](examples); no number is typed by hand. The teacher's latency includes scoring every surface form
+[`examples/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples); no number is typed by hand. The teacher's latency includes scoring every surface form
 of every label, which costs most on Banking77 with its many labels, so there the GPU teacher row is the fairer
 reference for speed.
 
 ### Banking77: the hard case
 
 Intent detection with 77 fine-grained classes ([Banking77](https://huggingface.co/datasets/PolyAI/banking77),
-CC BY 4.0), reproduced by [`examples/banking77/run.sh`](examples/banking77/run.sh).
+CC BY 4.0), reproduced by [`examples/banking77/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/banking77/run.sh).
 
 Teacher only, no gold labels:
 
@@ -55,12 +55,42 @@ Task `banking77`, 3080 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-1.5B-Ins
 CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher scores one text at a time, so it is timed at batch 1 and its throughput is 1 / latency. Speed-up is relative to the teacher, zero-shot on cpu.
 <!-- /results -->
 
+With a stronger teacher, `Qwen/Qwen2.5-7B-Instruct` loaded in 4 bit (timed on the GPU only: 4-bit loading needs
+CUDA), teacher only:
+
+<!-- results: banking77/results-7b.md -->
+| Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
+|---|---|---|---|---|---|---|---|---|---|
+| teacher, zero-shot, 4-bit | cuda | 0.630 | 0.607 | n/a | 272.2 | n/a | 3.7 | 5443 | 1.0x |
+| student, PyTorch | cpu | 0.623 | 0.587 | 0.827 | 5.5 | 93.0 | 344.2 | 91 | 49.4x |
+| student, ONNX fp32 | cpu | 0.623 | 0.587 | 0.827 | 3.4 | 86.8 | 368.7 | 91 | 80.8x |
+| student, ONNX int8 | cpu | 0.622 | 0.586 | 0.822 | 1.6 | 43.8 | 730.0 | 23 | 171.2x |
+
+Task `banking77`, 3080 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-7B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The student learns only from the teacher's soft labels on 10003 unlabelled training texts.
+CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher scores one text at a time, so it is timed at batch 1 and its throughput is 1 / latency. Speed-up is relative to the teacher, zero-shot, 4-bit on cuda.
+<!-- /results -->
+
+The same teacher with 8 gold labels per class and the upper bound:
+
+<!-- results: banking77/results-k8-7b.md -->
+| Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
+|---|---|---|---|---|---|---|---|---|---|
+| teacher, zero-shot, 4-bit | cuda | 0.630 | 0.607 | n/a | 295.4 | n/a | 3.4 | 5443 | 1.0x |
+| student, PyTorch | cpu | 0.627 | 0.583 | 0.765 | 4.5 | 93.6 | 341.9 | 91 | 65.5x |
+| upper bound: student on all gold labels | cpu | 0.911 | 0.909 | 0.631 | n/a | n/a | n/a | n/a | n/a |
+| student, ONNX fp32 | cpu | 0.627 | 0.583 | 0.765 | 3.2 | 80.9 | 395.7 | 91 | 92.5x |
+| student, ONNX int8 | cpu | 0.622 | 0.576 | 0.762 | 1.1 | 40.7 | 786.4 | 23 | 262.6x |
+
+Task `banking77`, 3080 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-7B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The student learns from the teacher's soft labels on all 10003 training texts, plus cross-entropy on 8 gold labels per class (616 texts, weight 1.0). The upper bound is the same student trained with cross-entropy on all 10003 gold training labels and no teacher; its speed equals the student's.
+CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher scores one text at a time, so it is timed at batch 1 and its throughput is 1 / latency. Speed-up is relative to the teacher, zero-shot, 4-bit on cuda.
+<!-- /results -->
+
 ### Financial tweets: an easier task
 
 Sentiment of financial news tweets, 3 classes
 ([Twitter Financial News Sentiment](https://huggingface.co/datasets/zeroshot/twitter-financial-news-sentiment),
 MIT licence per the dataset card), reproduced by
-[`examples/financial-tweets/run.sh`](examples/financial-tweets/run.sh). The validation split is the test set.
+[`examples/financial-tweets/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/financial-tweets/run.sh). The validation split is the test set.
 
 <!-- results: financial-tweets/results.md -->
 | Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
@@ -79,7 +109,7 @@ CPU rows use 2 threads. Latency is the median over repeated runs. Size is the te
 ## Quickstart
 
 ```sh
-pip install "tinydistill[hf] @ git+https://github.com/Andreas-Hum/tinydistill"
+pip install "tinydistill[hf]"
 curl -LO https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/examples/banking77/task.yaml
 tinydistill run task.yaml --data hf:PolyAI/banking77:train --test hf:PolyAI/banking77:test \
   --out runs/banking77 --int8
@@ -101,7 +131,7 @@ Banking77 splits are sorted by intent, so a limited run only sees a few intents.
 | `tinydistill predict RUN/onnx TEXT... [--data FILE]` | classifies texts, prints JSON lines |
 
 Data can be `.csv`, `.jsonl` or `hf:<dataset>[:<config>]:<split>` (needs the `hf` extra). Useful options:
-`--teacher` (any Hugging Face causal LM), `--load-4bit` (bitsandbytes; install the `4bit` extra),
+`--teacher` (any Hugging Face causal LM), `--load-4bit` (bitsandbytes, CUDA only: `pip install "tinydistill[4bit]"`),
 `--student` (any Hugging Face encoder), `--epochs`, `--lr`, `--device`, `--threads`, and `--cache-dir` (runs that
 share it label each text only once). See `tinydistill <command> --help`.
 
@@ -230,5 +260,5 @@ resumption, that the ONNX export reproduces the PyTorch logits, and the whole CL
 
 ## Licence
 
-[MIT](LICENSE). The Banking77 dataset is CC BY 4.0 (PolyAI); models are downloaded from the Hugging Face Hub under
+[MIT](https://github.com/Andreas-Hum/tinydistill/blob/main/LICENSE). The Banking77 dataset is CC BY 4.0 (PolyAI); models are downloaded from the Hugging Face Hub under
 their own licences.

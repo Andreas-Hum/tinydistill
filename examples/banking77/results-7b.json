@@ -1,0 +1,84 @@
+{
+  "task": "banking77",
+  "teacher": "Qwen/Qwen2.5-7B-Instruct",
+  "student": "sentence-transformers/all-MiniLM-L6-v2",
+  "data": {
+    "train": "hf:PolyAI/banking77:train",
+    "test": "hf:PolyAI/banking77:test",
+    "n_train": 10003,
+    "n_test": 3080
+  },
+  "training": {
+    "epochs": 5,
+    "lr": 0.0001,
+    "batch_size": 32,
+    "gold_per_class": 0,
+    "n_gold": 0,
+    "upper_bound": false,
+    "n_gold_upper_bound": null,
+    "label_texts_scored": 13083,
+    "ce_weight": 0.0,
+    "student_device": "cuda",
+    "train_seconds": 35.8,
+    "teacher_device": "cuda:0",
+    "label_seconds": 3679.8,
+    "load_4bit": true
+  },
+  "environment": {
+    "cpu": "x86_64",
+    "cpu_threads": 2,
+    "torch": "2.15.0+cu132",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "omp_num_threads": "2"
+  },
+  "models": [
+    {
+      "role": "teacher",
+      "name": "teacher, zero-shot, 4-bit",
+      "device": "cuda",
+      "accuracy": 0.6301948051948052,
+      "macro_f1": 0.6065248440596804,
+      "size_mb": 5443.300864,
+      "params_m": 4352.972288,
+      "latency_ms_b1": 272.1979469060898,
+      "throughput_per_s": 3.6737969972455637
+    },
+    {
+      "role": "student",
+      "name": "student, PyTorch",
+      "device": "cpu",
+      "accuracy": 0.6233766233766234,
+      "macro_f1": 0.5869113910276114,
+      "agreement": 0.8272727272727273,
+      "params_m": 22.742861,
+      "size_mb": 90.98346,
+      "latency_ms_b1": 5.508268950507045,
+      "latency_ms_b32": 92.95587800443172,
+      "throughput_per_s": 344.2493437421395
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX fp32",
+      "device": "cpu",
+      "accuracy": 0.6233766233766234,
+      "macro_f1": 0.5869113910276114,
+      "agreement": 0.8272727272727273,
+      "size_mb": 91.104327,
+      "latency_ms_b1": 3.3672869903966784,
+      "latency_ms_b32": 86.78195351967588,
+      "throughput_per_s": 368.74025879982884
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX int8",
+      "device": "cpu",
+      "accuracy": 0.6224025974025974,
+      "macro_f1": 0.5864597308002083,
+      "agreement": 0.8217532467532468,
+      "size_mb": 23.072582,
+      "latency_ms_b1": 1.5896594850346446,
+      "latency_ms_b32": 43.83703041821718,
+      "throughput_per_s": 729.9764535761502
+    }
+  ]
+}
