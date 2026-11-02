@@ -180,9 +180,10 @@ def compare_table(runs: list[tuple[str, dict]]) -> str:
     """One row per run: the student, its quality (mean over seeds) and the deployed model's speed and size
     (the int8 ONNX model when there is one, else fp32 ONNX, else PyTorch)."""
     head = (
-        "| Run | Teacher | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher "
-        "| Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |\n"
-        "|---|---|---|---|---|---|---|---|---|---|---|\n"
+        "| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 "
+        "| Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) "
+        "| Size (MB) |\n"
+        "|---|---|---|---|---|---|---|---|---|---|---|---|\n"
     )
     lines = []
     for name, res in runs:
@@ -190,10 +191,12 @@ def compare_table(runs: list[tuple[str, dict]]) -> str:
         if not rows:
             continue
         quality = rows[0]  # the PyTorch row carries the per-seed quality
+        teacher = next((m for m in res["models"] if m["role"] == "teacher"), {})
         onnx = [m for m in rows if "ONNX" in m["name"]]
         deployed = next((m for m in onnx if "int8" in m["name"]), onnx[0] if onnx else quality)
         lines.append(
-            f"| {name} | `{res.get('teacher')}` | `{res.get('student')}` "
+            f"| {name} | {teacher.get('name', '').removeprefix('teacher, ')} `{res.get('teacher')}` "
+            f"| {_fmt(teacher.get('accuracy'), '.3f')} | `{res.get('student')}` "
             f"| {_fmt(quality.get('params_m'), '.0f')} "
             f"| {_pm(quality, 'accuracy')} | {_pm(quality, 'macro_f1')} | {_pm(quality, 'agreement')} "
             f"| {deployed['name'].removeprefix('student, ')} | {_fmt(deployed.get('latency_ms_b1'), '.1f')} "

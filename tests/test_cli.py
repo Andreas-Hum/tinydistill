@@ -169,7 +169,7 @@ def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
     main(["compare", str(tmp_path / "a"), str(tmp_path / "b" / "results.json")])
     table = capsys.readouterr().out.splitlines()
     assert (
-        table[0].startswith("| Run | Teacher | Student |") and len(table) == 6
+        table[0].startswith("| Run | Teacher | Teacher accuracy | Student |") and len(table) == 6
     )  # header, rule, 2 rows, note
     assert table[2].startswith("| a |") and table[3].startswith("| b/results |") and " ± " in table[3]
     first = json.loads((tmp_path / "a" / "results.json").read_text())
@@ -291,3 +291,22 @@ def test_python_api_exports():
 
     for name in tinydistill.__all__:
         assert hasattr(tinydistill, name)
+
+
+def test_python_pipeline_from_the_readme(tmp_path):
+    # The README's "whole pipeline" example, with tiny models.
+    import torch
+
+    from tinydistill import Predictor, export_onnx, load_task, load_teacher, read_examples, train_student
+
+    (tmp_path / "task.yaml").write_text(TASK)
+    write_jsonl(tmp_path / "d.jsonl", [{"review": f"text {i}"} for i in range(8)])
+    task = load_task(tmp_path / "task.yaml")
+    texts = [e.text for e in read_examples(str(tmp_path / "d.jsonl"), task, limit=6)]
+    teacher = load_teacher(TINY_LM, task, device="cpu")
+    soft_targets = torch.tensor(teacher.score_many(texts)).softmax(-1)
+    train_student(
+        texts, soft_targets, task.labels, tmp_path / "student", TINY_ENCODER, epochs=1, log=lambda m: None
+    )
+    export_onnx(tmp_path / "student", tmp_path / "student-onnx", int8=True)
+    assert Predictor(tmp_path / "student-onnx").predict(["hello"])[0] in task.labels

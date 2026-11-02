@@ -135,23 +135,39 @@ Banking77 splits are sorted by intent, so a limited run only sees a few intents.
 
 | Command | What it does |
 |---|---|
+| `tinydistill init DATA [--out task.yaml]` | writes a starter task file from a dataset's label names |
 | `tinydistill label TASK.yaml --data D [--test T] --out RUN` | teacher scores every label of every text; cached, resumable |
 | `tinydistill train RUN` | distils the student from the teacher's soft targets |
 | `tinydistill export RUN [--int8]` | writes `RUN/onnx` (ONNX, tokenizer, labels) |
 | `tinydistill eval RUN` | writes `RUN/results.md` and `RUN/results.json` |
 | `tinydistill predict RUN/onnx TEXT... [--data FILE]` | classifies texts, prints JSON lines |
+| `tinydistill compare RUN...` | one table comparing runs, e.g. teachers or student sizes |
+| `tinydistill push RUN/onnx --repo user/name` | uploads the model to the Hugging Face Hub with a model card |
 
 Data can be `.csv`, `.jsonl` or `hf:<dataset>[:<config>]:<split>` (needs the `hf` extra). Useful options:
 `--teacher` (any Hugging Face causal LM), `--load-4bit` (bitsandbytes, CUDA only: `pip install "tinydistill[4bit]"`),
-`--student` (any Hugging Face encoder), `--epochs`, `--lr`, `--device`, `--threads`, and `--cache-dir` (runs that
-share it label each text only once). See `tinydistill <command> --help`.
+`--student` (any Hugging Face encoder), `--epochs`, `--lr`, `--device`, `--threads`, `--seed`, and `--cache-dir`
+(runs that share it label each text only once). See `tinydistill <command> --help`.
 
-**Few labels.** With `--gold-per-class K`, the student also sees the gold labels of K randomly chosen training
-examples per class, through a cross-entropy term (weight `--ce-weight`, default 1) added to the distillation
-loss. `--upper-bound` additionally trains the same student on all gold training labels without the teacher,
-and the results table gets an upper-bound row: how far the distilled student is from fully supervised training.
+### A few gold labels
 
-From Python:
+If some training texts have gold labels, they can help in three places. All of them use the same K randomly
+chosen examples per class (fixed by `--seed`):
+
+- `label --few-shot K` shows the examples in the teacher's prompt, in place of an `{examples}` line in the task's
+  prompt. The prompt prefix is computed once, so even hundreds of examples cost little per text.
+- `train --gold-per-class K` adds a cross-entropy term on their gold labels (weight `--ce-weight`, default 1) to
+  the distillation loss.
+- `train --gold-only` also trains the student on those labels alone, without the teacher, as a baseline row:
+  what the teacher adds over the few labels.
+
+`train --upper-bound` trains the same student on all gold training labels, again without the teacher: how far
+distillation is from full supervision. `train --seeds N` repeats every student with N training seeds, and the
+results show the mean and standard deviation.
+
+### From Python
+
+The exported model:
 
 ```python
 from tinydistill import Predictor
@@ -159,6 +175,23 @@ from tinydistill import Predictor
 clf = Predictor("runs/banking77/onnx")  # uses model.int8.onnx when present
 clf.predict(["How do I top up my card?"])  # list of label names
 clf.predict_proba(["How do I top up my card?"])  # numpy array, one row per text
+```
+
+The whole pipeline, without the command line:
+
+```python
+from pathlib import Path
+
+import torch
+from tinydistill import Predictor, export_onnx, load_task, load_teacher, read_examples, train_student
+
+task = load_task("task.yaml")
+texts = [e.text for e in read_examples("hf:PolyAI/banking77:train", task, limit=1000)]
+teacher = load_teacher("Qwen/Qwen2.5-1.5B-Instruct", task, device="cuda")
+soft_targets = torch.tensor(teacher.score_many(texts)).softmax(-1)  # one row of label scores per text
+train_student(texts, soft_targets, task.labels, Path("student"))
+export_onnx(Path("student"), Path("student-onnx"), int8=True)
+Predictor("student-onnx").predict(["Where is my card?"])
 ```
 
 ### The task file
@@ -171,18 +204,21 @@ prompt: |-
   You are classifying messages that customers sent to their bank's support chat.
   Choose the single intent from this list that best matches the message:
   {labels}
+  {examples}
 
   Message: {text}
 
   Reply with the intent exactly as written in the list.
+surface_forms: [lowercase, capitalised]   # optional, see below
 labels:
   - activate_my_card    # a bare id: its name is derived, "activate my card"
   - card_arrival
   # ...
 ```
 
-`{labels}` (required) becomes a bulleted list of the label names, and `{text}` is the input. The name is what
-the teacher scores. Each label can be a bare id as above, `id: name`, or carry a description that is shown in
+`{labels}` (required) becomes a bulleted list of the label names, `{text}` is the input, and an optional
+`{examples}` line holds few-shot examples (it disappears when there are none). The name is what the teacher
+scores. Each label can be a bare id as above, `id: name`, or carry a description that is shown in
 the list (`- bullish: positive for the stock`) but not scored:
 
 ```yaml
@@ -220,8 +256,10 @@ To keep this fast, the part of the prompt before the text is run once and its ke
 text then needs a single forward pass that covers the text and all labels together: the tokens of all continuations
 (every surface form of every label) form a prefix tree, so continuations that start alike, such as
 `card arrival` and `card linking`, share nodes, and a 4D attention mask lets each tree node attend only to the
-prompt, the text and its own ancestors. There is no padding and no per-label copy of the cache. Tests check the
-scores against a plain forward pass per continuation.
+prompt, the text and its own ancestors. There is no padding and no per-label copy of the cache. When a task has
+few labels and short texts, several texts are packed into one forward pass the same way, each attending only to
+the prompt and itself (`--teacher-tokens`, default 2048 tokens per pass). Tests check the scores against a plain
+forward pass per continuation, and packed against unpacked scores.
 
 The student minimises KL(teacher || student) over the training texts, plus `--ce-weight` times the
 cross-entropy on the K gold labels per class chosen by `--gold-per-class`, if any (standard knowledge
@@ -239,6 +277,9 @@ distillation, Hinton et al., 2015).
   names short and close to how the teacher would answer.
 - **A too-small teacher can collapse.** Qwen2.5-0.5B-Instruct, for example, puts nearly every text into one or two
   labels on the financial-tweets task, whatever the scoring; use 1.5B or larger.
+- **Few-shot examples can hurt.** K examples per class tell the teacher that the classes are equally common,
+  and the last examples in the prompt pull it towards their labels. On a skewed task the few-shot teacher can
+  be worse than the zero-shot one; compare both (`tinydistill compare`) before relying on it.
 - **Prompt and label order matter.** Zero-shot LLMs are sensitive to wording and to the order of the options.
 - **Teacher cost grows with labels.** Every text is scored against every surface form of every label (shared
   prefixes are computed once), one text at a time.

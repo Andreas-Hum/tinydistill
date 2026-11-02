@@ -13,6 +13,9 @@ prompt: |-
   Message: {text}
 
   Reply with the intent exactly as written in the list.
+# 77 labels: UPPERCASE forms would double the label tree (they split into many tokens) and changed no
+# prediction in a dev check, so only the name as written, lowercase and Capitalised forms are scored.
+surface_forms: [lowercase, capitalised]
 labels:
   - activate_my_card
   - age_limit

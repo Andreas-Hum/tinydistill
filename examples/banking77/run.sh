@@ -1,22 +1,36 @@
 #!/usr/bin/env bash
-# Reproduces the Banking77 results in the README: pure distillation, and distillation plus 8 gold labels per
-# class with an upper-bound row. Labelling and training run on the GPU; every student benchmark runs on the
-# CPU. The teacher is timed on the CPU (the speed-up reference) and on the GPU. Both runs share one teacher
-# cache, so the texts are labelled once. Extra arguments are passed on (for example another --teacher), and
-# SUFFIX names the outputs (results$SUFFIX.md).
+# Reproduces the Banking77 results in the README. Labelling and training run on the GPU; every student
+# benchmark runs on the CPU. Runs share one teacher cache, so each text is labelled once per teacher prompt.
+#   - four teachers: Qwen2.5 1.5B and 7B (4-bit), each zero-shot and with 8 gold examples per class in the
+#     prompt; the 8-shot runs also use those labels in the student's loss and train a gold-only baseline
+#   - every run: 3 training seeds and an upper bound (the student on all gold labels)
+#   - student sizes, trained on the 7B 8-shot teacher's labels
+# The 1.5B zero-shot teacher is also timed on the CPU; the others only on the GPU (4-bit loading needs CUDA,
+# and the 8-shot prompts are long).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-2} MKL_NUM_THREADS=${MKL_NUM_THREADS:-2}
-SUFFIX=${SUFFIX:-}
-common=(examples/banking77/task.yaml --data hf:PolyAI/banking77:train --test hf:PolyAI/banking77:test
-        --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8
-        --teacher-devices cpu,cuda --teacher-reps 5)
+base=(examples/banking77/task.yaml --data hf:PolyAI/banking77:train --test hf:PolyAI/banking77:test
+      --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3)
+few=(--few-shot 8 --gold-per-class 8 --gold-only)
+big=(--teacher Qwen/Qwen2.5-7B-Instruct --load-4bit)
 
-tinydistill run "${common[@]}" --out "runs/banking77$SUFFIX" "$@"
-tinydistill run "${common[@]}" --out "runs/banking77-k8$SUFFIX" --gold-per-class 8 --upper-bound "$@"
-
-for name in "banking77$SUFFIX:results$SUFFIX" "banking77-k8$SUFFIX:results-k8$SUFFIX"; do
-  cp "runs/${name%%:*}/results.json" "examples/banking77/${name##*:}.json"
-  cp "runs/${name%%:*}/results.md" "examples/banking77/${name##*:}.md"
+tinydistill run "${base[@]}" --upper-bound --out runs/banking77-1.5b --teacher-devices cpu,cuda
+tinydistill run "${base[@]}" --upper-bound "${few[@]}" --out runs/banking77-1.5b-8shot --teacher-devices cuda
+tinydistill run "${base[@]}" --upper-bound "${big[@]}" --out runs/banking77-7b --teacher-devices cuda
+tinydistill run "${base[@]}" --upper-bound "${big[@]}" "${few[@]}" --out runs/banking77-7b-8shot \
+  --teacher-devices cuda
+for student in sentence-transformers/all-MiniLM-L12-v2 BAAI/bge-small-en-v1.5 \
+               sentence-transformers/all-mpnet-base-v2; do
+  tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student "$student" \
+    --out "runs/banking77-students/${student##*/}" --skip-teacher-bench
 done
+
+for run in banking77-1.5b banking77-1.5b-8shot banking77-7b banking77-7b-8shot; do
+  cp "runs/$run/results.json" "examples/banking77/$run.json"
+  cp "runs/$run/results.md" "examples/banking77/$run.md"
+done
+tinydistill compare runs/banking77-1.5b runs/banking77-1.5b-8shot runs/banking77-7b runs/banking77-7b-8shot \
+  > examples/banking77/teachers.md
+tinydistill compare runs/banking77-7b-8shot runs/banking77-students/* > examples/banking77/students.md
 python examples/update_readme.py
