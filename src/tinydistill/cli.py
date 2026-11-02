@@ -410,6 +410,22 @@ def cmd_predict(a: argparse.Namespace) -> None:
         )
 
 
+def cmd_init(a: argparse.Namespace) -> None:
+    from .task import task_yaml_from_data
+
+    out = Path(a.out)
+    if out.exists() and not a.force:
+        raise SystemExit(f"{out} exists; use --force to overwrite it")
+    out.write_text(task_yaml_from_data(a.data, a.text_field, a.label_field), encoding="utf-8")
+    log(f"wrote {out}: edit the prompt and label names, then run `tinydistill run {out} --data ...`")
+
+
+def cmd_push(a: argparse.Namespace) -> None:
+    from .hub import push
+
+    print(push(Path(a.model), a.repo, a.private, a.license))
+
+
 def cmd_compare(a: argparse.Namespace) -> None:
     from .evaluate import compare_table
 
@@ -545,6 +561,21 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--text-field", default="text")
     pr.add_argument("--fp32", action="store_true", help="use the fp32 model even if an int8 one exists")
     pr.set_defaults(fn=cmd_predict)
+    ini = sub.add_parser("init", help="write a starter task file from a dataset's labels")
+    ini.add_argument("data", help=".csv, .jsonl or hf:<dataset>[:<config>]:<split> with gold labels")
+    ini.add_argument("--out", default="task.yaml")
+    ini.add_argument("--text-field", default="text")
+    ini.add_argument("--label-field", default="label")
+    ini.add_argument("--force", action="store_true", help="overwrite an existing file")
+    ini.set_defaults(fn=cmd_init)
+    psh = sub.add_parser("push", help="upload an exported model to the Hugging Face Hub, with a model card")
+    psh.add_argument("model", help="directory written by `export` (run/onnx)")
+    psh.add_argument("--repo", required=True, help="Hub repository, e.g. user/my-classifier")
+    psh.add_argument("--private", action="store_true")
+    psh.add_argument(
+        "--license", help="licence identifier for the model card (check student, teacher and data)"
+    )
+    psh.set_defaults(fn=cmd_push)
     cmp = sub.add_parser("compare", help="one markdown table comparing several runs (e.g. student sizes)")
     cmp.add_argument("runs", nargs="+", help="run directories or results.json files")
     cmp.set_defaults(fn=cmd_compare)

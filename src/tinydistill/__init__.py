@@ -1,6 +1,32 @@
-"""tinydistill: distil an LLM classification prompt into a small, fast model."""
+"""tinydistill: distil an LLM classification prompt into a small, fast model.
 
-from .export import Predictor
+The command line runs the whole pipeline; the same steps are available from Python:
 
-__all__ = ["Predictor"]
-__version__ = "0.2.0"
+    from tinydistill import load_task, load_teacher, train_student, export_onnx, Predictor
+"""
+
+from .data import Example, read_examples
+from .evaluate import accuracy, macro_f1
+from .export import Predictor, export_onnx
+from .student import distillation_loss, few_gold, few_shot_examples, train_student
+from .task import Task, load_task
+from .teacher import LabelScorer, ScoreCache, load_teacher
+
+__all__ = [
+    "Example",
+    "LabelScorer",
+    "Predictor",
+    "ScoreCache",
+    "Task",
+    "accuracy",
+    "distillation_loss",
+    "export_onnx",
+    "few_gold",
+    "few_shot_examples",
+    "load_task",
+    "load_teacher",
+    "macro_f1",
+    "read_examples",
+    "train_student",
+]
+__version__ = "0.3.0"

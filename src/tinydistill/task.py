@@ -113,3 +113,54 @@ def load_task(path: str | Path) -> Task:
         descriptions=descs if any(descs) else [],
         surface_forms=_parse_forms(path, raw.get("surface_forms", list(SURFACE_FORMS))),
     )
+
+
+DEFAULT_PROMPT = """Classify the text into exactly one of these categories:
+{labels}
+{examples}
+
+Text: {text}
+
+Reply with the category exactly as written in the list."""
+
+
+def task_yaml_from_data(
+    spec: str, text_field: str = "text", label_field: str = "label", scan: int = 50_000
+) -> str:
+    """A starter task file for a dataset: its label names (from a Hugging Face ClassLabel feature, or the
+    distinct string labels in the first `scan` rows of a CSV/JSONL file) and a generic prompt to edit."""
+    from itertools import islice
+
+    from .data import _rows
+
+    rows, class_names = _rows(spec)
+    names = (class_names or {}).get(label_field)
+    if names is None:
+        values = {row[label_field] for row in islice(rows, scan) if row.get(label_field) not in (None, "")}
+        if not values:
+            raise ValueError(f"{spec}: no values in field {label_field!r}")
+        if any(isinstance(v, int) or str(v).isdigit() for v in values):
+            raise ValueError(f"{spec}: the labels are numbers without names; write the label list by hand")
+        names = sorted(str(v) for v in values)
+    name = re.sub(r"[^A-Za-z0-9]+", "-", spec.split(":")[1] if spec.startswith("hf:") else Path(spec).stem)
+    body = {
+        "name": name.strip("-").lower(),
+        "text_field": text_field,
+        "label_field": label_field,
+        "prompt": DEFAULT_PROMPT,
+        "labels": list(names),
+    }
+
+    class Literal(str):
+        pass
+
+    def literal(dumper, data):
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+
+    yaml.add_representer(Literal, literal, Dumper=yaml.SafeDumper)
+    body["prompt"] = Literal(DEFAULT_PROMPT)
+    header = (
+        f"# Task file for {spec}, written by `tinydistill init`. Edit the prompt and, if needed, the label\n"
+        "# names (id: name) or add descriptions (id: {description: ...}); see the README.\n"
+    )
+    return header + yaml.safe_dump(body, sort_keys=False, allow_unicode=True, width=120)

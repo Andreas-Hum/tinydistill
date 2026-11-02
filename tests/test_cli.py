@@ -242,3 +242,52 @@ def test_few_shot_teacher(tmp_path, capsys):
                 "1",
             ]
         )
+
+
+def test_init_writes_a_loadable_task(tmp_path):
+    from tinydistill.task import load_task
+
+    write_jsonl(tmp_path / "d.jsonl", [{"body": "great", "tag": "pos"}, {"body": "awful", "tag": "neg"}])
+    out = tmp_path / "task.yaml"
+    main(
+        ["init", str(tmp_path / "d.jsonl"), "--out", str(out), "--text-field", "body", "--label-field", "tag"]
+    )
+    task = load_task(out)
+    assert task.labels == ["neg", "pos"] and task.text_field == "body" and "{examples}" in task.prompt
+    with pytest.raises(SystemExit, match="exists"):
+        main(["init", str(tmp_path / "d.jsonl"), "--out", str(out)])
+    write_jsonl(tmp_path / "n.jsonl", [{"text": "a", "label": 0}, {"text": "b", "label": 1}])
+    with pytest.raises(ValueError, match="numbers without names"):
+        main(["init", str(tmp_path / "n.jsonl"), "--out", str(tmp_path / "n.yaml")])
+
+
+def test_push_writes_a_model_card_and_uploads(tmp_path, monkeypatch):
+    import huggingface_hub
+
+    calls = []
+
+    class FakeApi:
+        def create_repo(self, repo, private, exist_ok):
+            calls.append(("create", repo, private))
+            return f"https://huggingface.co/{repo}"
+
+        def upload_folder(self, folder_path, repo_id, commit_message):
+            calls.append(("upload", folder_path, repo_id))
+
+    monkeypatch.setattr(huggingface_hub, "HfApi", FakeApi)
+    onnx = tmp_path / "run" / "onnx"
+    onnx.mkdir(parents=True)
+    (onnx / "labels.json").write_text('["neg", "pos"]')
+    (tmp_path / "run" / "meta.json").write_text('{"teacher": "T", "student": "S"}')
+    (tmp_path / "run" / "results.md").write_text("| Model |\n|---|\n| x |\n")
+    main(["push", str(onnx), "--repo", "me/clf", "--private", "--license", "apache-2.0"])
+    card = (onnx / "README.md").read_text()
+    assert "license: apache-2.0" in card and "`T`" in card and "## Results" in card and '"me/clf"' in card
+    assert calls == [("create", "me/clf", True), ("upload", str(onnx), "me/clf")]
+
+
+def test_python_api_exports():
+    import tinydistill
+
+    for name in tinydistill.__all__:
+        assert hasattr(tinydistill, name)
