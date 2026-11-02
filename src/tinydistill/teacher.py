@@ -64,6 +64,25 @@ def _group_logsumexp(f: torch.Tensor, group: torch.Tensor, n: int) -> torch.Tens
     return top + total.log()
 
 
+def end_of_turn(tokenizer, chat: bool) -> list[int]:
+    """The token that ends the assistant's answer. With a chat template it is read from the template (render
+    an answer and take the first token after it): many models end a turn with a token that is not
+    ``eos_token`` (Phi-3 <|end|>, Gemma <end_of_turn>, Llama 3 <|eot_id|>). Otherwise ``eos_token``."""
+    if chat:
+        marker = "\x00ANSWER\x00"
+        try:
+            text = tokenizer.apply_chat_template(
+                [{"role": "user", "content": "q"}, {"role": "assistant", "content": marker}], tokenize=False
+            )
+        except Exception:  # templates that cannot render an assistant turn
+            text = ""
+        after = (text.split(marker, 1)[1] if marker in text else "").lstrip()  # Llama 2: " </s>"
+        ids = tokenizer(after, add_special_tokens=False)["input_ids"] if after else []
+        if ids:
+            return ids[:1]
+    return [tokenizer.eos_token_id] if tokenizer.eos_token_id is not None else []
+
+
 class _Prompt:
     """The rendered prompt split around the text, and every label's continuations, as token ids. Shared by the
     local scorer and the vLLM client, which score the same continuations."""
@@ -108,7 +127,7 @@ class _Prompt:
         # Continuations: each surface form of each label name + the end-of-turn token. Forms that tokenise
         # identically are kept once. Without surface_forms only the name as written is scored (with a leading
         # space when there is no chat template, since the answer then follows the prompt text directly).
-        end = [tokenizer.eos_token_id] if tokenizer.eos_token_id is not None else []
+        end = end_of_turn(tokenizer, self.chat)
         self.forms: list[list[int]] = []  # token ids of every continuation
         self.form_label: list[int] = []  # which label each continuation belongs to
         self.form_answer: list[int] = []  # multi-label: 0 = the positive answer, 1 = the negative one

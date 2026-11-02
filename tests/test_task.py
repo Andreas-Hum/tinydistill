@@ -110,3 +110,12 @@ def test_synthetic_texts_are_parsed_deduplicated_and_unlabelled(tmp_path):
     rows = [json.loads(line) for line in (tmp_path / "s.jsonl").read_text().splitlines()]
     assert n == 6 and [r["text"] for r in rows] == ["great", "superb", "lovely", "bad", "awful", "terrible"]
     assert all("label" not in r for r in rows)  # never mistaken for gold labels
+
+
+def test_label_list_items_can_be_mappings(tmp_path):
+    task = load_task(
+        write(tmp_path, ["a_b", {"neutral": "no particular emotion"}, {"c": {"description": "d"}}])
+    )
+    assert task.labels == ["a_b", "neutral", "c"]
+    assert task.verbalisations == ["a b", "no particular emotion", "c"]
+    assert task.descriptions == [None, None, "d"]

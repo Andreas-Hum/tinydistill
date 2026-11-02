@@ -1,0 +1,41 @@
+# GoEmotions (Google Research, Apache 2.0): https://huggingface.co/datasets/google-research-datasets/go_emotions
+# Reddit comments with one or more of 27 emotions, or neutral. A multi-label task: the teacher answers one
+# yes/no question per label. Label order follows the dataset's ClassLabel feature.
+name: go-emotions
+text_field: text
+label_field: labels
+multi_label: true
+prompt: |-
+  Here is a comment from Reddit:
+  {text}
+
+  Does the comment express {label}? Answer yes or no.
+labels:
+  - admiration
+  - amusement
+  - anger
+  - annoyance
+  - approval
+  - caring
+  - confusion
+  - curiosity
+  - desire
+  - disappointment
+  - disapproval
+  - disgust
+  - embarrassment
+  - excitement
+  - fear
+  - gratitude
+  - grief
+  - joy
+  - love
+  - nervousness
+  - optimism
+  - pride
+  - realization
+  - relief
+  - remorse
+  - sadness
+  - surprise
+  - neutral: no particular emotion

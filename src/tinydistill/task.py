@@ -99,8 +99,17 @@ def load_task(path: str | Path) -> Task:
     labels = raw.get("labels")
     if isinstance(labels, dict):
         items = [(str(k), v) for k, v in labels.items()]
-    elif isinstance(labels, list):
-        items = [(str(k), None) for k in labels]
+    elif isinstance(
+        labels, list
+    ):  # ids, or one-key mappings `- id: name` / `- id: {name: ..., description: ...}`
+        items = []
+        for k in labels:
+            if isinstance(k, dict):
+                if len(k) != 1:
+                    raise ValueError(f"{path}: a label list item must be an id or a single `id: ...` mapping")
+                items.append(next((str(i), v) for i, v in k.items()))
+            else:
+                items.append((str(k), None))
     else:
         raise ValueError(f"{path}: 'labels' must be a mapping or a list")
     if len(items) < 2:

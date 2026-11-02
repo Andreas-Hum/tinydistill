@@ -311,3 +311,18 @@ def test_multi_label_ensemble_averages_per_label_probabilities():
     # label 1: p = 0.5 and 0.9 -> 0.7; label 2: p = 0.2 and 0.2 -> 0.2
     got = combine_scores([[0.0, math.log(0.25)], [math.log(9.0), math.log(0.25)]], multi_label=True)
     assert got == pytest.approx([math.log(0.7 / 0.3), math.log(0.25)], abs=1e-12)
+
+
+def test_end_of_turn_comes_from_the_chat_template(lm):
+    from tinydistill.teacher import end_of_turn
+
+    _, tok = lm
+    assert end_of_turn(tok, True) == [tok.eos_token_id]  # Llama 2 style: "[/INST] answer </s>"
+    assert end_of_turn(tok, False) == [tok.eos_token_id]
+    other = AutoTokenizer.from_pretrained(TINY_LM)  # a template whose turns end with a different token
+    other.chat_template = (
+        "{% for m in messages %}<|{{ m['role'] }}|>{{ m['content'] }}<|end|>{% endfor %}"
+        "{% if add_generation_prompt %}<|assistant|>{% endif %}"
+    )
+    other.add_special_tokens({"additional_special_tokens": ["<|end|>", "<|user|>", "<|assistant|>"]})
+    assert end_of_turn(other, True) == [other.convert_tokens_to_ids("<|end|>")]
