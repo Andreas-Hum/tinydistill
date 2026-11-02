@@ -61,7 +61,22 @@ def cmd_label(a: argparse.Namespace) -> None:
         yaml.safe_dump(task.to_dict(), sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
     log(f"loading teacher {a.teacher}")
-    scorer = load_teacher(a.teacher, task, a.device, a.load_4bit, a.teacher_tokens)
+    examples = None
+    if a.few_shot and "{examples}" not in task.prompt:
+        raise SystemExit("--few-shot needs an {examples} line in the task's prompt")
+    if a.few_shot:
+        from .data import read_examples
+        from .student import few_shot_examples
+
+        rows = list(read_examples(a.data, task, a.limit))
+        if not any(e.gold is not None for e in rows):
+            raise SystemExit("--few-shot needs gold labels in the training data")
+        examples = few_shot_examples([e.text for e in rows], [e.gold for e in rows], a.few_shot, a.seed)
+        with (run / "examples.jsonl").open("w", encoding="utf-8") as f:
+            for text, y in examples:
+                f.write(json.dumps({"text": text, "gold": y}) + "\n")
+        log(f"few-shot prompt with {len(examples)} gold examples ({a.few_shot} per class)")
+    scorer = load_teacher(a.teacher, task, a.device, a.load_4bit, a.teacher_tokens, examples)
     fp = scorer.fingerprint()
     cache_dir = Path(a.cache_dir) if a.cache_dir else run
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -92,6 +107,8 @@ def cmd_label(a: argparse.Namespace) -> None:
         run,
         {
             "teacher": a.teacher,
+            "few_shot": a.few_shot,
+            "n_examples": len(examples or []),
             "load_4bit": a.load_4bit,
             "teacher_device": str(scorer.device),
             "fingerprint": fp,
@@ -212,7 +229,9 @@ def cmd_eval(a: argparse.Namespace) -> None:
     for dev in devices:
         row = {
             "role": "teacher",
-            "name": "teacher, zero-shot" + (", 4-bit" if meta.get("load_4bit") else ""),
+            "name": "teacher, "
+            + (f"{meta['few_shot']}-shot" if meta.get("few_shot") else "zero-shot")
+            + (", 4-bit" if meta.get("load_4bit") else ""),
             "device": dev,
             **teacher_q,
             "size_mb": hf_weights_mb(meta["teacher"]),
@@ -220,7 +239,12 @@ def cmd_eval(a: argparse.Namespace) -> None:
         if not a.skip_teacher_bench:
             log(f"benchmarking the teacher on {dev}")
             scorer = load_teacher(
-                meta["teacher"], task, dev, meta.get("load_4bit", False), meta.get("teacher_tokens", 2048)
+                meta["teacher"],
+                task,
+                dev,
+                meta.get("load_4bit", False),
+                meta.get("teacher_tokens", 2048),
+                [(r["text"], r["gold"]) for r in _read_jsonl(run / "examples.jsonl")] or None,
             )
             row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
             row["size_mb"] = scorer.model.get_memory_footprint() / 1e6  # weights as loaded (e.g. 4-bit)
@@ -307,6 +331,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "upper_bound",
                 "n_gold_upper_bound",
                 "label_texts_scored",
+                "few_shot",
+                "n_examples",
                 "ce_weight",
                 "student_device",
                 "train_seconds",
@@ -369,6 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--device", default="auto", help="auto, cpu or cuda (teacher labelling and training)")
     common.add_argument("--threads", type=int, help="CPU threads for torch and onnxruntime")
+    common.add_argument("--seed", type=int, default=0, help="seed for example selection and training")
 
     label = argparse.ArgumentParser(add_help=False)
     label.add_argument("task", help="task YAML file")
@@ -385,6 +412,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--cache-dir",
         help="where teacher scores are cached (default: the run directory); "
         "runs that share it label each text once",
+    )
+    label.add_argument(
+        "--few-shot",
+        type=int,
+        default=0,
+        metavar="K",
+        help="show K gold training examples per class in the teacher's prompt (needs {examples} in it)",
     )
     label.add_argument(
         "--teacher-tokens",
@@ -416,7 +450,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also train the student on all gold training labels, without the teacher",
     )
-    train.add_argument("--seed", type=int, default=0)
 
     export = argparse.ArgumentParser(add_help=False)
     export.add_argument("--int8", action="store_true", help="also write an int8 dynamically quantised model")

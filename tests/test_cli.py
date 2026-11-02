@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from conftest import TINY_ENCODER, TINY_LM
 
 from tinydistill.cli import main
@@ -147,3 +148,71 @@ def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
     assert "cross-entropy on 2 gold labels per class (4 texts" in md and "upper bound" in md
     first = json.loads((tmp_path / "a" / "results.json").read_text())
     assert first["training"]["gold_per_class"] == 0 and not first["training"]["upper_bound"]
+
+
+def test_few_shot_teacher(tmp_path, capsys):
+    task = TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n")
+    (tmp_path / "task.yaml").write_text(task)
+    rows = [
+        {"review": f"it was {w} {i}", "sentiment": "pos" if j % 2 == 0 else "neg"}
+        for i in range(3)
+        for j, w in enumerate(["good", "bad", "great", "awful"])
+    ]
+    write_jsonl(tmp_path / "train.jsonl", rows)
+    write_jsonl(tmp_path / "test.jsonl", rows[:4])
+    run = tmp_path / "run"
+    main(
+        [
+            "run",
+            str(tmp_path / "task.yaml"),
+            "--data",
+            str(tmp_path / "train.jsonl"),
+            "--test",
+            str(tmp_path / "test.jsonl"),
+            "--out",
+            str(run),
+            "--teacher",
+            TINY_LM,
+            "--student",
+            TINY_ENCODER,
+            "--epochs",
+            "1",
+            "--batch-size",
+            "4",
+            "--reps",
+            "2",
+            "--teacher-reps",
+            "2",
+            "--device",
+            "cpu",
+            "--few-shot",
+            "1",
+            "--gold-per-class",
+            "1",
+        ]
+    )
+    examples = [json.loads(line) for line in (run / "examples.jsonl").read_text().splitlines()]
+    assert len(examples) == 2 and {e["gold"] for e in examples} == {0, 1}
+    results = json.loads((run / "results.json").read_text())
+    assert results["models"][0]["name"] == "teacher, 1-shot"
+    assert results["training"]["few_shot"] == 1 and results["training"]["n_examples"] == 2
+    assert "prompt shows 1 gold training examples per class (2 texts)" in (run / "results.md").read_text()
+
+    (tmp_path / "plain.yaml").write_text(TASK)  # no {examples} line
+    with pytest.raises(SystemExit, match="examples"):
+        main(
+            [
+                "label",
+                str(tmp_path / "plain.yaml"),
+                "--data",
+                str(tmp_path / "train.jsonl"),
+                "--out",
+                str(tmp_path / "x"),
+                "--teacher",
+                TINY_LM,
+                "--device",
+                "cpu",
+                "--few-shot",
+                "1",
+            ]
+        )

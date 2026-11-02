@@ -8,6 +8,7 @@ prompt: |-
   You are classifying messages that customers sent to their bank's support chat.
   Choose the single intent from this list that best matches the message:
   {labels}
+  {examples}
 
   Message: {text}
 

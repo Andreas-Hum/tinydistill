@@ -121,6 +121,11 @@ def markdown_table(results: dict) -> str:
         else f"The student learns only from the teacher's soft labels on {ds['n_train']} "
         "unlabelled training texts."
     )
+    if tr.get("few_shot"):
+        trained = (
+            f"The teacher's prompt shows {tr['few_shot']} gold training examples per class "
+            f"({tr.get('n_examples')} texts). " + trained
+        )
     if tr.get("upper_bound"):
         trained += (
             " The upper bound is the same student trained with cross-entropy on all "

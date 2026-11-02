@@ -51,3 +51,15 @@ def test_few_gold_keeps_k_per_class_deterministically():
     counts = {c: sum(k == c for k in kept) for c in (0, 1, 2)}
     assert counts == {0: 2, 1: 2, 2: 2}
     assert few_gold(gold, 10) == gold  # k larger than every class keeps everything
+
+
+def test_few_shot_examples_are_the_few_gold_ones_shuffled():
+    from tinydistill.student import few_gold, few_shot_examples
+
+    texts = [f"t{i}" for i in range(12)]
+    gold = [0, 1, 2] * 4
+    ex = few_shot_examples(texts, gold, 2, seed=5)
+    kept = few_gold(gold, 2, seed=5)
+    assert sorted(ex) == sorted((t, g) for t, g in zip(texts, kept, strict=True) if g is not None)
+    assert ex == few_shot_examples(texts, gold, 2, seed=5)
+    assert len(ex) == 6

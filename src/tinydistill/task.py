@@ -22,20 +22,27 @@ class Task:
     name: str
     labels: list[str]  # label ids, in a fixed order (class index = position)
     verbalisations: list[str]  # natural-language label names; the teacher scores these
-    prompt: str  # must contain {labels} and {text}
+    prompt: str  # must contain {labels} and {text}; may contain {examples} (few-shot examples)
     text_field: str = "text"
     label_field: str | None = "label"
     descriptions: list[str | None] = field(default_factory=list)  # optional, shown in the prompt only
     # Extra ways of writing each name that the teacher's score includes (the name as written always counts).
     surface_forms: tuple[str, ...] = SURFACE_FORMS
 
-    def render(self, text: str) -> str:
-        """The user message for one input text."""
+    def render(self, text: str, examples: list[tuple[str, int]] | None = None) -> str:
+        """The user message for one input text. ``examples`` are (text, label index) pairs shown in place of
+        {examples}; without them the {examples} line is removed."""
         descs = self.descriptions or [None] * len(self.labels)
         options = "\n".join(
             f"- {v}: {d}" if d else f"- {v}" for v, d in zip(self.verbalisations, descs, strict=True)
         )
-        return self.prompt.replace("{labels}", options).replace("{text}", text)
+        prompt = self.prompt.replace("{labels}", options)
+        if examples:
+            shots = "\n".join(f'- "{" ".join(t.split())}" -> {self.verbalisations[y]}' for t, y in examples)
+            prompt = prompt.replace("{examples}", "\nExamples:\n" + shots)
+        else:
+            prompt = prompt.replace("{examples}\n", "").replace("{examples}", "")
+        return prompt.replace("{text}", text)
 
     def to_dict(self) -> dict:
         labels = {}

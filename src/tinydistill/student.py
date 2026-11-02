@@ -32,6 +32,15 @@ def distillation_loss(
     return kl
 
 
+def few_shot_examples(
+    texts: list[str], gold: list[int | None], k: int, seed: int = 0
+) -> list[tuple[str, int]]:
+    """The same K examples per class as few_gold, as (text, label) pairs in a seeded random order."""
+    picked = [(t, g) for t, g in zip(texts, few_gold(gold, k, seed), strict=True) if g is not None]
+    random.Random(seed).shuffle(picked)
+    return picked
+
+
 def few_gold(gold: list[int | None], k: int, seed: int = 0) -> list[int | None]:
     """Keep the gold label of k randomly chosen examples per class (fewer if a class has fewer) and drop the
     rest, so only a few labels per class are used."""

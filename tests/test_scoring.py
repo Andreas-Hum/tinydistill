@@ -210,3 +210,24 @@ def test_packing_with_empty_texts_and_no_suffix(lm, task):
     got = scorer.form_scores_many(texts)
     for t, row in zip(texts, got, strict=True):
         assert row.tolist() == pytest.approx(reference(scorer, t), abs=1e-4)
+
+
+def test_few_shot_examples_go_into_the_cached_prompt(lm, task):
+    model, tok = lm
+    shots = type(task)(
+        **{**task.__dict__, "prompt": "Options:\n{labels}\n{examples}\n\nReview: {text}\nAnswer:"}
+    )
+    plain = LabelScorer(model, tok, shots)
+    few = LabelScorer(model, tok, shots, examples=[("loved every minute", 0), ("dull and slow", 1)])
+    assert len(few.prefix_ids) > len(plain.prefix_ids)
+    assert "loved every minute" in tok.decode(few.prefix_ids)
+    assert few.fingerprint() != plain.fingerprint()
+    assert few.form_scores("fine").tolist() == pytest.approx(reference(few, "fine"), abs=1e-4)
+
+
+def test_a_prompt_longer_than_the_teacher_is_rejected(lm, task):
+    model, tok = lm
+    shots = type(task)(**{**task.__dict__, "prompt": "{labels}\n{examples}\n{text}"})
+    many = [("word " * 50, i % 3) for i in range(model.config.max_position_embeddings // 10)]
+    with pytest.raises(ValueError, match="more than the teacher"):
+        LabelScorer(model, tok, shots, examples=many)

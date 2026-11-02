@@ -8,6 +8,7 @@ prompt: |-
   Here is a tweet with financial news. Classify its sentiment for the stock, company or market it is about.
   Options:
   {labels}
+  {examples}
 
   Tweet: {text}
 

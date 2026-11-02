@@ -76,3 +76,12 @@ def test_surface_forms_option(tmp_path):
     p.write_text(yaml.safe_dump({"prompt": PROMPT, "labels": ["a", "b"], "surface_forms": ["shouty"]}))
     with pytest.raises(ValueError, match="surface_forms"):
         load_task(p)
+
+
+def test_examples_render_in_place_and_vanish_without_any(tmp_path):
+    prompt = "Pick one:\n{labels}\n{examples}\n\nText: {text}"
+    task = load_task(write(tmp_path, ["pos", "neg"], prompt))
+    assert task.render("hi") == "Pick one:\n- pos\n- neg\n\nText: hi"
+    assert task.render("hi", [("great\nfilm", 0), ("bad", 1)]) == (
+        'Pick one:\n- pos\n- neg\n\nExamples:\n- "great film" -> pos\n- "bad" -> neg\n\nText: hi'
+    )

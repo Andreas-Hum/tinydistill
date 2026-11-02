@@ -62,6 +62,7 @@ class LabelScorer:
         use_chat_template: bool = True,
         surface_forms: bool = True,
         max_tokens: int = 2048,
+        examples: list[tuple[str, int]] | None = None,
     ):
         self.model = model.eval()
         self.max_tokens = max_tokens  # tokens per forward pass when packing several texts
@@ -71,7 +72,8 @@ class LabelScorer:
         self.chat = use_chat_template and bool(getattr(tokenizer, "chat_template", None))
 
         # Split the rendered prompt around the text.
-        user = task.render(_SENTINEL)
+        self.examples = examples or []
+        user = task.render(_SENTINEL, self.examples)
         if self.chat:
             full = tokenizer.apply_chat_template(
                 [{"role": "user", "content": user}], tokenize=False, add_generation_prompt=True
@@ -84,6 +86,11 @@ class LabelScorer:
         if not self.chat and tokenizer.bos_token_id is not None:
             ids = [tokenizer.bos_token_id, *ids]
         self.prefix_ids: list[int] = ids
+        limit = getattr(getattr(model, "config", None), "max_position_embeddings", None)
+        if isinstance(limit, int) and len(ids) >= limit:
+            raise ValueError(
+                f"the prompt has {len(ids)} tokens, more than the teacher's {limit}; use fewer examples"
+            )
 
         # Continuations: each surface form of each label name + the end-of-turn token. Forms that tokenise
         # identically are kept once. Without surface_forms only the name as written is scored (with a leading
@@ -259,7 +266,12 @@ class LabelScorer:
 
 
 def load_teacher(
-    name: str, task: Task, device: str = "auto", load_4bit: bool = False, max_tokens: int = 2048
+    name: str,
+    task: Task,
+    device: str = "auto",
+    load_4bit: bool = False,
+    max_tokens: int = 2048,
+    examples: list[tuple[str, int]] | None = None,
 ) -> LabelScorer:
     device = pick_device(device)
     tok = AutoTokenizer.from_pretrained(name)
@@ -278,7 +290,7 @@ def load_teacher(
     model = AutoModelForCausalLM.from_pretrained(name, **kwargs)
     if not load_4bit:
         model.to(device)
-    return LabelScorer(model, tok, task, max_tokens=max_tokens)
+    return LabelScorer(model, tok, task, max_tokens=max_tokens, examples=examples)
 
 
 class ScoreCache:
