@@ -61,7 +61,7 @@ def cmd_label(a: argparse.Namespace) -> None:
         yaml.safe_dump(task.to_dict(), sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
     log(f"loading teacher {a.teacher}")
-    scorer = load_teacher(a.teacher, task, a.device, a.load_4bit, a.label_batch)
+    scorer = load_teacher(a.teacher, task, a.device, a.load_4bit)
     fp = scorer.fingerprint()
     cache = ScoreCache(run / f"teacher-{fp}.jsonl")
     if cache.scores:
@@ -341,7 +341,6 @@ def build_parser() -> argparse.ArgumentParser:
     label.add_argument(
         "--load-4bit", action="store_true", help="load the teacher in 4 bit (bitsandbytes, CUDA)"
     )
-    label.add_argument("--label-batch", type=int, default=32, help="labels scored per forward pass")
     label.add_argument("--limit", type=int, help="use only the first N training texts")
     label.add_argument("--test-limit", type=int, help="use only the first N test texts")
 

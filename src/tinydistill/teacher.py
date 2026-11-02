@@ -5,12 +5,14 @@ token), the score is   log p(c_1..c_m | prompt(x)) = sum_j log p(c_j | prompt(x)
 A softmax over the label scores gives the teacher's soft targets. There is no free-form generation.
 
 Speed: the prompt is split around the text into a constant prefix and a per-text suffix. The prefix's KV
-cache is computed once, extended with each text, then fanned out over the labels in batches.
+cache is computed once. Per text, one forward pass covers the text and all labels at once: the labels' tokens
+form a prefix tree (labels that start alike share nodes), and a 4D attention mask lets every tree node attend
+to the cached prompt, the text and its own ancestors only. There is no padding and no per-label copy of the
+cache; the cache is cropped back to the prompt prefix afterwards.
 """
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 from collections.abc import Iterable, Iterator
@@ -35,11 +37,10 @@ def text_hash(text: str) -> str:
 
 
 class LabelScorer:
-    def __init__(self, model, tokenizer, task: Task, label_batch: int = 32, use_chat_template: bool = True):
+    def __init__(self, model, tokenizer, task: Task, use_chat_template: bool = True):
         self.model = model.eval()
         self.tok = tokenizer
         self.task = task
-        self.label_batch = label_batch
         self.device = next(model.parameters()).device
         self.chat = use_chat_template and bool(getattr(tokenizer, "chat_template", None))
 
@@ -65,7 +66,44 @@ class LabelScorer:
         for v in task.verbalisations:
             t = tokenizer(v if self.chat else " " + v, add_special_tokens=False)["input_ids"]
             self.label_ids.append(t + ([end] if end is not None else []))
+        self._build_tree()
         self._prefix_cache = None
+
+    def _build_tree(self) -> None:
+        """Prefix tree over the labels' input tokens (every label token except the last).
+
+        Node i stands for one distinct label prefix (c_1..c_d); its input token is c_d and its output predicts
+        c_(d+1). The first label token is predicted by the last text position (row -1 below).
+        """
+        nodes: dict[tuple[int, ...], int] = {}
+        parent: list[int] = []
+        depth: list[int] = []
+        tokens: list[int] = []
+        rows: list[int] = []  # for every label token, which output row predicts it (-1 = last text position)
+        targets: list[int] = []
+        owner: list[int] = []
+        for li, lab in enumerate(self.label_ids):
+            for j, tok in enumerate(lab):
+                rows.append(nodes[tuple(lab[:j])] if j else -1)
+                targets.append(tok)
+                owner.append(li)
+                if j < len(lab) - 1 and tuple(lab[: j + 1]) not in nodes:
+                    nodes[tuple(lab[: j + 1])] = len(tokens)
+                    parent.append(nodes[tuple(lab[:j])] if j else -1)
+                    depth.append(j)
+                    tokens.append(tok)
+        n = len(tokens)
+        anc = torch.eye(n, dtype=torch.bool)
+        for i in range(n):  # parents always come before children
+            if parent[i] >= 0:
+                anc[i] |= anc[parent[i]]
+        dev = self.device
+        self._node_tokens = torch.tensor(tokens, dtype=torch.long, device=dev)
+        self._node_depth = torch.tensor(depth, dtype=torch.long, device=dev)
+        self._node_anc = anc.to(dev)
+        self._rows = torch.tensor(rows, dtype=torch.long, device=dev)
+        self._targets = torch.tensor(targets, dtype=torch.long, device=dev)
+        self._owner = torch.tensor(owner, dtype=torch.long, device=dev)
 
     def text_ids(self, text: str) -> list[int]:
         return self.tok(text + self.suffix, add_special_tokens=False)["input_ids"]
@@ -87,43 +125,46 @@ class LabelScorer:
     def score(self, text: str) -> list[float]:
         """Summed log-probability of every label's continuation given the prompt for ``text``."""
         dev = self.device
+        P = len(self.prefix_ids)
         if self._prefix_cache is None:
             out = self.model(torch.tensor([self.prefix_ids], device=dev), use_cache=True)
             self._prefix_cache = out.past_key_values
-            self._prefix_last = out.logits[0, -1]
-        cache = copy.deepcopy(self._prefix_cache)
-        ids = self.text_ids(text)
-        if ids:
-            out = self.model(torch.tensor([ids], device=dev), past_key_values=cache, use_cache=True)
-            first = out.logits[0, -1]
-        else:
-            first = self._prefix_last
-        first_lp = torch.log_softmax(first.float(), -1)
+            self._prefix_last = torch.log_softmax(out.logits[0, -1].float(), -1)
+        ids = torch.tensor(self.text_ids(text), dtype=torch.long, device=dev)
+        n, N = len(ids), len(self._node_tokens)
+        if n == 0 and N == 0:
+            return self._prefix_last[self._targets].tolist()
 
-        scores: list[float] = []
-        for start in range(0, len(self.label_ids), self.label_batch):
-            chunk = self.label_ids[start : start + self.label_batch]
-            m = max(len(c) for c in chunk)
-            tokens = torch.full((len(chunk), m), self.tok.pad_token_id or 0, dtype=torch.long, device=dev)
-            mask = torch.zeros((len(chunk), m), dtype=torch.bool, device=dev)
-            for i, c in enumerate(chunk):
-                tokens[i, : len(c)] = torch.tensor(c, device=dev)
-                mask[i, : len(c)] = True
-            total = first_lp[tokens[:, 0]]
-            if m > 1:
-                # Right padding is safe: causal attention means pads only affect positions after them.
-                c2 = copy.deepcopy(cache)
-                c2.batch_repeat_interleave(len(chunk))
-                logits = self.model(tokens[:, :-1], past_key_values=c2, use_cache=True).logits
-                lp = torch.log_softmax(logits.float(), -1).gather(-1, tokens[:, 1:, None])[..., 0]
-                total = total + (lp * mask[:, 1:]).sum(-1)
-            scores.extend(total.tolist())
-        return scores
+        # Query rows: n text tokens, then N tree nodes. Keys: P cached prompt tokens, then the same rows.
+        allow = torch.zeros((n + N, P + n + N), dtype=torch.bool, device=dev)
+        allow[:, :P] = True
+        allow[:n, P : P + n] = torch.ones((n, n), dtype=torch.bool, device=dev).tril()
+        allow[n:, P : P + n] = True
+        allow[n:, P + n :] = self._node_anc
+        positions = torch.cat([torch.arange(P, P + n, device=dev), P + n + self._node_depth])
+        keep = torch.arange(max(n - 1, 0), n + N, device=dev)  # last text position + every node
+        try:
+            out = self.model(
+                torch.cat([ids, self._node_tokens])[None],
+                attention_mask=allow[None, None],
+                position_ids=positions[None],
+                past_key_values=self._prefix_cache,
+                use_cache=True,
+                logits_to_keep=keep,
+            )
+        finally:
+            extra = self._prefix_cache.get_seq_length() - P
+            if extra:
+                self._prefix_cache.crop(-extra)  # back to the prompt prefix
+        lp = torch.log_softmax(out.logits[0].float(), -1)  # row 0: last text position, row 1 + i: node i
+        if n == 0:  # the prompt prefix itself predicts the first label token
+            lp = torch.cat([self._prefix_last[None], lp])
+        per_token = lp[self._rows + 1, self._targets]
+        total = torch.zeros(len(self.label_ids), dtype=per_token.dtype, device=dev)
+        return total.index_add_(0, self._owner, per_token).tolist()
 
 
-def load_teacher(
-    name: str, task: Task, device: str = "auto", load_4bit: bool = False, label_batch: int = 32
-) -> LabelScorer:
+def load_teacher(name: str, task: Task, device: str = "auto", load_4bit: bool = False) -> LabelScorer:
     device = pick_device(device)
     tok = AutoTokenizer.from_pretrained(name)
     kwargs: dict = {}
@@ -139,7 +180,7 @@ def load_teacher(
     model = AutoModelForCausalLM.from_pretrained(name, **kwargs)
     if not load_4bit:
         model.to(device)
-    return LabelScorer(model, tok, task, label_batch=label_batch)
+    return LabelScorer(model, tok, task)
 
 
 class ScoreCache:

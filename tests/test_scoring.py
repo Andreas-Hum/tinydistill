@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 import torch
 from conftest import TINY_LM
@@ -10,6 +12,32 @@ from tinydistill.teacher import LabelScorer
 def lm():
     torch.manual_seed(0)
     return AutoModelForCausalLM.from_pretrained(TINY_LM).eval(), AutoTokenizer.from_pretrained(TINY_LM)
+
+
+@torch.no_grad()
+def previous_implementation(scorer: LabelScorer, text: str, label_batch: int = 2) -> list[float]:
+    """The scorer before tree attention (v0.1.0): extend a copy of the prompt cache with the text, then
+    repeat it per label and score right-padded label batches."""
+    model, dev = scorer.model, scorer.device
+    cache = model(torch.tensor([scorer.prefix_ids]), use_cache=True).past_key_values
+    out = model(torch.tensor([scorer.text_ids(text)]), past_key_values=cache, use_cache=True)
+    first_lp = torch.log_softmax(out.logits[0, -1].float(), -1)
+    scores: list[float] = []
+    for start in range(0, len(scorer.label_ids), label_batch):
+        chunk = scorer.label_ids[start : start + label_batch]
+        m = max(len(c) for c in chunk)
+        tokens = torch.zeros((len(chunk), m), dtype=torch.long, device=dev)
+        mask = torch.zeros((len(chunk), m), dtype=torch.bool, device=dev)
+        for i, c in enumerate(chunk):
+            tokens[i, : len(c)] = torch.tensor(c)
+            mask[i, : len(c)] = True
+        total = first_lp[tokens[:, 0]]
+        c2 = copy.deepcopy(cache)
+        c2.batch_repeat_interleave(len(chunk))
+        logits = model(tokens[:, :-1], past_key_values=c2, use_cache=True).logits
+        lp = torch.log_softmax(logits.float(), -1).gather(-1, tokens[:, 1:, None])[..., 0]
+        scores.extend((total + (lp * mask[:, 1:]).sum(-1)).tolist())
+    return scores
 
 
 @torch.no_grad()
@@ -26,10 +54,9 @@ def reference(scorer: LabelScorer, text: str) -> list[float]:
 
 
 @pytest.mark.parametrize("chat", [True, False])
-@pytest.mark.parametrize("label_batch", [32, 2])
-def test_multi_token_scores_match_hand_computation(lm, task, chat, label_batch):
+def test_multi_token_scores_match_hand_computation(lm, task, chat):
     model, tok = lm
-    scorer = LabelScorer(model, tok, task, label_batch=label_batch, use_chat_template=chat)
+    scorer = LabelScorer(model, tok, task, use_chat_template=chat)
     assert scorer.chat is chat
     assert max(len(ids) for ids in scorer.label_ids) >= 4  # genuinely multi-token labels
     assert len({len(ids) for ids in scorer.label_ids}) > 1  # of different lengths (exercises padding)
@@ -48,3 +75,21 @@ def test_fingerprint_changes_with_the_prompt(lm, task):
     model, tok = lm
     other = type(task)(**{**task.__dict__, "prompt": task.prompt.replace("Review", "Text")})
     assert LabelScorer(model, tok, task).fingerprint() != LabelScorer(model, tok, other).fingerprint()
+
+
+def test_tree_scoring_equals_previous_implementation(lm, task):
+    model, tok = lm
+    # Labels that share leading tokens exercise the prefix tree.
+    shared = type(task)(
+        **{
+            **task.__dict__,
+            "labels": ["a", "b", "c", "d"],
+            "verbalisations": ["card arrival", "card linking", "card about to expire", "cash"],
+        }
+    )
+    scorer = LabelScorer(model, tok, shared)
+    assert len(scorer._node_tokens) < sum(len(ids) - 1 for ids in scorer.label_ids)  # nodes are shared
+    for text in ["where is my card", "x" * 50]:
+        assert scorer.score(text) == pytest.approx(previous_implementation(scorer, text), abs=1e-4)
+        # repeated calls reuse the cropped prompt cache and give the same scores
+        assert scorer.score(text) == pytest.approx(scorer.score(text), abs=1e-6)

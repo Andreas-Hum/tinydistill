@@ -10,7 +10,7 @@ tinydistill run examples/banking77/task.yaml \
   --data hf:PolyAI/banking77:train \
   --test hf:PolyAI/banking77:test \
   --out "$OUT" --device cuda --threads "$OMP_NUM_THREADS" --int8 \
-  --teacher-devices cpu,cuda --teacher-reps 5 --label-batch 77 "$@"
+  --teacher-devices cpu,cuda --teacher-reps 5 "$@"
 
 cp "$OUT/results.json" "$OUT/results.md" examples/banking77/
 python examples/banking77/update_readme.py

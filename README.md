@@ -103,8 +103,11 @@ Multi-token labels are handled exactly, and the end-of-turn token keeps a label 
 targets. The scores are cached as JSON lines keyed by a hash of the text, in a file named after a fingerprint
 of the teacher, prompt and labels, so an interrupted run resumes and a changed prompt never reuses old scores.
 
-To keep this fast, the part of the prompt before the text is run once and its key/value cache is reused for every
-text; after the text, the cache is copied once per label batch, so all labels are scored in one forward pass.
+To keep this fast, the part of the prompt before the text is run once and its key/value cache is kept. Each
+text then needs a single forward pass that covers the text and all labels together: the labels' tokens form a
+prefix tree (labels that start with the same tokens, such as `card arrival` and `card linking`, share nodes),
+and a 4D attention mask lets each tree node attend only to the prompt, the text and its own ancestors. There is
+no padding and no per-label copy of the cache. A test checks the scores against a plain forward pass per label.
 
 The student minimises KL(teacher || student) over the training texts, plus `--ce-weight` times the
 cross-entropy on gold labels where they exist (standard knowledge distillation, Hinton et al., 2015).
@@ -118,7 +121,8 @@ cross-entropy on gold labels where they exist (standard knowledge distillation, 
 - **Scores are sums, not averages.** Longer verbalisations get lower scores, so very uneven label lengths bias the
   teacher. Keep verbalisations short and of similar length.
 - **Prompt and label order matter.** Zero-shot LLMs are sensitive to wording and to the order of the options.
-- **Teacher cost grows with labels.** Every text is scored against every label, one text at a time.
+- **Teacher cost grows with labels.** Every text is scored against every label (shared label prefixes are
+  computed once), one text at a time.
 - **Single-label classification only.** Inputs are truncated to 128 tokens by default (`--max-length`).
 - **Timings depend on the machine.** The results table states the threads and devices used; rerun `eval` on your
   own hardware.
