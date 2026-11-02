@@ -28,5 +28,11 @@ same = sum(max(range(3), key=x["scores"].__getitem__) == max(range(3), key=y["sc
 result = {"texts": len(rows["local"]), "max_abs_diff": max(diffs), "mean_abs_diff": sum(diffs) / len(diffs),
           "same_top_label": same / len(rows["local"])}
 json.dump(result, open("examples/vllm-smoke.json", "w"), indent=2)
+open("examples/vllm-smoke.md", "w").write(
+    "| Texts | Same top label | Largest difference in a label score | Mean difference |\n|---|---|---|---|\n"
+    f"| {result['texts']} | {result['same_top_label']:.1%} | {result['max_abs_diff']:.3f} | {result['mean_abs_diff']:.4f} |\n"
+    "\nQwen2.5-1.5B-Instruct scoring 300 financial tweets locally (bf16, tinydistill) and through vLLM "
+    "(prompt log-probabilities); label scores are log-probabilities, so small differences are numerical.\n"
+)
 print(result)
 PY
