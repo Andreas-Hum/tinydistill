@@ -1,8 +1,10 @@
 """Teacher: score each label's verbalisation under a causal LM, cache the scores on disk.
 
-For a text x and a label with continuation tokens c_1..c_m (the verbalisation followed by the end-of-turn
-token), the score is   log p(c_1..c_m | prompt(x)) = sum_j log p(c_j | prompt(x), c_<j).
-A softmax over the label scores gives the teacher's soft targets. There is no free-form generation.
+For a text x and a continuation c_1..c_m (a way of writing a label, followed by the end-of-turn token),
+log p(c | prompt(x)) = sum_j log p(c_j | prompt(x), c_<j). A label can be written in several surface forms
+(lowercase, Capitalised, UPPERCASE, as written; each with and without a leading space), and its score is the
+log of the summed probability of its distinct forms. A softmax over the label scores gives the teacher's soft
+targets. There is no free-form generation.
 
 Speed: the prompt is split around the text into a constant prefix and a per-text suffix. The prefix's KV
 cache is computed once. Per text, one forward pass covers the text and all labels at once: the labels' tokens
@@ -36,8 +38,23 @@ def text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:20]
 
 
+def surface_variants(name: str) -> list[str]:
+    """Common ways of writing a label: as written, lowercase, Capitalised, UPPERCASE; each with and without a
+    leading space. The caller drops forms that tokenise identically."""
+    low = name.lower()
+    cased = [name, low, low[:1].upper() + low[1:], name.upper()]
+    out: list[str] = []
+    for form in cased:
+        for v in (form, " " + form):
+            if v not in out:
+                out.append(v)
+    return out
+
+
 class LabelScorer:
-    def __init__(self, model, tokenizer, task: Task, use_chat_template: bool = True):
+    def __init__(
+        self, model, tokenizer, task: Task, use_chat_template: bool = True, surface_forms: bool = True
+    ):
         self.model = model.eval()
         self.tok = tokenizer
         self.task = task
@@ -59,13 +76,23 @@ class LabelScorer:
             ids = [tokenizer.bos_token_id, *ids]
         self.prefix_ids: list[int] = ids
 
-        # Continuations: verbalisation + end-of-turn token. Without a chat template the answer follows the
-        # prompt text directly, so it starts with a space.
-        end = tokenizer.eos_token_id
-        self.label_ids: list[list[int]] = []
-        for v in task.verbalisations:
-            t = tokenizer(v if self.chat else " " + v, add_special_tokens=False)["input_ids"]
-            self.label_ids.append(t + ([end] if end is not None else []))
+        # Continuations: each surface form of each label name + the end-of-turn token. Forms that tokenise
+        # identically are kept once. Without surface_forms only the name as written is scored (with a leading
+        # space when there is no chat template, since the answer then follows the prompt text directly).
+        end = [tokenizer.eos_token_id] if tokenizer.eos_token_id is not None else []
+        self.forms: list[list[int]] = []  # token ids of every continuation
+        self.form_label: list[int] = []  # which label each continuation belongs to
+        seen: dict[tuple[int, ...], int] = {}
+        for li, name in enumerate(task.verbalisations):
+            for text in surface_variants(name) if surface_forms else [name if self.chat else " " + name]:
+                ids = tuple(tokenizer(text, add_special_tokens=False)["input_ids"] + end)
+                if seen.get(ids, li) != li:
+                    other = task.verbalisations[seen[ids]]
+                    raise ValueError(f"labels {other!r} and {name!r} share the surface form {text!r}")
+                if ids not in seen:
+                    seen[ids] = li
+                    self.forms.append(list(ids))
+                    self.form_label.append(li)
         self._build_tree()
         self._prefix_cache = None
 
@@ -82,7 +109,7 @@ class LabelScorer:
         rows: list[int] = []  # for every label token, which output row predicts it (-1 = last text position)
         targets: list[int] = []
         owner: list[int] = []
-        for li, lab in enumerate(self.label_ids):
+        for li, lab in enumerate(self.forms):
             for j, tok in enumerate(lab):
                 rows.append(nodes[tuple(lab[:j])] if j else -1)
                 targets.append(tok)
@@ -117,13 +144,23 @@ class LabelScorer:
             "quant": str(getattr(cfg, "quantization_config", "")),
             "prefix": self.prefix_ids,
             "suffix": self.suffix,
-            "labels": self.label_ids,
+            "forms": self.forms,
+            "form_label": self.form_label,
         }
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
-    @torch.no_grad()
     def score(self, text: str) -> list[float]:
-        """Summed log-probability of every label's continuation given the prompt for ``text``."""
+        """Every label's score: log of the summed probability of its surface forms given the prompt."""
+        f = self.form_scores(text).double()
+        idx = torch.tensor(self.form_label, device=f.device)
+        n = len(self.task.labels)
+        top = torch.full((n,), -torch.inf, dtype=f.dtype, device=f.device).scatter_reduce(0, idx, f, "amax")
+        total = torch.zeros(n, dtype=f.dtype, device=f.device).index_add_(0, idx, (f - top[idx]).exp())
+        return (top + total.log()).tolist()
+
+    @torch.no_grad()
+    def form_scores(self, text: str) -> torch.Tensor:
+        """Log-probability of every continuation in ``self.forms`` given the prompt for ``text``."""
         dev = self.device
         P = len(self.prefix_ids)
         if self._prefix_cache is None:
@@ -133,7 +170,7 @@ class LabelScorer:
         ids = torch.tensor(self.text_ids(text), dtype=torch.long, device=dev)
         n, N = len(ids), len(self._node_tokens)
         if n == 0 and N == 0:
-            return self._prefix_last[self._targets].tolist()
+            return self._prefix_last[self._targets]
 
         # Query rows: n text tokens, then N tree nodes. Keys: P cached prompt tokens, then the same rows.
         allow = torch.zeros((n + N, P + n + N), dtype=torch.bool, device=dev)
@@ -160,8 +197,8 @@ class LabelScorer:
         if n == 0:  # the prompt prefix itself predicts the first label token
             lp = torch.cat([self._prefix_last[None], lp])
         per_token = lp[self._rows + 1, self._targets]
-        total = torch.zeros(len(self.label_ids), dtype=per_token.dtype, device=dev)
-        return total.index_add_(0, self._owner, per_token).tolist()
+        total = torch.zeros(len(self.forms), dtype=per_token.dtype, device=dev)
+        return total.index_add_(0, self._owner, per_token)
 
 
 def load_teacher(name: str, task: Task, device: str = "auto", load_4bit: bool = False) -> LabelScorer:

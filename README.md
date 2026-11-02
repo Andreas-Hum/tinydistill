@@ -21,7 +21,9 @@ neither model trains on. Every table is written by the task's `run.sh` from its 
 Intent detection with 77 fine-grained classes ([Banking77](https://huggingface.co/datasets/PolyAI/banking77),
 CC BY 4.0), reproduced by [`examples/banking77/run.sh`](examples/banking77/run.sh).
 
-Teacher only, no gold labels:
+Teacher only, no gold labels. This table comes from the first release (v0.1.0), which scored each label name
+exactly as written, before surface forms and the faster scorer; it will be replaced when the demo is rerun.
+
 
 <!-- results: banking77/results.md -->
 | Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
@@ -131,21 +133,31 @@ labels:
 ## How the label scoring works
 
 The teacher never generates free text. For an input x, the prompt is rendered with the model's chat template
-(user message = the instruction, generation prompt for the assistant). Each label's continuation is its
-verbalisation followed by the end-of-turn token, `c_1 ... c_m`, and its score is the summed log-probability
+(user message = the instruction with the label list, generation prompt for the assistant). A continuation is one
+way of writing a label followed by the end-of-turn token, `c_1 ... c_m`, with log-probability
 
-    score(label) = log p(c_1 ... c_m | prompt(x)) = sum_j log p(c_j | prompt(x), c_1 ... c_(j-1))
+    log p(c | prompt(x)) = sum_j log p(c_j | prompt(x), c_1 ... c_(j-1))
 
 Multi-token labels are handled exactly, and the end-of-turn token keeps a label that is a prefix of another
-(`card` versus `card arrival`) from winning by stopping early. A softmax over the label scores gives the soft
-targets. The scores are cached as JSON lines keyed by a hash of the text, in a file named after a fingerprint
-of the teacher, prompt and labels, so an interrupted run resumes and a changed prompt never reuses old scores.
+(`card` versus `card arrival`) from winning by stopping early. Models do not always write a label the way it is
+listed: Qwen2.5 tends to answer a sentiment question with "Bullish" even when the list says "bullish". So each
+label is scored over its common surface forms, the name as written, lowercase, Capitalised and UPPERCASE, each
+with and without a leading space (forms that tokenise identically count once):
+
+    score(label) = log sum over forms c of p(c | prompt(x))
+
+This is verbaliser coverage: it only counts more ways of writing the same answer, and there is no calibration or
+prior correction. A softmax over the label scores gives the soft targets. The prompt lists each label in its
+primary form, the name as written. The scores are cached as JSON lines keyed by a hash of the text, in a file
+named after a fingerprint of the teacher, prompt and continuations, so an interrupted run resumes and a changed
+prompt never reuses old scores.
 
 To keep this fast, the part of the prompt before the text is run once and its key/value cache is kept. Each
-text then needs a single forward pass that covers the text and all labels together: the labels' tokens form a
-prefix tree (labels that start with the same tokens, such as `card arrival` and `card linking`, share nodes),
-and a 4D attention mask lets each tree node attend only to the prompt, the text and its own ancestors. There is
-no padding and no per-label copy of the cache. A test checks the scores against a plain forward pass per label.
+text then needs a single forward pass that covers the text and all labels together: the tokens of all continuations
+(every surface form of every label) form a prefix tree, so continuations that start alike, such as
+`card arrival` and `card linking`, share nodes, and a 4D attention mask lets each tree node attend only to the
+prompt, the text and its own ancestors. There is no padding and no per-label copy of the cache. Tests check the
+scores against a plain forward pass per continuation.
 
 The student minimises KL(teacher || student) over the training texts, plus `--ce-weight` times the
 cross-entropy on the K gold labels per class chosen by `--gold-per-class`, if any (standard knowledge
@@ -159,13 +171,13 @@ distillation, Hinton et al., 2015).
   usually helps more than anything on the student side.
 - **Scores are sums, not averages.** Longer verbalisations get lower scores, so very uneven label lengths bias the
   teacher. Keep verbalisations short and of similar length.
-- **The exact wording of a label counts.** The teacher scores the label name as written, with no calibration.
-  Write names the way the teacher would answer: Qwen2.5 answers sentiment with "Bullish", so the lowercase name
-  "bullish" loses probability to capitalised forms the scoring does not count. The financial-tweets task uses
-  capitalised names for this reason.
+- **Only case and spacing variants are counted.** Plurals, synonyms or rephrasings of a label are not; keep label
+  names short and close to how the teacher would answer.
+- **A too-small teacher can collapse.** Qwen2.5-0.5B-Instruct, for example, puts nearly every text into one or two
+  labels on the financial-tweets task, whatever the scoring; use 1.5B or larger.
 - **Prompt and label order matter.** Zero-shot LLMs are sensitive to wording and to the order of the options.
-- **Teacher cost grows with labels.** Every text is scored against every label (shared label prefixes are
-  computed once), one text at a time.
+- **Teacher cost grows with labels.** Every text is scored against every surface form of every label (shared
+  prefixes are computed once), one text at a time.
 - **Single-label classification only.** Inputs are truncated to 128 tokens by default (`--max-length`).
 - **Timings depend on the machine.** The results table states the threads and devices used; rerun `eval` on your
   own hardware.
