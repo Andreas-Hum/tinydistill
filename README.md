@@ -9,14 +9,21 @@ those targets, and the result is exported to ONNX (optionally int8) for fast CPU
 
 It continues my bachelor's project on inference optimisation by distilling LLMs.
 
-## Results: Banking77
+## Results
 
-Intent detection with 77 classes ([Banking77](https://huggingface.co/datasets/PolyAI/banking77),
-CC BY 4.0). The teacher, `Qwen/Qwen2.5-1.5B-Instruct`, labels the training split zero-shot; its gold labels are not
-used. The student is `sentence-transformers/all-MiniLM-L6-v2`. Quality is measured on the gold-labelled test split. The table below is written by [`examples/banking77/run.sh`](examples/banking77/run.sh) from
-[`examples/banking77/results.json`](examples/banking77/results.json); no number is typed by hand.
+Two tasks, both with `Qwen/Qwen2.5-1.5B-Instruct` as the zero-shot teacher and
+`sentence-transformers/all-MiniLM-L6-v2` as the student. Quality is measured on gold-labelled test texts that
+neither model trains on. Every table is written by the task's `run.sh` from its saved `results*.json` file in
+[`examples/`](examples); no number is typed by hand.
 
-<!-- results:start -->
+### Banking77: the hard case
+
+Intent detection with 77 fine-grained classes ([Banking77](https://huggingface.co/datasets/PolyAI/banking77),
+CC BY 4.0), reproduced by [`examples/banking77/run.sh`](examples/banking77/run.sh).
+
+Teacher only, no gold labels:
+
+<!-- results: banking77/results.md -->
 | Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
 |---|---|---|---|---|---|---|---|---|---|
 | teacher, zero-shot | cpu | 0.406 | 0.367 | n/a | 13490.4 | n/a | 0.1 | 3087 | 1.0x |
@@ -27,7 +34,24 @@ used. The student is `sentence-transformers/all-MiniLM-L6-v2`. Quality is measur
 
 Task `banking77`, 10003 unlabelled training texts, 3080 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-1.5B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`.
 CPU rows use 2 threads. Latency is the median over repeated runs. The teacher scores one text at a time, so it is timed at batch 1 and its throughput is 1 / latency. Speed-up is relative to the teacher, zero-shot on cpu.
-<!-- results:end -->
+<!-- /results -->
+
+With 8 gold labels per class, and the student trained on all gold labels as an upper bound:
+
+<!-- results: banking77/results-k8.md -->
+Not run yet.
+<!-- /results -->
+
+### Financial tweets: an easier task
+
+Sentiment of financial news tweets, 3 classes
+([Twitter Financial News Sentiment](https://huggingface.co/datasets/zeroshot/twitter-financial-news-sentiment),
+MIT licence per the dataset card), reproduced by
+[`examples/financial-tweets/run.sh`](examples/financial-tweets/run.sh). The validation split is the test set.
+
+<!-- results: financial-tweets/results.md -->
+Not run yet.
+<!-- /results -->
 
 ## Quickstart
 
@@ -135,6 +159,10 @@ distillation, Hinton et al., 2015).
   usually helps more than anything on the student side.
 - **Scores are sums, not averages.** Longer verbalisations get lower scores, so very uneven label lengths bias the
   teacher. Keep verbalisations short and of similar length.
+- **The exact wording of a label counts.** The teacher scores the label name as written, with no calibration.
+  Write names the way the teacher would answer: Qwen2.5 answers sentiment with "Bullish", so the lowercase name
+  "bullish" loses probability to capitalised forms the scoring does not count. The financial-tweets task uses
+  capitalised names for this reason.
 - **Prompt and label order matter.** Zero-shot LLMs are sensitive to wording and to the order of the options.
 - **Teacher cost grows with labels.** Every text is scored against every label (shared label prefixes are
   computed once), one text at a time.

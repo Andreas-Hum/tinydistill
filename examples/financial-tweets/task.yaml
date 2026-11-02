@@ -1,0 +1,22 @@
+# Twitter Financial News Sentiment (MIT licence per the dataset card):
+# https://huggingface.co/datasets/zeroshot/twitter-financial-news-sentiment
+# Label order follows the dataset card: 0 = Bearish, 1 = Bullish, 2 = Neutral. The names are capitalised as
+# the teacher writes them: the score is for the exact text, so "bullish" would lose to "Bullish".
+name: financial-tweets
+text_field: text
+label_field: label
+prompt: |-
+  Here is a tweet with financial news. Classify its sentiment for the stock, company or market it is about.
+  Options:
+  {labels}
+
+  Tweet: {text}
+
+  Reply with one option, exactly as written.
+labels:
+  Bearish:
+    description: negative, for example a downgrade, weak results or falling prices
+  Bullish:
+    description: positive, for example an upgrade, strong results or rising prices
+  Neutral:
+    description: neither, for example plain news or a mixed message
