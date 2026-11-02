@@ -29,6 +29,10 @@ neither model trains on. Every table is written by the task's `run.sh` from its 
 of every label, which costs most on Banking77 with its many labels, so there the GPU teacher row is the fairer
 reference for speed.
 
+The tables below come from version 0.2.0 runs (zero-shot teachers, all surface forms, one training seed). The
+0.3.0 demo scripts add few-shot teachers, gold-only baselines, several seeds, a student-size comparison and the
+cascade; their results will replace these tables.
+
 ### Banking77: the hard case
 
 Intent detection with 77 fine-grained classes ([Banking77](https://huggingface.co/datasets/PolyAI/banking77),
