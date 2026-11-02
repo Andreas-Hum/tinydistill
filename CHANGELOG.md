@@ -10,6 +10,16 @@
   (upload to the Hugging Face Hub with a model card).
 - The package exports the whole pipeline for use from Python.
 - Results tables list the baseline and upper-bound rows after the deployable rows.
+- Teachers: any causal LM (tested for Llama, Mistral, Phi, Gemma 2, GPT-2 and Qwen), ensembles of several
+  (`--teacher a,b`), and remote teachers on a vLLM server (`--vllm-url`).
+- Fix: scoring was wrong for models that use eager attention (such as Gemma 2); the mask is now additive.
+- The prompt prefix is encoded in chunks, so long few-shot prompts no longer need gigabytes for attention.
+- Cascade: `eval` reports accuracy and latency when unsure texts go to the teacher; `predict --cascade` and
+  `serve --cascade` route them at inference.
+- New commands: `serve` (JSON HTTP endpoint), `web` (a static page running the model in the browser with
+  transformers.js) and `synth` (the teacher writes unlabelled example texts).
+- Task options: `multi_label: true` (one yes/no question per label) and `ordinal: true` (distances in the
+  results).
 
 ## 0.2.0
 

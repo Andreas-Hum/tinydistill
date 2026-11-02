@@ -256,6 +256,23 @@ labels:
   # ...
 ```
 
+For **multi-label** tasks, where a text can have any number of labels, add `multi_label: true` and ask about
+one label at a time, with `{label}` after `{text}`:
+
+```yaml
+multi_label: true
+prompt: |
+  Review: {text}
+  Does the review talk about {label}? Answer yes or no.
+labels: [price, delivery, product_quality]
+```
+
+The teacher answers every label's question in the same forward pass, and a label's score is
+log P(yes) − log P(no) over the surface forms of both answers (`answers: [yes, no]` changes them). The student
+gets a multi-label head trained against the teacher's per-label probabilities, and the results show exact-match
+accuracy, macro-F1 and micro-F1, with 0.5 as the cut-off. Gold labels can be lists or strings like `a|b`.
+Few-shot examples and the cascade are for single-label tasks.
+
 For labels with an order, such as 1 to 5 stars, add `ordinal: true`: the results then also show the mean
 absolute error in label steps and the share of predictions at most one step off.
 
