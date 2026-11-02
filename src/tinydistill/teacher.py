@@ -7,10 +7,11 @@ log of the summed probability of its distinct forms. A softmax over the label sc
 targets. There is no free-form generation.
 
 Speed: the prompt is split around the text into a constant prefix and a per-text suffix. The prefix's KV
-cache is computed once. Per text, one forward pass covers the text and all labels at once: the labels' tokens
-form a prefix tree (labels that start alike share nodes), and a 4D attention mask lets every tree node attend
-to the cached prompt, the text and its own ancestors only. There is no padding and no per-label copy of the
-cache; the cache is cropped back to the prompt prefix afterwards.
+cache is computed once. A text and all its continuations form one segment: the text's tokens, then a prefix
+tree of the continuations' tokens (continuations that start alike share nodes). Several segments are packed
+into one sequence, up to a token budget, and a 4D attention mask lets every position attend to the cached
+prompt plus, within its own segment, the text (causally) and its own tree ancestors. One forward pass scores
+the whole pack; there is no padding and no copy of the cache, which is cropped back to the prompt afterwards.
 """
 
 from __future__ import annotations
@@ -54,9 +55,16 @@ def surface_variants(name: str, kinds=("lowercase", "capitalised", "uppercase"))
 
 class LabelScorer:
     def __init__(
-        self, model, tokenizer, task: Task, use_chat_template: bool = True, surface_forms: bool = True
+        self,
+        model,
+        tokenizer,
+        task: Task,
+        use_chat_template: bool = True,
+        surface_forms: bool = True,
+        max_tokens: int = 2048,
     ):
         self.model = model.eval()
+        self.max_tokens = max_tokens  # tokens per forward pass when packing several texts
         self.tok = tokenizer
         self.task = task
         self.device = next(model.parameters()).device
@@ -157,57 +165,102 @@ class LabelScorer:
 
     def score(self, text: str) -> list[float]:
         """Every label's score: log of the summed probability of its surface forms given the prompt."""
-        f = self.form_scores(text).double()
-        idx = torch.tensor(self.form_label, device=f.device)
+        return self.score_many([text])[0]
+
+    def score_many(self, texts: list[str]) -> list[list[float]]:
+        """Label scores for several texts, packed into as few forward passes as the token budget allows."""
+        f = self.form_scores_many(texts).double()  # (texts, forms)
+        idx = torch.tensor(self.form_label, device=f.device).expand_as(f)
         n = len(self.task.labels)
-        top = torch.full((n,), -torch.inf, dtype=f.dtype, device=f.device).scatter_reduce(0, idx, f, "amax")
-        total = torch.zeros(n, dtype=f.dtype, device=f.device).index_add_(0, idx, (f - top[idx]).exp())
+        top = torch.full((len(texts), n), -torch.inf, dtype=f.dtype, device=f.device)
+        top = top.scatter_reduce(1, idx, f, "amax")
+        total = torch.zeros_like(top).scatter_add_(1, idx, (f - top.gather(1, idx)).exp())
         return (top + total.log()).tolist()
 
-    @torch.no_grad()
     def form_scores(self, text: str) -> torch.Tensor:
         """Log-probability of every continuation in ``self.forms`` given the prompt for ``text``."""
-        dev = self.device
-        P = len(self.prefix_ids)
+        return self.form_scores_many([text])[0]
+
+    @torch.no_grad()
+    def form_scores_many(self, texts: list[str]) -> torch.Tensor:
+        """(len(texts), len(self.forms)) log-probabilities, packing texts up to ``max_tokens`` per pass."""
         if self._prefix_cache is None:
-            out = self.model(torch.tensor([self.prefix_ids], device=dev), use_cache=True)
+            out = self.model(torch.tensor([self.prefix_ids], device=self.device), use_cache=True)
             self._prefix_cache = out.past_key_values
             self._prefix_last = torch.log_softmax(out.logits[0, -1].float(), -1)
-        ids = torch.tensor(self.text_ids(text), dtype=torch.long, device=dev)
-        n, N = len(ids), len(self._node_tokens)
-        if n == 0 and N == 0:
-            return self._prefix_last[self._targets]
+        ids = [self.text_ids(t) for t in texts]
+        N = len(self._node_tokens)
+        out, pack, used = [], [], 0
+        for x in ids:
+            if pack and used + len(x) + N > self.max_tokens:
+                out.append(self._score_pack(pack))
+                pack, used = [], 0
+            pack.append(x)
+            used += len(x) + N
+        if pack:
+            out.append(self._score_pack(pack))
+        return torch.cat(out) if out else torch.empty((0, len(self.forms)), device=self.device)
 
-        # Query rows: n text tokens, then N tree nodes. Keys: P cached prompt tokens, then the same rows.
-        allow = torch.zeros((n + N, P + n + N), dtype=torch.bool, device=dev)
-        allow[:, :P] = True
-        allow[:n, P : P + n] = torch.ones((n, n), dtype=torch.bool, device=dev).tril()
-        allow[n:, P : P + n] = True
-        allow[n:, P + n :] = self._node_anc
-        positions = torch.cat([torch.arange(P, P + n, device=dev), P + n + self._node_depth])
-        keep = torch.arange(max(n - 1, 0), n + N, device=dev)  # last text position + every node
+    def _score_pack(self, pack: list[list[int]]) -> torch.Tensor:
+        dev, P, N = self.device, len(self.prefix_ids), len(self._node_tokens)
+        L = sum(len(x) for x in pack) + N * len(pack)
+        tokens = torch.empty(L, dtype=torch.long, device=dev)
+        positions = torch.empty(L, dtype=torch.long, device=dev)
+        allow = torch.zeros((L, P + L), dtype=torch.bool, device=dev)
+        allow[:, :P] = True  # everything sees the prompt
+        keep: list[int] = []  # output rows to compute logits for
+        first: list[int] = []  # per text: kept row predicting the first label token (-1: the prompt does)
+        node_start: list[int] = []  # per text: kept row of its first tree node
+        o = 0
+        for x in pack:
+            n = len(x)
+            t = slice(o, o + n)  # this text's rows
+            d = slice(o + n, o + n + N)  # its tree nodes
+            tokens[t] = torch.tensor(x, dtype=torch.long, device=dev)
+            tokens[d] = self._node_tokens
+            positions[t] = torch.arange(P, P + n, device=dev)
+            positions[d] = P + n + self._node_depth
+            allow[t, P + o : P + o + n] = torch.ones((n, n), dtype=torch.bool, device=dev).tril()
+            allow[d, P + o : P + o + n] = True
+            allow[d, P + o + n : P + o + n + N] = self._node_anc
+            first.append(len(keep) if n else -1)
+            if n:
+                keep.append(o + n - 1)
+            node_start.append(len(keep))
+            keep.extend(range(o + n, o + n + N))
+            o += n + N
+        if not keep:  # empty texts and single-token continuations: the prompt predicts everything
+            per_token = self._prefix_last[self._targets]
+            one = torch.zeros(len(self.forms), dtype=per_token.dtype, device=dev).index_add_(
+                0, self._owner, per_token
+            )
+            return one.expand(len(pack), -1)
         try:
-            out = self.model(
-                torch.cat([ids, self._node_tokens])[None],
+            logits = self.model(
+                tokens[None],
                 attention_mask=allow[None, None],
                 position_ids=positions[None],
                 past_key_values=self._prefix_cache,
                 use_cache=True,
-                logits_to_keep=keep,
-            )
+                logits_to_keep=torch.tensor(keep, device=dev),
+            ).logits[0]
         finally:
             extra = self._prefix_cache.get_seq_length() - P
             if extra:
                 self._prefix_cache.crop(-extra)  # back to the prompt prefix
-        lp = torch.log_softmax(out.logits[0].float(), -1)  # row 0: last text position, row 1 + i: node i
-        if n == 0:  # the prompt prefix itself predicts the first label token
-            lp = torch.cat([self._prefix_last[None], lp])
-        per_token = lp[self._rows + 1, self._targets]
-        total = torch.zeros(len(self.forms), dtype=per_token.dtype, device=dev)
-        return total.index_add_(0, self._owner, per_token)
+        lp = torch.cat([torch.log_softmax(logits.float(), -1), self._prefix_last[None]])  # last row: prompt
+        results = []
+        for f, start in zip(first, node_start, strict=True):
+            rows = torch.where(self._rows < 0, f if f >= 0 else len(lp) - 1, start + self._rows)
+            per_token = lp[rows, self._targets]
+            total = torch.zeros(len(self.forms), dtype=per_token.dtype, device=dev)
+            results.append(total.index_add_(0, self._owner, per_token))
+        return torch.stack(results)
 
 
-def load_teacher(name: str, task: Task, device: str = "auto", load_4bit: bool = False) -> LabelScorer:
+def load_teacher(
+    name: str, task: Task, device: str = "auto", load_4bit: bool = False, max_tokens: int = 2048
+) -> LabelScorer:
     device = pick_device(device)
     tok = AutoTokenizer.from_pretrained(name)
     kwargs: dict = {}
@@ -225,7 +278,7 @@ def load_teacher(name: str, task: Task, device: str = "auto", load_4bit: bool = 
     model = AutoModelForCausalLM.from_pretrained(name, **kwargs)
     if not load_4bit:
         model.to(device)
-    return LabelScorer(model, tok, task)
+    return LabelScorer(model, tok, task, max_tokens=max_tokens)
 
 
 class ScoreCache:
@@ -243,21 +296,32 @@ class ScoreCache:
                         continue
                     self.scores[row["h"]] = row["s"]
 
-    def fill(self, scorer: LabelScorer, texts: Iterable[str], progress=None) -> int:
-        """Score every text not in the cache yet. Returns how many were scored now."""
+    def fill(self, scorer: LabelScorer, texts: Iterable[str], progress=None, batch: int = 64) -> int:
+        """Score every text not in the cache yet, ``batch`` texts at a time (the scorer packs them into
+        forward passes). Returns how many were scored now."""
         n = 0
+        pending: list[str] = []
         with self.path.open("a", encoding="utf-8") as f:
-            for text in texts:
-                h = text_hash(text)
-                if h in self.scores:
-                    continue
-                s = scorer.score(text)
-                self.scores[h] = s
-                f.write(json.dumps({"h": h, "s": s}) + "\n")
+
+            def flush() -> None:
+                nonlocal n
+                for text, s in zip(pending, scorer.score_many(pending), strict=True):
+                    h = text_hash(text)
+                    self.scores[h] = s
+                    f.write(json.dumps({"h": h, "s": s}) + "\n")
+                    n += 1
+                    if progress:
+                        progress(n)
                 f.flush()
-                n += 1
-                if progress:
-                    progress(n)
+                pending.clear()
+
+            for text in texts:
+                if text_hash(text) not in self.scores and text not in pending:
+                    pending.append(text)
+                    if len(pending) == batch:
+                        flush()
+            if pending:
+                flush()
         return n
 
     def get(self, text: str) -> list[float]:

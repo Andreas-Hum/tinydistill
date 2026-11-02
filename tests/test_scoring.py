@@ -184,3 +184,29 @@ def test_task_can_drop_uppercase_forms(lm, task):
     upper = {tuple(tok(v.upper(), add_special_tokens=False)["input_ids"]) for v in task.verbalisations}
     assert not any(tuple(f[:-1]) in upper for f in lean.forms)
     assert lean.fingerprint() != full.fingerprint()
+
+
+@pytest.mark.parametrize("max_tokens", [1, 60, 10_000])  # one text per pass, a few, all of them
+def test_packing_several_texts_matches_one_at_a_time(lm, task, max_tokens):
+    model, tok = lm
+    texts = ["short", "a somewhat longer text with more tokens in it", "", "mid length text here", "x"]
+    one = LabelScorer(model, tok, task)
+    packed = LabelScorer(model, tok, task, max_tokens=max_tokens)
+    want = torch.stack([one.form_scores(t) for t in texts])
+    torch.testing.assert_close(packed.form_scores_many(texts), want, atol=1e-4, rtol=0)
+    torch.testing.assert_close(
+        torch.tensor(packed.score_many(texts)), torch.tensor([one.score(t) for t in texts]), atol=1e-4, rtol=0
+    )
+
+
+def test_packing_with_empty_texts_and_no_suffix(lm, task):
+    # Without a chat template and with {text} at the very end, an empty text has no tokens at all, so the
+    # prompt itself predicts the first label token.
+    model, tok = lm
+    bare = type(task)(**{**task.__dict__, "prompt": "Options:\n{labels}\nReview: {text}"})
+    scorer = LabelScorer(model, tok, bare, use_chat_template=False, max_tokens=10_000)
+    assert scorer.suffix == "" and scorer.text_ids("") == []
+    texts = ["", "good", ""]
+    got = scorer.form_scores_many(texts)
+    for t, row in zip(texts, got, strict=True):
+        assert row.tolist() == pytest.approx(reference(scorer, t), abs=1e-4)

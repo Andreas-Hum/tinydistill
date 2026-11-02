@@ -134,7 +134,8 @@ def markdown_table(results: dict) -> str:
         f"CPU rows use {results['environment']['cpu_threads']} threads. "
         "Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' "
         "model files. "
-        "The teacher scores one text at a time, so it is timed at batch 1 and its throughput is 1 / latency. "
+        "The teacher packs several texts into one forward pass; it is timed at batch 32 only when that takes "
+        "under three minutes, otherwise its throughput is 1 / batch-1 latency. "
         + (f"Speed-up is relative to the {ref['name']} on {ref['device']}." if ref else ""),
     ]
     return head + "\n".join(lines) + "\n" + "\n".join(notes) + "\n"

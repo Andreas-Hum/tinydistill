@@ -61,7 +61,7 @@ def cmd_label(a: argparse.Namespace) -> None:
         yaml.safe_dump(task.to_dict(), sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
     log(f"loading teacher {a.teacher}")
-    scorer = load_teacher(a.teacher, task, a.device, a.load_4bit)
+    scorer = load_teacher(a.teacher, task, a.device, a.load_4bit, a.teacher_tokens)
     fp = scorer.fingerprint()
     cache_dir = Path(a.cache_dir) if a.cache_dir else run
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -99,6 +99,7 @@ def cmd_label(a: argparse.Namespace) -> None:
             "test": a.test,
             "label_seconds": round(seconds, 1),
             "label_texts_scored": scored,
+            "teacher_tokens": a.teacher_tokens,
         },
     )
 
@@ -167,7 +168,16 @@ def cmd_export(a: argparse.Namespace) -> None:
 def cmd_eval(a: argparse.Namespace) -> None:
     import torch
 
-    from .evaluate import accuracy, bench, dir_size_mb, environment, hf_weights_mb, macro_f1, markdown_table
+    from .evaluate import (
+        accuracy,
+        bench,
+        dir_size_mb,
+        environment,
+        hf_weights_mb,
+        macro_f1,
+        markdown_table,
+        time_calls,
+    )
     from .export import Predictor
     from .student import load_student, student_logits
     from .teacher import load_teacher
@@ -209,16 +219,16 @@ def cmd_eval(a: argparse.Namespace) -> None:
         }
         if not a.skip_teacher_bench:
             log(f"benchmarking the teacher on {dev}")
-            scorer = load_teacher(meta["teacher"], task, dev, meta.get("load_4bit", False))
+            scorer = load_teacher(
+                meta["teacher"], task, dev, meta.get("load_4bit", False), meta.get("teacher_tokens", 2048)
+            )
             row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
             row["size_mb"] = scorer.model.get_memory_footprint() / 1e6  # weights as loaded (e.g. 4-bit)
-            row.update(
-                bench(
-                    lambda b, s=scorer: [s.score(t) for t in b],
-                    bench_texts,
-                    a.teacher_reps,
-                )
-            )
+            score = scorer.score_many  # several texts are packed into shared forward passes
+            row.update(bench(score, bench_texts, a.teacher_reps))
+            if row["latency_ms_b1"] * 32 * 4 < 180_000:  # batch 32 only when it takes under three minutes
+                row["latency_ms_b32"] = time_calls(score, bench_texts, 32, 3)
+                row["throughput_per_s"] = 32 / (row["latency_ms_b32"] / 1000)
             del scorer
             if dev.startswith("cuda"):
                 torch.cuda.empty_cache()
@@ -375,6 +385,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--cache-dir",
         help="where teacher scores are cached (default: the run directory); "
         "runs that share it label each text once",
+    )
+    label.add_argument(
+        "--teacher-tokens",
+        type=int,
+        default=2048,
+        help="tokens per teacher forward pass; short texts with few labels are packed together",
     )
     label.add_argument("--limit", type=int, help="use only the first N training texts")
     label.add_argument("--test-limit", type=int, help="use only the first N test texts")
