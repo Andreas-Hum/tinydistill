@@ -1,0 +1,142 @@
+# tinydistill
+
+**Most of a large model's quality on one task, many times faster, on a CPU.**
+
+`tinydistill` turns an LLM classification prompt into a small encoder classifier by knowledge distillation.
+You describe the task in a short YAML file (labels, how to say each label, an instruction prompt) and give it
+unlabelled texts. An instruction-tuned LLM labels them with soft targets, a small encoder learns to imitate
+those targets, and the result is exported to ONNX (optionally int8) for fast CPU inference.
+
+It continues my bachelor's project on inference optimisation by distilling LLMs.
+
+## Results: Banking77
+
+Intent detection with 77 classes ([Banking77](https://huggingface.co/datasets/PolyAI/banking77),
+CC BY 4.0). The teacher, `Qwen/Qwen2.5-1.5B-Instruct`, labels the training split zero-shot; its gold labels are not
+used. The student is `sentence-transformers/all-MiniLM-L6-v2`. Quality is measured on the gold-labelled test split. The table below is written by [`examples/banking77/run.sh`](examples/banking77/run.sh) from
+[`examples/banking77/results.json`](examples/banking77/results.json); no number is typed by hand.
+
+<!-- results:start -->
+<!-- results:end -->
+
+## Quickstart
+
+```sh
+pip install "tinydistill[hf] @ git+https://github.com/Andreas-Hum/tinydistill"
+curl -LO https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/examples/banking77/task.yaml
+tinydistill run task.yaml --data hf:PolyAI/banking77:train --test hf:PolyAI/banking77:test \
+  --out runs/banking77 --int8
+tinydistill predict runs/banking77/onnx "I still haven't received my new card"
+```
+
+Labelling the full dataset with the default teacher wants a GPU. For a quick look on a CPU, add
+`--teacher Qwen/Qwen2.5-0.5B-Instruct --limit 200 --test-limit 200`. `--limit` takes the first rows, and the
+Banking77 splits are sorted by intent, so a limited run only sees a few intents.
+
+`run` does every step. Each step also has its own command, and they all read and write the run directory:
+
+| Command | What it does |
+|---|---|
+| `tinydistill label TASK.yaml --data D [--test T] --out RUN` | teacher scores every label of every text; cached, resumable |
+| `tinydistill train RUN` | distils the student from the teacher's soft targets |
+| `tinydistill export RUN [--int8]` | writes `RUN/onnx` (ONNX, tokenizer, labels) |
+| `tinydistill eval RUN` | writes `RUN/results.md` and `RUN/results.json` |
+| `tinydistill predict RUN/onnx TEXT... [--data FILE]` | classifies texts, prints JSON lines |
+
+Data can be `.csv`, `.jsonl` or `hf:<dataset>[:<config>]:<split>` (needs the `hf` extra). Useful options:
+`--teacher` (any Hugging Face causal LM), `--load-4bit` (bitsandbytes; install the `4bit` extra),
+`--student` (any Hugging Face encoder), `--epochs`, `--lr`, `--ce-weight` (adds cross-entropy on gold
+training labels when the data has them), `--device`, `--threads`. See `tinydistill <command> --help`.
+
+From Python:
+
+```python
+from tinydistill import Predictor
+
+clf = Predictor("runs/banking77/onnx")  # uses model.int8.onnx when present
+clf.predict(["How do I top up my card?"])  # list of label names
+clf.predict_proba(["How do I top up my card?"])  # numpy array, one row per text
+```
+
+### The task file
+
+```yaml
+name: banking77
+text_field: text        # column holding the input text
+label_field: label      # column holding gold labels (names, or integers indexing `labels`)
+prompt: |-
+  You are classifying messages that customers sent to their bank's support chat.
+  Choose the single intent from this list that best matches the message:
+  {labels}
+
+  Message: {text}
+
+  Reply with the intent exactly as written in the list.
+labels:                 # name: verbalisation (what the teacher should say)
+  activate_my_card: activate my card
+  card_arrival: card arrival
+  # ...
+```
+
+`{labels}` becomes a bulleted list of the verbalisations; `{text}` is the input.
+
+## How the label scoring works
+
+The teacher never generates free text. For an input x, the prompt is rendered with the model's chat template
+(user message = the instruction, generation prompt for the assistant). Each label's continuation is its
+verbalisation followed by the end-of-turn token, `c_1 ... c_m`, and its score is the summed log-probability
+
+    score(label) = log p(c_1 ... c_m | prompt(x)) = sum_j log p(c_j | prompt(x), c_1 ... c_(j-1))
+
+Multi-token labels are handled exactly, and the end-of-turn token keeps a label that is a prefix of another
+(`card` versus `card arrival`) from winning by stopping early. A softmax over the label scores gives the soft
+targets. The scores are cached as JSON lines keyed by a hash of the text, in a file named after a fingerprint
+of the teacher, prompt and labels, so an interrupted run resumes and a changed prompt never reuses old scores.
+
+To keep this fast, the part of the prompt before the text is run once and its key/value cache is reused for every
+text; after the text, the cache is copied once per label batch, so all labels are scored in one forward pass.
+
+The student minimises KL(teacher || student) over the training texts, plus `--ce-weight` times the
+cross-entropy on gold labels where they exist (standard knowledge distillation, Hinton et al., 2015).
+
+## Limitations
+
+- **The teacher caps the student.** The student learns to imitate the teacher, mistakes included. A small LLM
+  choosing zero-shot among many fine-grained labels can be weak: Qwen2.5-0.5B-Instruct, for example, often
+  confuses related Banking77 intents. A bigger teacher (try `--load-4bit` with a 7B model) or a better prompt
+  usually helps more than anything on the student side.
+- **Scores are sums, not averages.** Longer verbalisations get lower scores, so very uneven label lengths bias the
+  teacher. Keep verbalisations short and of similar length.
+- **Prompt and label order matter.** Zero-shot LLMs are sensitive to wording and to the order of the options.
+- **Teacher cost grows with labels.** Every text is scored against every label, one text at a time.
+- **Single-label classification only.** Inputs are truncated to 128 tokens by default (`--max-length`).
+- **Timings depend on the machine.** The results table states the threads and devices used; rerun `eval` on your
+  own hardware.
+- ONNX export uses PyTorch's TorchScript-based exporter.
+
+## Development
+
+```sh
+python -m venv .venv && . .venv/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -e ".[dev]"
+ruff check . && ruff format --check . && pytest
+```
+
+The tests run on a CPU in a few seconds with tiny random models from `hf-internal-testing`. They check the label
+scores against a direct computation, the distillation loss and metrics against hand-computed values, cache
+resumption, that the ONNX export reproduces the PyTorch logits, and the whole CLI end to end.
+
+## References
+
+- G. Hinton, O. Vinyals, J. Dean. [Distilling the Knowledge in a Neural Network](https://arxiv.org/abs/1503.02531). arXiv:1503.02531, 2015.
+- T. Schick, H. Schütze. [Exploiting Cloze Questions for Few Shot Text Classification and Natural Language Inference](https://arxiv.org/abs/2001.07676). EACL, 2021. (Verbalisers.)
+- I. Casanueva, T. Temčinas, D. Gerz, M. Henderson, I. Vulić. [Efficient Intent Detection with Dual Sentence Encoders](https://arxiv.org/abs/2003.04807). NLP4ConvAI Workshop, 2020. (Banking77.)
+- W. Wang, F. Wei, L. Dong, H. Bao, N. Yang, M. Zhou. [MiniLM: Deep Self-Attention Distillation for Task-Agnostic Compression of Pre-Trained Transformers](https://arxiv.org/abs/2002.10957). NeurIPS, 2020.
+- N. Reimers, I. Gurevych. [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://arxiv.org/abs/1908.10084). EMNLP, 2019.
+- Qwen Team. [Qwen2.5 Technical Report](https://arxiv.org/abs/2412.15115). arXiv:2412.15115, 2024.
+
+## Licence
+
+[MIT](LICENSE). The Banking77 dataset is CC BY 4.0 (PolyAI); models are downloaded from the Hugging Face Hub under
+their own licences.
