@@ -63,3 +63,16 @@ def test_few_shot_examples_are_the_few_gold_ones_shuffled():
     assert sorted(ex) == sorted((t, g) for t, g in zip(texts, kept, strict=True) if g is not None)
     assert ex == few_shot_examples(texts, gold, 2, seed=5)
     assert len(ex) == 6
+
+
+def test_aggregate_over_seeds():
+    from tinydistill.evaluate import aggregate
+
+    one = aggregate([{"accuracy": 0.5}])
+    assert one == {"accuracy": 0.5}  # a single seed has no spread
+    agg = aggregate([{"accuracy": 0.6, "macro_f1": 0.5}, {"accuracy": 0.8, "macro_f1": 0.7}])
+    assert agg["accuracy"] == pytest.approx(0.7) and agg["accuracy_std"] == pytest.approx(
+        0.141421356, abs=1e-8
+    )
+    assert agg["macro_f1_seeds"] == [0.5, 0.7]
+    assert aggregate([{}]) == {}

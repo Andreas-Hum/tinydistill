@@ -134,7 +134,20 @@ def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
     ]
     main(["run", *common, "--out", str(tmp_path / "a")])
     capsys.readouterr()
-    main(["run", *common, "--out", str(tmp_path / "b"), "--gold-per-class", "2", "--upper-bound"])
+    main(
+        [
+            "run",
+            *common,
+            "--out",
+            str(tmp_path / "b"),
+            "--gold-per-class",
+            "2",
+            "--upper-bound",
+            "--gold-only",
+            "--seeds",
+            "2",
+        ]
+    )
     err = capsys.readouterr().err
     assert "train: 18 texts (0 scored now" in err  # the second run labels nothing: shared cache
 
@@ -146,6 +159,12 @@ def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
     assert len(upper) == 1 and 0 <= upper[0]["accuracy"] <= 1
     md = (tmp_path / "b" / "results.md").read_text()
     assert "cross-entropy on 2 gold labels per class (4 texts" in md and "upper bound" in md
+    roles = [m["role"] for m in results["models"]]
+    assert roles.count("baseline") == 1 and roles.count("student") == 2  # PyTorch row + ONNX fp32 row
+    student = results["models"][roles.index("student")]
+    assert len(student["accuracy_seeds"]) == 2 and "accuracy_std" in student
+    assert (tmp_path / "b" / "seeds" / "1" / "student-kgold").is_dir()
+    assert " ± " in md and "over 2 training seeds" in md and "on 2 gold labels per class, no teacher" in md
     first = json.loads((tmp_path / "a" / "results.json").read_text())
     assert first["training"]["gold_per_class"] == 0 and not first["training"]["upper_bound"]
 

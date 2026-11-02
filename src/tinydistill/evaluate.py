@@ -58,6 +58,20 @@ def bench(fn: Callable[[list[str]], object], texts: list[str], reps1: int, reps3
     return out
 
 
+def aggregate(per_seed: list[dict]) -> dict:
+    """Mean of each metric over seeds; with several seeds also the sample standard deviation and values."""
+    if not per_seed or not per_seed[0]:
+        return {}
+    out: dict = {}
+    for k in per_seed[0]:
+        vals = [q[k] for q in per_seed]
+        out[k] = statistics.fmean(vals)
+        if len(vals) > 1:
+            out[f"{k}_std"] = statistics.stdev(vals)
+            out[f"{k}_seeds"] = vals
+    return out
+
+
 def dir_size_mb(paths: Sequence[Path]) -> float:
     return sum(p.stat().st_size for p in paths if p.exists()) / 1e6
 
@@ -92,6 +106,12 @@ def _fmt(v, spec: str) -> str:
     return format(v, spec)
 
 
+def _pm(row: dict, key: str) -> str:
+    """A metric, with its standard deviation over seeds when there is one."""
+    std = row.get(f"{key}_std")
+    return _fmt(row.get(key), ".3f") + (f" ± {std:.3f}" if std is not None else "")
+
+
 def markdown_table(results: dict) -> str:
     rows = results["models"]
     ref = next((r for r in rows if r["role"] == "teacher" and r.get("latency_ms_b1")), None)
@@ -105,8 +125,8 @@ def markdown_table(results: dict) -> str:
         speed = ref["latency_ms_b1"] / r["latency_ms_b1"] if ref and r.get("latency_ms_b1") else None
         lines.append(
             f"| {r['name']} | {r['device']} "
-            f"| {_fmt(r.get('accuracy'), '.3f')} | {_fmt(r.get('macro_f1'), '.3f')} "
-            f"| {_fmt(r.get('agreement'), '.3f')} | {_fmt(r.get('latency_ms_b1'), '.1f')} "
+            f"| {_pm(r, 'accuracy')} | {_pm(r, 'macro_f1')} "
+            f"| {_pm(r, 'agreement')} | {_fmt(r.get('latency_ms_b1'), '.1f')} "
             f"| {_fmt(r.get('latency_ms_b32'), '.1f')} | {_fmt(r.get('throughput_per_s'), '.1f')} "
             f"| {_fmt(r.get('size_mb'), '.0f')} | {_fmt(speed, '.1f') + 'x' if speed else 'n/a'} |"
         )
@@ -126,11 +146,21 @@ def markdown_table(results: dict) -> str:
             f"The teacher's prompt shows {tr['few_shot']} gold training examples per class "
             f"({tr.get('n_examples')} texts). " + trained
         )
+    if tr.get("gold_only"):
+        trained += (
+            f" The baseline is the same student trained with cross-entropy on those {tr.get('n_gold')} gold "
+            "labels only, without the teacher."
+        )
     if tr.get("upper_bound"):
         trained += (
             " The upper bound is the same student trained with cross-entropy on all "
             f"{tr.get('n_gold_upper_bound')} gold training labels and no teacher; "
             "its speed equals the student's."
+        )
+    if (tr.get("seeds") or 1) > 1:
+        trained += (
+            f" Values with ± are the mean and standard deviation over {tr['seeds']} training seeds; "
+            "the ONNX rows are the exported first-seed model."
         )
     notes = [
         "",

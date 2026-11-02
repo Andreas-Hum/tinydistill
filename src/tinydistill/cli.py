@@ -121,7 +121,24 @@ def cmd_label(a: argparse.Namespace) -> None:
     )
 
 
+# Student variants: (directory name, role, row name). The first seed's models live directly in the run
+# directory; further seeds go to run/seeds/<seed>/.
+VARIANTS = (
+    ("student", "student", "student, PyTorch"),
+    ("student-kgold", "baseline", "baseline: student on the K gold labels only, no teacher"),
+    ("student-gold", "upper bound", "upper bound: student on all gold labels"),
+)
+
+
+def _seed_dirs(run: Path, name: str) -> list[Path]:
+    """The first seed's model, then any further seeds' models, for one variant."""
+    extra = sorted((run / "seeds").glob(f"*/{name}"), key=lambda p: int(p.parent.name))
+    return [p for p in [run / name, *extra] if p.exists()]
+
+
 def cmd_train(a: argparse.Namespace) -> None:
+    import shutil
+
     import torch
 
     from .student import few_gold, train_student
@@ -136,42 +153,67 @@ def cmd_train(a: argparse.Namespace) -> None:
     all_gold = [r["gold"] for r in rows]
     if (a.gold_per_class or a.upper_bound) and not any(g is not None for g in all_gold):
         raise SystemExit("--gold-per-class and --upper-bound need gold labels in the training data")
-    gold = few_gold(all_gold, a.gold_per_class, a.seed) if a.gold_per_class else None
+    if a.gold_only and not a.gold_per_class:
+        raise SystemExit("--gold-only needs --gold-per-class K")
+    gold = few_gold(all_gold, a.gold_per_class, a.seed) if a.gold_per_class else None  # fixed by --seed
     n_gold = sum(g is not None for g in gold) if gold else 0
     device = pick_device(a.device)
     probs = torch.tensor([_softmax(r["scores"]) for r in rows])
-    hp = (a.epochs, a.batch_size, a.lr, a.max_length, device, a.seed, log)
+    upper = [i for i, g in enumerate(all_gold) if g is not None]
+    kgold = [i for i, g in enumerate(gold or []) if g is not None]
+    for name, *_ in VARIANTS:  # drop models from an earlier train in this run directory
+        shutil.rmtree(run / name, ignore_errors=True)
+    shutil.rmtree(run / "seeds", ignore_errors=True)
 
-    log(f"distilling {a.student} on {len(rows)} texts, {n_gold} with gold labels ({device})")
     t0 = time.perf_counter()
-    train_student(texts, probs, task.labels, run / "student", a.student, gold, a.ce_weight, *hp)
-    meta = {
-        "student": a.student,
-        "epochs": a.epochs,
-        "lr": a.lr,
-        "batch_size": a.batch_size,
-        "gold_per_class": a.gold_per_class,
-        "n_gold": n_gold,
-        "ce_weight": a.ce_weight if n_gold else 0.0,
-        "student_device": device,
-        "train_seconds": round(time.perf_counter() - t0, 1),
-        "upper_bound": False,
-    }
-    if a.upper_bound:
-        keep = [i for i, g in enumerate(all_gold) if g is not None]
-        log(f"training the upper bound: {a.student} on all {len(keep)} gold training labels, no teacher")
-        train_student(
-            [texts[i] for i in keep],
-            None,
-            task.labels,
-            run / "student-gold",
-            a.student,
-            [all_gold[i] for i in keep],
-            0.0,
-            *hp,
-        )
-        meta.update(upper_bound=True, n_gold_upper_bound=len(keep))
-    _meta(run, meta)
+    for i in range(a.seeds):
+        seed = a.seed + i
+        out = run if i == 0 else run / "seeds" / str(seed)
+        hp = (a.epochs, a.batch_size, a.lr, a.max_length, device, seed, log)
+        log(f"seed {seed}: distilling {a.student} on {len(rows)} texts, {n_gold} with gold labels ({device})")
+        train_student(texts, probs, task.labels, out / "student", a.student, gold, a.ce_weight, *hp)
+        if a.gold_only:
+            log(f"seed {seed}: baseline, {a.student} on the {len(kgold)} gold labels only, no teacher")
+            train_student(
+                [texts[j] for j in kgold],
+                None,
+                task.labels,
+                out / "student-kgold",
+                a.student,
+                [gold[j] for j in kgold],
+                0.0,
+                *hp,
+            )
+        if a.upper_bound:
+            log(f"seed {seed}: upper bound, {a.student} on all {len(upper)} gold training labels, no teacher")
+            train_student(
+                [texts[j] for j in upper],
+                None,
+                task.labels,
+                out / "student-gold",
+                a.student,
+                [all_gold[j] for j in upper],
+                0.0,
+                *hp,
+            )
+    _meta(
+        run,
+        {
+            "student": a.student,
+            "epochs": a.epochs,
+            "lr": a.lr,
+            "batch_size": a.batch_size,
+            "gold_per_class": a.gold_per_class,
+            "n_gold": n_gold,
+            "ce_weight": a.ce_weight if n_gold else 0.0,
+            "student_device": device,
+            "train_seconds": round(time.perf_counter() - t0, 1),
+            "seeds": a.seeds,
+            "gold_only": a.gold_only,
+            "upper_bound": a.upper_bound,
+            "n_gold_upper_bound": len(upper) if a.upper_bound else None,
+        },
+    )
 
 
 def cmd_export(a: argparse.Namespace) -> None:
@@ -187,6 +229,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
 
     from .evaluate import (
         accuracy,
+        aggregate,
         bench,
         dir_size_mb,
         environment,
@@ -258,41 +301,31 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 torch.cuda.empty_cache()
         models.append(row)
 
-    student_dir = run / "student"
-    if student_dir.exists():
-        log("evaluating the student (PyTorch, CPU)")
-        model, tok = load_student(student_dir, "cpu")
-        pred = student_logits(model, tok, texts).argmax(-1).tolist() if texts else []
-        row = {
-            "role": "student",
-            "name": "student, PyTorch",
-            "device": "cpu",
-            **quality(pred),
-            "params_m": sum(p.numel() for p in model.parameters()) / 1e6,
-            "size_mb": dir_size_mb(list(student_dir.glob("*.safetensors")) + list(student_dir.glob("*.bin"))),
-        }
-        row.update(
-            bench(
-                lambda b: student_logits(model, tok, b, batch_size=32),
-                bench_texts,
-                a.reps,
-                max(3, a.reps // 5),
+    for name, role, row_name in VARIANTS:
+        dirs = _seed_dirs(run, name)
+        if not dirs:
+            continue
+        if role == "baseline":
+            row_name = f"baseline: student on {meta.get('gold_per_class')} gold labels per class, no teacher"
+        log(f"evaluating {row_name} (PyTorch, CPU, {len(dirs)} seed{'s' if len(dirs) > 1 else ''})")
+        per_seed = []
+        for d in dirs:
+            model, tok = load_student(d, "cpu")
+            per_seed.append(quality(student_logits(model, tok, texts).argmax(-1).tolist() if texts else []))
+        row = {"role": role, "name": row_name, "device": "cpu", **aggregate(per_seed)}
+        if role == "student":  # timings and size of the shipped (first-seed) model
+            model, tok = load_student(dirs[0], "cpu")
+            row["params_m"] = sum(p.numel() for p in model.parameters()) / 1e6
+            row["size_mb"] = dir_size_mb(list(dirs[0].glob("*.safetensors")) + list(dirs[0].glob("*.bin")))
+            row.update(
+                bench(
+                    lambda b, m=model, t=tok: student_logits(m, t, b, batch_size=32),
+                    bench_texts,
+                    a.reps,
+                    max(3, a.reps // 5),
+                )
             )
-        )
         models.append(row)
-    gold_dir = run / "student-gold"
-    if gold_dir.exists():
-        log("evaluating the upper bound (PyTorch, CPU)")
-        model, tok = load_student(gold_dir, "cpu")
-        pred = student_logits(model, tok, texts).argmax(-1).tolist() if texts else []
-        models.append(
-            {
-                "role": "upper bound",
-                "name": "upper bound: student on all gold labels",
-                "device": "cpu",
-                **quality(pred),
-            }
-        )
     for int8 in (False, True):
         f = run / "onnx" / ("model.int8.onnx" if int8 else "model.onnx")
         if not f.exists():
@@ -329,6 +362,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "gold_per_class",
                 "n_gold",
                 "upper_bound",
+                "gold_only",
+                "seeds",
                 "n_gold_upper_bound",
                 "label_texts_scored",
                 "few_shot",
@@ -445,6 +480,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="also use the gold labels of K training examples per class (cross-entropy term)",
     )
     train.add_argument("--ce-weight", type=float, default=1.0, help="weight of that cross-entropy term")
+    train.add_argument(
+        "--gold-only",
+        action="store_true",
+        help="also train the student on the K gold labels per class only, without the teacher (a baseline)",
+    )
+    train.add_argument(
+        "--seeds", type=int, default=1, help="training seeds per student (mean and std in eval)"
+    )
     train.add_argument(
         "--upper-bound",
         action="store_true",
