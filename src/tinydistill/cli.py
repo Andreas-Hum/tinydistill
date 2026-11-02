@@ -343,6 +343,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
         row.update(bench(lambda b, pr=pr: pr.logits(b), bench_texts, a.reps, max(3, a.reps // 5)))
         models.append(row)
 
+    order = {"teacher": 0, "student": 1, "baseline": 2, "upper bound": 3}
+    models.sort(key=lambda m: order[m["role"]])  # deployable rows first, reference rows last
     results = {
         "task": task.name,
         "teacher": meta.get("teacher"),
@@ -406,6 +408,17 @@ def cmd_predict(a: argparse.Namespace) -> None:
                 {"text": t, "label": pr.labels[i], "confidence": round(float(p[i]), 4)}, ensure_ascii=False
             )
         )
+
+
+def cmd_compare(a: argparse.Namespace) -> None:
+    from .evaluate import compare_table
+
+    runs = []
+    for r in a.runs:
+        path = Path(r) / "results.json" if Path(r).is_dir() else Path(r)
+        label = Path(r).name if Path(r).is_dir() else f"{path.parent.name}/{path.stem}"
+        runs.append((label, json.loads(path.read_text())))
+    print(compare_table(runs), end="")
 
 
 def cmd_run(a: argparse.Namespace) -> None:
@@ -532,6 +545,9 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--text-field", default="text")
     pr.add_argument("--fp32", action="store_true", help="use the fp32 model even if an int8 one exists")
     pr.set_defaults(fn=cmd_predict)
+    cmp = sub.add_parser("compare", help="one markdown table comparing several runs (e.g. student sizes)")
+    cmp.add_argument("runs", nargs="+", help="run directories or results.json files")
+    cmp.set_defaults(fn=cmd_compare)
     sub.add_parser(
         "run", parents=[label, train, export, ev, common], help="label, train, export and eval"
     ).set_defaults(fn=cmd_run)
@@ -540,7 +556,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     a = build_parser().parse_args(argv)
-    if a.threads:
+    if getattr(a, "threads", None):
         import torch
 
         torch.set_num_threads(a.threads)

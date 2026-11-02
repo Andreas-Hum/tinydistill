@@ -174,3 +174,31 @@ def markdown_table(results: dict) -> str:
         + (f"Speed-up is relative to the {ref['name']} on {ref['device']}." if ref else ""),
     ]
     return head + "\n".join(lines) + "\n" + "\n".join(notes) + "\n"
+
+
+def compare_table(runs: list[tuple[str, dict]]) -> str:
+    """One row per run: the student, its quality (mean over seeds) and the deployed model's speed and size
+    (the int8 ONNX model when there is one, else fp32 ONNX, else PyTorch)."""
+    head = (
+        "| Run | Teacher | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher "
+        "| Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |\n"
+        "|---|---|---|---|---|---|---|---|---|---|---|\n"
+    )
+    lines = []
+    for name, res in runs:
+        rows = [m for m in res["models"] if m["role"] == "student"]
+        if not rows:
+            continue
+        quality = rows[0]  # the PyTorch row carries the per-seed quality
+        onnx = [m for m in rows if "ONNX" in m["name"]]
+        deployed = next((m for m in onnx if "int8" in m["name"]), onnx[0] if onnx else quality)
+        lines.append(
+            f"| {name} | `{res.get('teacher')}` | `{res.get('student')}` "
+            f"| {_fmt(quality.get('params_m'), '.0f')} "
+            f"| {_pm(quality, 'accuracy')} | {_pm(quality, 'macro_f1')} | {_pm(quality, 'agreement')} "
+            f"| {deployed['name'].removeprefix('student, ')} | {_fmt(deployed.get('latency_ms_b1'), '.1f')} "
+            f"| {_fmt(deployed.get('latency_ms_b32'), '.1f')} | {_fmt(deployed.get('size_mb'), '.0f')} |"
+        )
+    threads = sorted({res["environment"]["cpu_threads"] for _, res in runs})
+    note = f"\nAll latencies on the CPU with {', '.join(map(str, threads))} threads.\n" if threads else ""
+    return head + "\n".join(lines) + "\n" + note

@@ -165,6 +165,13 @@ def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
     assert len(student["accuracy_seeds"]) == 2 and "accuracy_std" in student
     assert (tmp_path / "b" / "seeds" / "1" / "student-kgold").is_dir()
     assert " ± " in md and "over 2 training seeds" in md and "on 2 gold labels per class, no teacher" in md
+    capsys.readouterr()
+    main(["compare", str(tmp_path / "a"), str(tmp_path / "b" / "results.json")])
+    table = capsys.readouterr().out.splitlines()
+    assert (
+        table[0].startswith("| Run | Teacher | Student |") and len(table) == 6
+    )  # header, rule, 2 rows, note
+    assert table[2].startswith("| a |") and table[3].startswith("| b/results |") and " ± " in table[3]
     first = json.loads((tmp_path / "a" / "results.json").read_text())
     assert first["training"]["gold_per_class"] == 0 and not first["training"]["upper_bound"]
 
