@@ -192,9 +192,7 @@ class LabelScorer:
     def form_scores_many(self, texts: list[str]) -> torch.Tensor:
         """(len(texts), len(self.forms)) log-probabilities, packing texts up to ``max_tokens`` per pass."""
         if self._prefix_cache is None:
-            out = self.model(torch.tensor([self.prefix_ids], device=self.device), use_cache=True)
-            self._prefix_cache = out.past_key_values
-            self._prefix_last = torch.log_softmax(out.logits[0, -1].float(), -1)
+            self._encode_prefix()
         ids = [self.text_ids(t) for t in texts]
         N = len(self._node_tokens)
         out, pack, used = [], [], 0
@@ -207,6 +205,18 @@ class LabelScorer:
         if pack:
             out.append(self._score_pack(pack))
         return torch.cat(out) if out else torch.empty((0, len(self.forms)), device=self.device)
+
+    @torch.no_grad()
+    def _encode_prefix(self, chunk: int = 1024) -> None:
+        """Run the prompt prefix once, in chunks against the growing cache, so that a long (few-shot) prompt
+        never needs its whole attention matrix at once."""
+        ids = torch.tensor([self.prefix_ids], device=self.device)
+        cache = None
+        for start in range(0, ids.shape[1], chunk):
+            out = self.model(ids[:, start : start + chunk], past_key_values=cache, use_cache=True)
+            cache = out.past_key_values
+        self._prefix_cache = cache
+        self._prefix_last = torch.log_softmax(out.logits[0, -1].float(), -1)
 
     def _additive(self, allow: torch.Tensor) -> torch.Tensor:
         """The mask as additive biases (0 where attention is allowed): every attention implementation reads

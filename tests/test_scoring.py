@@ -255,3 +255,13 @@ def test_ensemble_averages_probabilities():
     # teacher 1: [0.5, 0.5]; teacher 2: [0.75, 0.25] -> mean [0.625, 0.375]
     got = combine_scores([[0.0, 0.0], [math.log(3.0), 0.0]])
     assert got == pytest.approx([math.log(0.625), math.log(0.375)], abs=1e-12)
+
+
+def test_chunked_prompt_prefix_gives_the_same_scores(lm, task):
+    model, tok = lm
+    whole = LabelScorer(model, tok, task)
+    chunked = LabelScorer(model, tok, task)
+    chunked._encode_prefix(chunk=3)  # many small chunks
+    assert len(chunked.prefix_ids) > 6
+    for text in ["fine", "a longer review that says rather more"]:
+        assert chunked.form_scores(text).tolist() == pytest.approx(whole.form_scores(text).tolist(), abs=1e-4)
