@@ -63,10 +63,12 @@ def cmd_label(a: argparse.Namespace) -> None:
     log(f"loading teacher {a.teacher}")
     scorer = load_teacher(a.teacher, task, a.device, a.load_4bit)
     fp = scorer.fingerprint()
-    cache = ScoreCache(run / f"teacher-{fp}.jsonl")
+    cache_dir = Path(a.cache_dir) if a.cache_dir else run
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache = ScoreCache(cache_dir / f"teacher-{fp}.jsonl")
     if cache.scores:
         log(f"resuming: {len(cache.scores)} texts already scored")
-    seconds = 0.0
+    seconds, scored = 0.0, 0
     for split, spec, limit in (("train", a.data, a.limit), ("test", a.test, a.test_limit)):
         if not spec:
             continue
@@ -79,6 +81,7 @@ def cmd_label(a: argparse.Namespace) -> None:
         texts = iter_unique(e.text for e in read_examples(spec, task, limit, with_gold=False))
         n = cache.fill(scorer, texts, progress)
         seconds += time.perf_counter() - t0
+        scored += n
         rows = 0
         with (run / f"{split}.jsonl").open("w", encoding="utf-8") as f:
             for e in read_examples(spec, task, limit):
@@ -95,6 +98,7 @@ def cmd_label(a: argparse.Namespace) -> None:
             "data": a.data,
             "test": a.test,
             "label_seconds": round(seconds, 1),
+            "label_texts_scored": scored,
         },
     )
 
@@ -102,7 +106,7 @@ def cmd_label(a: argparse.Namespace) -> None:
 def cmd_train(a: argparse.Namespace) -> None:
     import torch
 
-    from .student import train_student
+    from .student import few_gold, train_student
     from .teacher import pick_device
 
     run = Path(a.run)
@@ -110,39 +114,46 @@ def cmd_train(a: argparse.Namespace) -> None:
     rows = _read_jsonl(run / "train.jsonl")
     if not rows:
         raise SystemExit(f"{run}/train.jsonl is missing or empty: run `tinydistill label` first")
-    probs = torch.tensor([_softmax(r["scores"]) for r in rows])
-    gold = [r["gold"] for r in rows] if a.ce_weight > 0 else None
+    texts = [r["text"] for r in rows]
+    all_gold = [r["gold"] for r in rows]
+    if (a.gold_per_class or a.upper_bound) and not any(g is not None for g in all_gold):
+        raise SystemExit("--gold-per-class and --upper-bound need gold labels in the training data")
+    gold = few_gold(all_gold, a.gold_per_class, a.seed) if a.gold_per_class else None
+    n_gold = sum(g is not None for g in gold) if gold else 0
     device = pick_device(a.device)
-    log(f"training {a.student} on {len(rows)} texts ({device})")
+    probs = torch.tensor([_softmax(r["scores"]) for r in rows])
+    hp = (a.epochs, a.batch_size, a.lr, a.max_length, device, a.seed, log)
+
+    log(f"distilling {a.student} on {len(rows)} texts, {n_gold} with gold labels ({device})")
     t0 = time.perf_counter()
-    train_student(
-        [r["text"] for r in rows],
-        probs,
-        task.labels,
-        run / "student",
-        a.student,
-        gold,
-        a.ce_weight,
-        a.epochs,
-        a.batch_size,
-        a.lr,
-        a.max_length,
-        device,
-        a.seed,
-        log,
-    )
-    _meta(
-        run,
-        {
-            "student": a.student,
-            "epochs": a.epochs,
-            "lr": a.lr,
-            "batch_size": a.batch_size,
-            "ce_weight": a.ce_weight,
-            "student_device": device,
-            "train_seconds": round(time.perf_counter() - t0, 1),
-        },
-    )
+    train_student(texts, probs, task.labels, run / "student", a.student, gold, a.ce_weight, *hp)
+    meta = {
+        "student": a.student,
+        "epochs": a.epochs,
+        "lr": a.lr,
+        "batch_size": a.batch_size,
+        "gold_per_class": a.gold_per_class,
+        "n_gold": n_gold,
+        "ce_weight": a.ce_weight if n_gold else 0.0,
+        "student_device": device,
+        "train_seconds": round(time.perf_counter() - t0, 1),
+        "upper_bound": False,
+    }
+    if a.upper_bound:
+        keep = [i for i, g in enumerate(all_gold) if g is not None]
+        log(f"training the upper bound: {a.student} on all {len(keep)} gold training labels, no teacher")
+        train_student(
+            [texts[i] for i in keep],
+            None,
+            task.labels,
+            run / "student-gold",
+            a.student,
+            [all_gold[i] for i in keep],
+            0.0,
+            *hp,
+        )
+        meta.update(upper_bound=True, n_gold_upper_bound=len(keep))
+    _meta(run, meta)
 
 
 def cmd_export(a: argparse.Namespace) -> None:
@@ -234,6 +245,19 @@ def cmd_eval(a: argparse.Namespace) -> None:
             )
         )
         models.append(row)
+    gold_dir = run / "student-gold"
+    if gold_dir.exists():
+        log("evaluating the upper bound (PyTorch, CPU)")
+        model, tok = load_student(gold_dir, "cpu")
+        pred = student_logits(model, tok, texts).argmax(-1).tolist() if texts else []
+        models.append(
+            {
+                "role": "upper bound",
+                "name": "upper bound: student on all gold labels",
+                "device": "cpu",
+                **quality(pred),
+            }
+        )
     for int8 in (False, True):
         f = run / "onnx" / ("model.int8.onnx" if int8 else "model.onnx")
         if not f.exists():
@@ -267,6 +291,11 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "epochs",
                 "lr",
                 "batch_size",
+                "gold_per_class",
+                "n_gold",
+                "upper_bound",
+                "n_gold_upper_bound",
+                "label_texts_scored",
                 "ce_weight",
                 "student_device",
                 "train_seconds",
@@ -341,6 +370,11 @@ def build_parser() -> argparse.ArgumentParser:
     label.add_argument(
         "--load-4bit", action="store_true", help="load the teacher in 4 bit (bitsandbytes, CUDA)"
     )
+    label.add_argument(
+        "--cache-dir",
+        help="where teacher scores are cached (default: the run directory); "
+        "runs that share it label each text once",
+    )
     label.add_argument("--limit", type=int, help="use only the first N training texts")
     label.add_argument("--test-limit", type=int, help="use only the first N test texts")
 
@@ -353,10 +387,17 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--lr", type=float, default=1e-4)
     train.add_argument("--max-length", type=int, default=128)
     train.add_argument(
-        "--ce-weight",
-        type=float,
-        default=0.0,
-        help="weight of a cross-entropy term on gold training labels, if the data has them",
+        "--gold-per-class",
+        type=int,
+        default=0,
+        metavar="K",
+        help="also use the gold labels of K training examples per class (cross-entropy term)",
+    )
+    train.add_argument("--ce-weight", type=float, default=1.0, help="weight of that cross-entropy term")
+    train.add_argument(
+        "--upper-bound",
+        action="store_true",
+        help="also train the student on all gold training labels, without the teacher",
     )
     train.add_argument("--seed", type=int, default=0)
 

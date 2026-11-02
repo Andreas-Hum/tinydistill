@@ -39,3 +39,15 @@ def test_metrics_by_hand():
     assert accuracy(pred, gold) == pytest.approx(0.6)
     # F1: class 0: tp1 fp1 fn1 -> 0.5; class 1: tp2 fp1 fn0 -> 0.8; class 2: tp0 -> 0
     assert macro_f1(pred, gold) == pytest.approx((0.5 + 0.8 + 0.0) / 3)
+
+
+def test_few_gold_keeps_k_per_class_deterministically():
+    from tinydistill.student import few_gold
+
+    gold = [0, 1, 2, 0, 1, 0, None, 2, 0, 1, 0]
+    kept = few_gold(gold, 2, seed=3)
+    assert kept == few_gold(gold, 2, seed=3)
+    assert all(k is None or k == g for k, g in zip(kept, gold, strict=True))  # only drops, never changes
+    counts = {c: sum(k == c for k in kept) for c in (0, 1, 2)}
+    assert counts == {0: 2, 1: 2, 2: 2}
+    assert few_gold(gold, 10) == gold  # k larger than every class keeps everything

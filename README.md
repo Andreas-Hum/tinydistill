@@ -55,8 +55,13 @@ Banking77 splits are sorted by intent, so a limited run only sees a few intents.
 
 Data can be `.csv`, `.jsonl` or `hf:<dataset>[:<config>]:<split>` (needs the `hf` extra). Useful options:
 `--teacher` (any Hugging Face causal LM), `--load-4bit` (bitsandbytes; install the `4bit` extra),
-`--student` (any Hugging Face encoder), `--epochs`, `--lr`, `--ce-weight` (adds cross-entropy on gold
-training labels when the data has them), `--device`, `--threads`. See `tinydistill <command> --help`.
+`--student` (any Hugging Face encoder), `--epochs`, `--lr`, `--device`, `--threads`, and `--cache-dir` (runs that
+share it label each text only once). See `tinydistill <command> --help`.
+
+**Few labels.** With `--gold-per-class K`, the student also sees the gold labels of K randomly chosen training
+examples per class, through a cross-entropy term (weight `--ce-weight`, default 1) added to the distillation
+loss. `--upper-bound` additionally trains the same student on all gold training labels without the teacher,
+and the results table gets an upper-bound row: how far the distilled student is from fully supervised training.
 
 From Python:
 
@@ -119,7 +124,8 @@ and a 4D attention mask lets each tree node attend only to the prompt, the text 
 no padding and no per-label copy of the cache. A test checks the scores against a plain forward pass per label.
 
 The student minimises KL(teacher || student) over the training texts, plus `--ce-weight` times the
-cross-entropy on gold labels where they exist (standard knowledge distillation, Hinton et al., 2015).
+cross-entropy on the K gold labels per class chosen by `--gold-per-class`, if any (standard knowledge
+distillation, Hinton et al., 2015).
 
 ## Limitations
 

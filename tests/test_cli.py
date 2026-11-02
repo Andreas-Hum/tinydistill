@@ -96,3 +96,54 @@ def test_end_to_end(tmp_path, capsys):
     main(["predict", str(run / "onnx"), "what a great day", "--fp32"])
     out = json.loads(capsys.readouterr().out.strip())
     assert out["label"] in ("pos", "neg") and 0 < out["confidence"] <= 1
+
+
+def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
+    (tmp_path / "task.yaml").write_text(TASK)
+    words = ["good", "bad", "great", "awful", "fine", "terrible"]
+    rows = [
+        {"review": f"it was {w} {i}", "sentiment": "pos" if j % 2 == 0 else "neg"}
+        for i in range(3)
+        for j, w in enumerate(words)
+    ]
+    write_jsonl(tmp_path / "train.jsonl", rows)
+    write_jsonl(tmp_path / "test.jsonl", rows[:6])
+    common = [
+        str(tmp_path / "task.yaml"),
+        "--data",
+        str(tmp_path / "train.jsonl"),
+        "--test",
+        str(tmp_path / "test.jsonl"),
+        "--teacher",
+        TINY_LM,
+        "--student",
+        TINY_ENCODER,
+        "--epochs",
+        "1",
+        "--batch-size",
+        "4",
+        "--reps",
+        "2",
+        "--teacher-reps",
+        "2",
+        "--device",
+        "cpu",
+        "--cache-dir",
+        str(tmp_path / "cache"),
+    ]
+    main(["run", *common, "--out", str(tmp_path / "a")])
+    capsys.readouterr()
+    main(["run", *common, "--out", str(tmp_path / "b"), "--gold-per-class", "2", "--upper-bound"])
+    err = capsys.readouterr().err
+    assert "train: 18 texts (0 scored now" in err  # the second run labels nothing: shared cache
+
+    results = json.loads((tmp_path / "b" / "results.json").read_text())
+    assert results["training"]["gold_per_class"] == 2
+    assert results["training"]["n_gold"] == 4  # 2 per class, 2 classes
+    assert results["training"]["n_gold_upper_bound"] == 18
+    upper = [m for m in results["models"] if m["role"] == "upper bound"]
+    assert len(upper) == 1 and 0 <= upper[0]["accuracy"] <= 1
+    md = (tmp_path / "b" / "results.md").read_text()
+    assert "cross-entropy on 2 gold labels per class (4 texts" in md and "upper bound" in md
+    first = json.loads((tmp_path / "a" / "results.json").read_text())
+    assert first["training"]["gold_per_class"] == 0 and not first["training"]["upper_bound"]

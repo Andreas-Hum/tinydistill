@@ -111,11 +111,26 @@ def markdown_table(results: dict) -> str:
             f"| {_fmt(r.get('size_mb'), '.0f')} | {_fmt(speed, '.1f') + 'x' if speed else 'n/a'} |"
         )
     ds = results["data"]
+    tr = results.get("training") or {}
+    k = tr.get("gold_per_class") or 0
+    trained = (
+        f"The student learns from the teacher's soft labels on all {ds['n_train']} training texts, "
+        f"plus cross-entropy on {k} gold labels per class "
+        f"({tr.get('n_gold')} texts, weight {tr.get('ce_weight')})."
+        if k
+        else f"The student learns only from the teacher's soft labels on {ds['n_train']} "
+        "unlabelled training texts."
+    )
+    if tr.get("upper_bound"):
+        trained += (
+            " The upper bound is the same student trained with cross-entropy on all "
+            f"{tr.get('n_gold_upper_bound')} gold training labels and no teacher; "
+            "its speed equals the student's."
+        )
     notes = [
         "",
-        f"Task `{results['task']}`, {ds['n_train']} unlabelled training texts, "
-        f"{ds['n_test']} gold-labelled test texts. "
-        f"Teacher: `{results['teacher']}`. Student: `{results['student']}`.",
+        f"Task `{results['task']}`, {ds['n_test']} gold-labelled test texts. "
+        f"Teacher: `{results['teacher']}`. Student: `{results['student']}`. {trained}",
         f"CPU rows use {results['environment']['cpu_threads']} threads. "
         "Latency is the median over repeated runs. "
         "The teacher scores one text at a time, so it is timed at batch 1 and its throughput is 1 / latency. "

@@ -32,9 +32,24 @@ def distillation_loss(
     return kl
 
 
+def few_gold(gold: list[int | None], k: int, seed: int = 0) -> list[int | None]:
+    """Keep the gold label of k randomly chosen examples per class (fewer if a class has fewer) and drop the
+    rest, so only a few labels per class are used."""
+    by_class: dict[int, list[int]] = {}
+    for i, g in enumerate(gold):
+        if g is not None:
+            by_class.setdefault(g, []).append(i)
+    rng = random.Random(seed)
+    keep: set[int] = set()
+    for c in sorted(by_class):
+        idx = by_class[c]
+        keep.update(rng.sample(idx, min(k, len(idx))))
+    return [g if i in keep else None for i, g in enumerate(gold)]
+
+
 def train_student(
     texts: list[str],
-    teacher_probs: torch.Tensor,
+    teacher_probs: torch.Tensor | None,
     labels: list[str],
     out_dir: Path,
     model_name: str = DEFAULT_STUDENT,
@@ -83,7 +98,14 @@ def train_student(
             )
             enc = {k: v.to(device) for k, v in enc.items()}
             logits = model(**enc).logits
-            loss = distillation_loss(logits, teacher_probs[idx].to(device), gold_t[idx].to(device), ce_weight)
+            if (
+                teacher_probs is None
+            ):  # supervised only (the upper-bound model): every example has a gold label
+                loss = F.cross_entropy(logits.float(), gold_t[idx].to(device))
+            else:
+                loss = distillation_loss(
+                    logits, teacher_probs[idx].to(device), gold_t[idx].to(device), ce_weight
+                )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
