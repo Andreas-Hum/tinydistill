@@ -15,7 +15,7 @@ from .task import Task
 @dataclass
 class Example:
     text: str
-    gold: int | None = None  # index into Task.labels
+    gold: int | list[int] | None = None  # index into Task.labels; a sorted list of indices for multi-label
 
 
 def _gold_index(value: object, task: Task, names: list[str] | None) -> int | None:
@@ -36,6 +36,14 @@ def _gold_index(value: object, task: Task, names: list[str] | None) -> int | Non
     if s.isdigit() and int(s) < len(task.labels):
         return int(s)
     raise ValueError(f"unknown label {s!r}; expected one of the task's label names")
+
+
+def _gold_set(value: object, task: Task, names: list[str] | None) -> list[int] | None:
+    """Multi-label gold: a list of label names or indices, or a string of them separated by "|"."""
+    if value is None or value == "":
+        return None
+    items = value if isinstance(value, list | tuple) else str(value).split("|")
+    return sorted({_gold_index(v.strip() if isinstance(v, str) else v, task, names) for v in items} - {None})
 
 
 def _rows(spec: str) -> tuple[Iterator[dict], dict[str, list[str]] | None]:
@@ -75,7 +83,12 @@ def _rows(spec: str) -> tuple[Iterator[dict], dict[str, list[str]] | None]:
 
 
 def _class_names(features: dict) -> dict[str, list[str]]:
-    return {k: list(f.names) for k, f in features.items() if hasattr(f, "names")}
+    out = {}
+    for k, f in features.items():
+        inner = getattr(f, "feature", None)  # Sequence(ClassLabel) for multi-label datasets
+        if hasattr(f, "names") or hasattr(inner, "names"):
+            out[k] = list(f.names if hasattr(f, "names") else inner.names)
+    return out
 
 
 def read_examples(
@@ -88,5 +101,6 @@ def read_examples(
             raise KeyError(f"{spec}: no field {task.text_field!r} (set text_field in the task file)")
         gold = None
         if with_gold and task.label_field and task.label_field in row:
-            gold = _gold_index(row[task.label_field], task, names)
+            parse = _gold_set if task.multi_label else _gold_index
+            gold = parse(row[task.label_field], task, names)
         yield Example(str(row[task.text_field]), gold)

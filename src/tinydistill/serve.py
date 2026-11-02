@@ -25,8 +25,7 @@ def make_server(model, host: str = "127.0.0.1", port: int = 8000) -> ThreadingHT
         with lock:
             if isinstance(model, Cascade):
                 return [r | {"confidence": round(r["confidence"], 4)} for r in model.predict(texts)]
-            probs = model.predict_proba(texts)
-        return [{"label": labels[int(p.argmax())], "confidence": round(float(p.max()), 4)} for p in probs]
+            return model.describe(texts)
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code: int, body: dict) -> None:

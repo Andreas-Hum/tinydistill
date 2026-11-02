@@ -32,6 +32,36 @@ def distillation_loss(
     return kl
 
 
+def distillation_loss_multilabel(
+    student_logits: torch.Tensor,
+    teacher_probs: torch.Tensor,
+    gold: torch.Tensor | None = None,
+    has_gold: torch.Tensor | None = None,
+    ce_weight: float = 0.0,
+) -> torch.Tensor:
+    """Multi-label distillation: binary cross-entropy of each label's logit against the teacher's probability
+    (equal to the per-label KL up to the teacher's entropy), averaged over labels and texts, plus ce_weight
+    times binary cross-entropy against the gold labels (multi-hot) of the texts that have them."""
+    z = student_logits.float()
+    loss = F.binary_cross_entropy_with_logits(z, teacher_probs.float())
+    if ce_weight and gold is not None and has_gold is not None and has_gold.any():
+        loss = loss + ce_weight * F.binary_cross_entropy_with_logits(z[has_gold], gold[has_gold].float())
+    return loss
+
+
+def few_gold_sets(gold: list[list[int] | None], k: int, seed: int = 0) -> list[list[int] | None]:
+    """Multi-label few_gold: for every label, the gold labels of up to k random texts that have it."""
+    rng = random.Random(seed)
+    by_label: dict[int, list[int]] = {}
+    for i, g in enumerate(gold):
+        for c in g or []:
+            by_label.setdefault(c, []).append(i)
+    keep: set[int] = set()
+    for c in sorted(by_label):
+        keep.update(rng.sample(by_label[c], min(k, len(by_label[c]))))
+    return [g if i in keep else None for i, g in enumerate(gold)]
+
+
 def few_shot_examples(
     texts: list[str], gold: list[int | None], k: int, seed: int = 0
 ) -> list[tuple[str, int]]:
@@ -71,6 +101,7 @@ def train_student(
     device: str = "cpu",
     seed: int = 0,
     log: Callable[[str], None] = print,
+    multi_label: bool = False,
 ) -> None:
     torch.manual_seed(seed)
     rng = random.Random(seed)
@@ -81,8 +112,16 @@ def train_student(
         id2label=dict(enumerate(labels)),
         label2id={name: i for i, name in enumerate(labels)},
         ignore_mismatched_sizes=True,
+        problem_type="multi_label_classification" if multi_label else "single_label_classification",
     ).to(device)
-    gold_t = torch.tensor([-1 if g is None else g for g in (gold or [None] * len(texts))])
+    gold = gold or [None] * len(texts)
+    if multi_label:  # multi-hot gold, and which texts have it
+        has_gold = torch.tensor([g is not None for g in gold])
+        gold_t = torch.zeros(len(texts), len(labels))
+        for i, g in enumerate(gold):
+            gold_t[i, g or []] = 1.0
+    else:
+        gold_t = torch.tensor([-1 if g is None else g for g in gold])
 
     steps = epochs * math.ceil(len(texts) / batch_size)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
@@ -107,9 +146,17 @@ def train_student(
             )
             enc = {k: v.to(device) for k, v in enc.items()}
             logits = model(**enc).logits
-            if (
+            if multi_label:
+                g = gold_t[idx].to(device)
+                if teacher_probs is None:  # supervised only: every text has gold labels
+                    loss = F.binary_cross_entropy_with_logits(logits.float(), g)
+                else:
+                    loss = distillation_loss_multilabel(
+                        logits, teacher_probs[idx].to(device), g, has_gold[idx].to(device), ce_weight
+                    )
+            elif (
                 teacher_probs is None
-            ):  # supervised only (the upper-bound model): every example has a gold label
+            ):  # supervised only (the upper-bound model): every text has a gold label
                 loss = F.cross_entropy(logits.float(), gold_t[idx].to(device))
             else:
                 loss = distillation_loss(

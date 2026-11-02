@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 import time
 from pathlib import Path
@@ -34,13 +33,6 @@ def _meta(run: Path, update: dict | None = None) -> dict:
         meta.update(update)
         path.write_text(json.dumps(meta, indent=2))
     return meta
-
-
-def _softmax(scores: list[float]) -> list[float]:
-    m = max(scores)
-    e = [math.exp(s - m) for s in scores]
-    z = sum(e)
-    return [x / z for x in e]
 
 
 def _argmax(xs) -> int:
@@ -123,7 +115,7 @@ def cmd_label(a: argparse.Namespace) -> None:
         with (run / f"{split}.jsonl").open("w", encoding="utf-8") as f:
             for e in read_examples(spec, task, limit):
                 per = [c.get(e.text) for c in caches]
-                row = {"text": e.text, "gold": e.gold, "scores": combine_scores(per)}
+                row = {"text": e.text, "gold": e.gold, "scores": combine_scores(per, task.multi_label)}
                 if len(per) > 1:
                     row["teacher_scores"] = per
                 f.write(json.dumps(row) + "\n")
@@ -170,7 +162,7 @@ def cmd_train(a: argparse.Namespace) -> None:
 
     import torch
 
-    from .student import few_gold, train_student
+    from .student import few_gold, few_gold_sets, train_student
     from .teacher import pick_device
 
     run = Path(a.run)
@@ -184,10 +176,12 @@ def cmd_train(a: argparse.Namespace) -> None:
         raise SystemExit("--gold-per-class and --upper-bound need gold labels in the training data")
     if a.gold_only and not a.gold_per_class:
         raise SystemExit("--gold-only needs --gold-per-class K")
-    gold = few_gold(all_gold, a.gold_per_class, a.seed) if a.gold_per_class else None  # fixed by --seed
+    pick = few_gold_sets if task.multi_label else few_gold
+    gold = pick(all_gold, a.gold_per_class, a.seed) if a.gold_per_class else None  # fixed by --seed
     n_gold = sum(g is not None for g in gold) if gold else 0
     device = pick_device(a.device)
-    probs = torch.tensor([_softmax(r["scores"]) for r in rows])
+    scores = torch.tensor([r["scores"] for r in rows], dtype=torch.float64)
+    probs = (scores.sigmoid() if task.multi_label else scores.softmax(-1)).float()  # the soft targets
     upper = [i for i, g in enumerate(all_gold) if g is not None]
     kgold = [i for i, g in enumerate(gold or []) if g is not None]
     for name, *_ in VARIANTS:  # drop models from an earlier train in this run directory
@@ -198,7 +192,7 @@ def cmd_train(a: argparse.Namespace) -> None:
     for i in range(a.seeds):
         seed = a.seed + i
         out = run if i == 0 else run / "seeds" / str(seed)
-        hp = (a.epochs, a.batch_size, a.lr, a.max_length, device, seed, log)
+        hp = (a.epochs, a.batch_size, a.lr, a.max_length, device, seed, log, task.multi_label)
         log(f"seed {seed}: distilling {a.student} on {len(rows)} texts, {n_gold} with gold labels ({device})")
         train_student(texts, probs, task.labels, out / "student", a.student, gold, a.ce_weight, *hp)
         if a.gold_only:
@@ -265,6 +259,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
         hf_weights_mb,
         macro_f1,
         markdown_table,
+        multilabel_metrics,
         ordinal_metrics,
         time_calls,
     )
@@ -280,15 +275,28 @@ def cmd_eval(a: argparse.Namespace) -> None:
     labelled = [r for r in test if r["gold"] is not None]
     gold = [r["gold"] for r in labelled]
     texts = [r["text"] for r in labelled]
-    teacher_pred = [_argmax(r["scores"]) for r in labelled]
+    multi = task.multi_label
+
+    def decide(scores) -> int | frozenset[int]:
+        """A prediction from label scores or logits: the top label, or (multi-label) every positive one."""
+        row = list(scores)
+        return frozenset(i for i, x in enumerate(row) if x > 0) if multi else _argmax(row)
+
+    if multi:
+        gold = [frozenset(g) for g in gold]
+    teacher_pred = [decide(r["scores"]) for r in labelled]
     bench_texts = [r["text"] for r in (test or train)]
     if not bench_texts:
         raise SystemExit("no texts to evaluate on: label a --test set (or training data) first")
     threads = torch.get_num_threads()
 
-    def quality(pred: list[int]) -> dict:
+    def quality(pred: list) -> dict:
         if not gold:
             return {}
+        if multi:
+            return multilabel_metrics(pred, gold, len(task.labels)) | {
+                "agreement": accuracy(pred, teacher_pred)
+            }
         extra = ordinal_metrics(pred, gold) if task.ordinal else {}
         return extra | {
             "accuracy": accuracy(pred, gold),
@@ -307,7 +315,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
         devices = ["vllm"]  # the teacher runs on the server
     members: list[dict] = []
     for ti, name in enumerate(teachers):
-        own = [_argmax(r["teacher_scores"][ti]) for r in labelled] if len(teachers) > 1 else teacher_pred
+        own = [decide(r["teacher_scores"][ti]) for r in labelled] if len(teachers) > 1 else teacher_pred
         q = quality(own)
         q.pop("agreement", None)
         for dev in devices:
@@ -379,7 +387,9 @@ def cmd_eval(a: argparse.Namespace) -> None:
         per_seed = []
         for d in dirs:
             model, tok = load_student(d, "cpu")
-            per_seed.append(quality(student_logits(model, tok, texts).argmax(-1).tolist() if texts else []))
+            per_seed.append(
+                quality([decide(z) for z in student_logits(model, tok, texts).tolist()] if texts else [])
+            )
         row = {"role": role, "name": row_name, "device": "cpu", **aggregate(per_seed)}
         if role == "student":  # timings and size of the shipped (first-seed) model
             model, tok = load_student(dirs[0], "cpu")
@@ -400,7 +410,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
             continue
         log(f"evaluating {f.name} (onnxruntime, CPU)")
         pr = Predictor(run / "onnx", int8=int8, threads=threads)
-        pred = pr.logits(texts).argmax(-1).tolist() if texts else []
+        pred = [decide(z) for z in pr.logits(texts).tolist()] if texts else []
         row = {
             "role": "student",
             "name": f"student, ONNX {'int8' if int8 else 'fp32'}",
@@ -451,7 +461,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
     }
     md = markdown_table(results)
     deployed = _deployed(run)
-    if labelled and deployed is not None:
+    if labelled and deployed is not None and not multi:  # the cascade is for single-label tasks
         from .evaluate import cascade_curve, cascade_table
 
         probs = deployed.predict_proba(texts)
@@ -523,14 +533,8 @@ def cmd_predict(a: argparse.Namespace) -> None:
             r["confidence"] = round(r["confidence"], 4)
             print(json.dumps({"text": t, **r}, ensure_ascii=False))
         return
-    probs = pr.predict_proba(texts)
-    for t, p in zip(texts, probs, strict=True):
-        i = int(p.argmax())
-        print(
-            json.dumps(
-                {"text": t, "label": pr.labels[i], "confidence": round(float(p[i]), 4)}, ensure_ascii=False
-            )
-        )
+    for t, r in zip(texts, pr.describe(texts), strict=True):
+        print(json.dumps({"text": t, **r}, ensure_ascii=False))
 
 
 def cmd_serve(a: argparse.Namespace) -> None:

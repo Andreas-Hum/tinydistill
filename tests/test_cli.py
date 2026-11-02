@@ -478,3 +478,80 @@ def test_ordinal_task_reports_distances(tmp_path):
     assert all("mae" in m and "within_one" in m for m in results["models"])
     head = (run / "results.md").read_text().splitlines()[0]
     assert "| MAE (label steps) | Within one step |" in head
+
+
+MULTI_TASK = """\
+name: toy-multi
+text_field: review
+label_field: topics
+multi_label: true
+prompt: |
+  Review: {text}
+  Does the review talk about {label}? Answer yes or no.
+labels:
+  price: the price
+  delivery: delivery
+  quality: product quality
+"""
+
+
+def test_multi_label_end_to_end(tmp_path, capsys):
+    from tinydistill.data import read_examples
+    from tinydistill.export import Cascade, Predictor
+    from tinydistill.task import load_task
+
+    (tmp_path / "task.yaml").write_text(MULTI_TASK)
+    rows = [
+        {
+            "review": f"review {i}",
+            "topics": [["price"], ["delivery", "quality"], [], ["price", "quality"]][i % 4],
+        }
+        for i in range(12)
+    ]
+    rows[0]["topics"] = "price|delivery"  # strings with | work too
+    write_jsonl(tmp_path / "d.jsonl", rows)
+    task = load_task(tmp_path / "task.yaml")
+    assert [e.gold for e in read_examples(str(tmp_path / "d.jsonl"), task)][:3] == [[0, 1], [1, 2], []]
+    run = tmp_path / "run"
+    main(
+        [
+            "run",
+            str(tmp_path / "task.yaml"),
+            "--data",
+            str(tmp_path / "d.jsonl"),
+            "--test",
+            str(tmp_path / "d.jsonl"),
+            "--out",
+            str(run),
+            "--teacher",
+            TINY_LM,
+            "--student",
+            TINY_ENCODER,
+            "--epochs",
+            "1",
+            "--batch-size",
+            "4",
+            "--reps",
+            "2",
+            "--teacher-reps",
+            "2",
+            "--device",
+            "cpu",
+            "--int8",
+            "--gold-per-class",
+            "1",
+            "--gold-only",
+            "--upper-bound",
+        ]
+    )
+    results = json.loads((run / "results.json").read_text())
+    assert all("micro_f1" in m for m in results["models"]) and "cascade" not in results
+    assert "| Micro-F1 |" in (run / "results.md").read_text().splitlines()[0]
+    pr = Predictor(run / "onnx")
+    assert pr.multi_label and all(set(p) <= set(task.labels) for p in pr.predict(["a", "b"]))
+    with pytest.raises(ValueError, match="single-label"):
+        Cascade(pr, None, 0.5)
+    capsys.readouterr()
+    main(["predict", str(run / "onnx"), "great price"])
+    out = json.loads(capsys.readouterr().out)
+    assert set(out) == {"text", "labels", "scores"} and set(out["scores"]) == set(task.labels)

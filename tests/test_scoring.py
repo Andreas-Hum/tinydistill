@@ -265,3 +265,49 @@ def test_chunked_prompt_prefix_gives_the_same_scores(lm, task):
     assert len(chunked.prefix_ids) > 6
     for text in ["fine", "a longer review that says rather more"]:
         assert chunked.form_scores(text).tolist() == pytest.approx(whole.form_scores(text).tolist(), abs=1e-4)
+
+
+@pytest.fixture
+def multi_task(task):
+    return type(task)(
+        **{
+            **task.__dict__,
+            "labels": ["price", "delivery", "quality"],
+            "verbalisations": ["the price", "delivery", "product quality"],
+            "multi_label": True,
+            "prompt": "Review: {text}\nDoes the review talk about {label}? Answer yes or no.",
+        }
+    )
+
+
+@pytest.mark.parametrize("chat", [True, False])
+def test_multi_label_scores_are_yes_no_log_odds(lm, multi_task, chat):
+    model, tok = lm
+    scorer = LabelScorer(model, tok, multi_task, use_chat_template=chat, max_tokens=10_000)
+    assert set(scorer.form_answer) == {0, 1} and set(scorer.form_label) == {0, 1, 2}
+    texts = ["cheap but it broke after a week", "fine"]
+    for text, row, got in zip(texts, scorer.form_scores_many(texts), scorer.score_many(texts), strict=True):
+        want = reference(scorer, text)
+        assert row.tolist() == pytest.approx(want, abs=1e-4)
+        for li in range(3):  # log P(yes forms) - log P(no forms), from the hand computation
+            yes = [
+                w
+                for w, lab, a in zip(want, scorer.form_label, scorer.form_answer, strict=True)
+                if lab == li and a == 0
+            ]
+            no = [
+                w
+                for w, lab, a in zip(want, scorer.form_label, scorer.form_answer, strict=True)
+                if lab == li and a == 1
+            ]
+            assert got[li] == pytest.approx(
+                math.log(sum(map(math.exp, yes))) - math.log(sum(map(math.exp, no))), abs=1e-4
+            )
+
+
+def test_multi_label_ensemble_averages_per_label_probabilities():
+    from tinydistill.teacher import combine_scores
+
+    # label 1: p = 0.5 and 0.9 -> 0.7; label 2: p = 0.2 and 0.2 -> 0.2
+    got = combine_scores([[0.0, math.log(0.25)], [math.log(9.0), math.log(0.25)]], multi_label=True)
+    assert got == pytest.approx([math.log(0.7 / 0.3), math.log(0.25)], abs=1e-12)

@@ -29,10 +29,14 @@ class Task:
     # Extra ways of writing each name that the teacher's score includes (the name as written always counts).
     surface_forms: tuple[str, ...] = SURFACE_FORMS
     ordinal: bool = False  # the labels are listed in order (e.g. 1 to 5 stars): also report distances
+    multi_label: bool = False  # each label is a separate yes/no question ({label} in the prompt)
+    answers: tuple[str, str] = ("yes", "no")  # the teacher's answers to a multi-label question
 
-    def render(self, text: str, examples: list[tuple[str, int]] | None = None) -> str:
+    def render(
+        self, text: str, examples: list[tuple[str, int]] | None = None, label: str | None = None
+    ) -> str:
         """The user message for one input text. ``examples`` are (text, label index) pairs shown in place of
-        {examples}; without them the {examples} line is removed."""
+        {examples}; without them the {examples} line is removed. ``label`` fills {label} (multi-label)."""
         descs = self.descriptions or [None] * len(self.labels)
         options = "\n".join(
             f"- {v}: {d}" if d else f"- {v}" for v, d in zip(self.verbalisations, descs, strict=True)
@@ -43,6 +47,8 @@ class Task:
             prompt = prompt.replace("{examples}", "\nExamples:\n" + shots)
         else:
             prompt = prompt.replace("{examples}\n", "").replace("{examples}", "")
+        if label is not None:
+            prompt = prompt.replace("{label}", label)
         return prompt.replace("{text}", text)
 
     def to_dict(self) -> dict:
@@ -57,6 +63,8 @@ class Task:
             "prompt": self.prompt,
             "surface_forms": list(self.surface_forms),
             "ordinal": self.ordinal,
+            "multi_label": self.multi_label,
+            "answers": list(self.answers),
             "labels": labels,
         }
 
@@ -103,8 +111,21 @@ def load_task(path: str | Path) -> Task:
     if len(set(verbs)) != len(verbs):
         raise ValueError(f"{path}: label names must be unique")
     prompt = raw.get("prompt")
-    if not isinstance(prompt, str) or prompt.count("{text}") != 1 or "{labels}" not in prompt:
+    multi = bool(raw.get("multi_label", False))
+    if not isinstance(prompt, str) or prompt.count("{text}") != 1:
+        raise ValueError(f"{path}: 'prompt' must contain {{text}} exactly once")
+    if multi:
+        if prompt.count("{label}") != 1 or prompt.index("{label}") < prompt.index("{text}"):
+            raise ValueError(f"{path}: a multi-label prompt must contain {{label}} once, after {{text}}")
+        if "{examples}" in prompt:
+            raise ValueError(f"{path}: few-shot examples are not supported for multi-label tasks")
+    elif "{labels}" not in prompt:
         raise ValueError(f"{path}: 'prompt' must contain {{labels}} and contain {{text}} exactly once")
+    answers = raw.get("answers", ["yes", "no"])
+    if not (
+        isinstance(answers, list) and len(answers) == 2 and all(isinstance(a, str) and a for a in answers)
+    ):
+        raise ValueError(f"{path}: 'answers' must be two strings, the positive answer first")
     return Task(
         name=str(raw.get("name", Path(path).stem)),
         labels=[lid for lid, _ in items],
@@ -115,6 +136,8 @@ def load_task(path: str | Path) -> Task:
         descriptions=descs if any(descs) else [],
         surface_forms=_parse_forms(path, raw.get("surface_forms", list(SURFACE_FORMS))),
         ordinal=bool(raw.get("ordinal", False)),
+        multi_label=multi,
+        answers=(answers[0], answers[1]),
     )
 
 

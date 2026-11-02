@@ -96,3 +96,31 @@ def test_ordinal_metrics_by_hand():
 
     m = ordinal_metrics([0, 2, 4, 1], [0, 1, 1, 1])  # distances 0, 1, 3, 0
     assert m == {"mae": 1.0, "within_one": 0.75}
+
+
+def test_multilabel_metrics_by_hand():
+    from tinydistill.evaluate import multilabel_metrics
+
+    gold = [{0, 1}, {1}, set()]
+    pred = [{0, 1}, {1, 2}, set()]
+    m = multilabel_metrics(pred, gold, 3)
+    # exact match: texts 1 and 3. F1: label 0 = 1, label 1 = 1, label 2: tp 0 fp 1 -> 0. micro: tp 3 fp 1 fn 0
+    assert m["accuracy"] == pytest.approx(2 / 3)
+    assert m["macro_f1"] == pytest.approx(2 / 3)
+    assert m["micro_f1"] == pytest.approx(6 / 7)
+
+
+def test_multilabel_distillation_loss_and_gold_selection():
+    from tinydistill.student import distillation_loss_multilabel, few_gold_sets
+
+    z = torch.zeros(1, 2)
+    assert distillation_loss_multilabel(z, torch.tensor([[1.0, 0.0]])).item() == pytest.approx(math.log(2))
+    gold = torch.tensor([[1.0, 1.0]])
+    both = distillation_loss_multilabel(
+        z, torch.tensor([[1.0, 0.0]]), gold, torch.tensor([True]), ce_weight=0.5
+    )
+    assert both.item() == pytest.approx(math.log(2) * 1.5)
+    sets = [[0], [0, 1], [1], None, [0], [2]]
+    kept = few_gold_sets(sets, 1, seed=0)
+    assert all(k is None or k == s for k, s in zip(kept, sets, strict=True))
+    assert {c for k in kept if k for c in k} == {0, 1, 2}  # every label is covered

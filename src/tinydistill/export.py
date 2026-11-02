@@ -75,6 +75,8 @@ class Predictor:
         self.session = ort.InferenceSession(str(file), opts, providers=["CPUExecutionProvider"])
         self.tok = AutoTokenizer.from_pretrained(path)
         self.labels: list[str] = json.loads((path / "labels.json").read_text(encoding="utf-8"))
+        config = json.loads((path / "config.json").read_text()) if (path / "config.json").exists() else {}
+        self.multi_label = config.get("problem_type") == "multi_label_classification"
         self.max_length = max_length
         self.file = file
 
@@ -96,12 +98,36 @@ class Predictor:
         return np.concatenate(out) if out else np.zeros((0, len(self.labels)), dtype=np.float32)
 
     def predict_proba(self, texts: list[str], batch_size: int = 32) -> np.ndarray:
+        """Label probabilities per text: a softmax, or for a multi-label model each label's sigmoid."""
         z = self.logits(texts, batch_size)
+        if self.multi_label:
+            return 1 / (1 + np.exp(-z))
         z = np.exp(z - z.max(-1, keepdims=True))
         return z / z.sum(-1, keepdims=True)
 
-    def predict(self, texts: list[str], batch_size: int = 32) -> list[str]:
-        return [self.labels[i] for i in self.logits(texts, batch_size).argmax(-1)]
+    def predict(self, texts: list[str], batch_size: int = 32) -> list:
+        """The top label per text, or for a multi-label model the list of labels with probability >= 0.5."""
+        z = self.logits(texts, batch_size)
+        if self.multi_label:
+            return [[self.labels[i] for i in np.flatnonzero(row > 0)] for row in z]
+        return [self.labels[i] for i in z.argmax(-1)]
+
+    def describe(self, texts: list[str]) -> list[dict]:
+        """Per text, as JSON-ready dicts: the label and its probability, or (multi-label) the labels and
+        every label's probability."""
+        out = []
+        for p in self.predict_proba(texts):
+            if self.multi_label:
+                out.append(
+                    {
+                        "labels": [self.labels[i] for i in np.flatnonzero(p >= 0.5)],
+                        "scores": {lab: round(float(x), 4) for lab, x in zip(self.labels, p, strict=True)},
+                    }
+                )
+            else:
+                i = int(p.argmax())
+                out.append({"label": self.labels[i], "confidence": round(float(p[i]), 4)})
+        return out
 
 
 class Cascade:
@@ -110,6 +136,8 @@ class Cascade:
     ``teacher`` is a LabelScorer (see ``load_teacher``) for the same task and label order."""
 
     def __init__(self, student: Predictor, teacher, threshold: float):
+        if student.multi_label:
+            raise ValueError("the cascade is for single-label models")
         self.student, self.teacher, self.threshold = student, teacher, threshold
 
     def predict(self, texts: list[str]) -> list[dict]:

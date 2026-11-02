@@ -27,6 +27,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from .task import Task
 
 _SENTINEL = "\x00TEXT\x00"
+_LABEL = "\x00LABEL\x00"
 
 
 def pick_device(device: str) -> str:
@@ -53,6 +54,16 @@ def surface_variants(name: str, kinds=("lowercase", "capitalised", "uppercase"))
     return out
 
 
+def _group_logsumexp(f: torch.Tensor, group: torch.Tensor, n: int) -> torch.Tensor:
+    """(rows, items) values -> (rows, n) log-sum-exp over the items of each group."""
+    idx = group.expand_as(f)
+    top = torch.full((f.shape[0], n), -torch.inf, dtype=f.dtype, device=f.device).scatter_reduce(
+        1, idx, f, "amax"
+    )
+    total = torch.zeros_like(top).scatter_add_(1, idx, (f - top.gather(1, idx)).exp())
+    return top + total.log()
+
+
 class _Prompt:
     """The rendered prompt split around the text, and every label's continuations, as token ids. Shared by the
     local scorer and the vLLM client, which score the same continuations."""
@@ -70,9 +81,9 @@ class _Prompt:
         self.task = task
         self.chat = use_chat_template and bool(getattr(tokenizer, "chat_template", None))
 
-        # Split the rendered prompt around the text.
+        # Split the rendered prompt around the text (and, multi-label, around the label being asked about).
         self.examples = examples or []
-        user = task.render(_SENTINEL, self.examples)
+        user = task.render(_SENTINEL, self.examples, _LABEL if task.multi_label else None)
         if self.chat:
             full = tokenizer.apply_chat_template(
                 [{"role": "user", "content": user}], tokenize=False, add_generation_prompt=True
@@ -80,6 +91,9 @@ class _Prompt:
         else:
             full = user
         prefix, suffix = full.split(_SENTINEL)
+        rest = ""  # multi-label: what follows {label}, up to where the answer starts
+        if task.multi_label:
+            suffix, rest = suffix.split(_LABEL)
         self.suffix = suffix
         ids = tokenizer(prefix, add_special_tokens=False)["input_ids"]
         if not self.chat and tokenizer.bos_token_id is not None:
@@ -97,7 +111,22 @@ class _Prompt:
         end = [tokenizer.eos_token_id] if tokenizer.eos_token_id is not None else []
         self.forms: list[list[int]] = []  # token ids of every continuation
         self.form_label: list[int] = []  # which label each continuation belongs to
+        self.form_answer: list[int] = []  # multi-label: 0 = the positive answer, 1 = the negative one
         seen: dict[tuple[int, ...], int] = {}
+        if task.multi_label:
+            # Per label: the question's remainder ("{label}" onwards), then each surface form of each answer.
+            # Both answers share the question tokens, so their probability cancels in the label's log-odds.
+            for li, name in enumerate(task.verbalisations):
+                question = tokenizer(name + rest, add_special_tokens=False)["input_ids"]
+                for ai, answer in enumerate(task.answers):
+                    for text in surface_variants(answer, task.surface_forms) if surface_forms else [answer]:
+                        ids = tuple(question + tokenizer(text, add_special_tokens=False)["input_ids"] + end)
+                        if ids not in seen:
+                            seen[ids] = li
+                            self.forms.append(list(ids))
+                            self.form_label.append(li)
+                            self.form_answer.append(ai)
+            return
         for li, name in enumerate(task.verbalisations):
             texts = (
                 surface_variants(name, task.surface_forms)
@@ -118,10 +147,17 @@ class _Prompt:
         return self.tok(text + self.suffix, add_special_tokens=False)["input_ids"]
 
     def _label_scores(self, f: torch.Tensor) -> list[list[float]]:
-        """(texts, forms) log-probabilities -> per label, the log of the summed probability of its forms."""
+        """(texts, forms) log-probabilities -> per label, the log of the summed probability of its forms.
+        Multi-label: per label, log P(positive answer) - log P(negative answer), each over its forms."""
         f = f.double()
-        idx = torch.tensor(self.form_label, device=f.device).expand_as(f)
         n = len(self.task.labels)
+        if self.task.multi_label:
+            group = torch.tensor(self.form_label, device=f.device) * 2 + torch.tensor(
+                self.form_answer, device=f.device
+            )
+            lse = _group_logsumexp(f, group, 2 * n).view(f.shape[0], n, 2)
+            return (lse[..., 0] - lse[..., 1]).tolist()
+        idx = torch.tensor(self.form_label, device=f.device).expand_as(f)
         top = torch.full((f.shape[0], n), -torch.inf, dtype=f.dtype, device=f.device)
         top = top.scatter_reduce(1, idx, f, "amax")
         total = torch.zeros_like(top).scatter_add_(1, idx, (f - top.gather(1, idx)).exp())
@@ -208,6 +244,7 @@ class LabelScorer(_Prompt):
             "suffix": self.suffix,
             "forms": self.forms,
             "form_label": self.form_label,
+            "form_answer": self.form_answer,
         }
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
@@ -308,13 +345,15 @@ class LabelScorer(_Prompt):
         return torch.stack(results)
 
 
-def combine_scores(per_teacher: list[list[float]]) -> list[float]:
+def combine_scores(per_teacher: list[list[float]], multi_label: bool = False) -> list[float]:
     """Ensemble of several teachers' label scores: the log of the mean of their label probabilities (each
-    teacher's softmax). With one teacher the scores are returned unchanged."""
+    teacher's softmax; multi-label, each label's sigmoid, returned as log-odds). One teacher is unchanged."""
     if len(per_teacher) == 1:
         return per_teacher[0]
-    probs = torch.tensor(per_teacher, dtype=torch.float64).softmax(-1).mean(0)
-    return probs.log().tolist()
+    scores = torch.tensor(per_teacher, dtype=torch.float64)
+    if multi_label:
+        return torch.logit(scores.sigmoid().mean(0)).tolist()
+    return scores.softmax(-1).mean(0).log().tolist()
 
 
 class VLLMScorer(_Prompt):
@@ -348,6 +387,7 @@ class VLLMScorer(_Prompt):
             "suffix": self.suffix,
             "forms": self.forms,
             "form_label": self.form_label,
+            "form_answer": self.form_answer,
         }
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
@@ -391,7 +431,8 @@ class Ensemble:
 
     def score_many(self, texts: list[str]) -> list[list[float]]:
         per = [m.score_many(texts) for m in self.members]
-        return [combine_scores([p[i] for p in per]) for i in range(len(texts))]
+        multi = self.members[0].task.multi_label
+        return [combine_scores([p[i] for p in per], multi) for i in range(len(texts))]
 
     def score(self, text: str) -> list[float]:
         return self.score_many([text])[0]

@@ -30,6 +30,29 @@ def macro_f1(pred: Sequence[int], gold: Sequence[int]) -> float:
     return sum(f1s) / len(f1s)
 
 
+def multilabel_metrics(pred: Sequence[set[int]], gold: Sequence[set[int]], labels: int) -> dict:
+    """Exact-match accuracy, macro-F1 (mean over labels) and micro-F1 for sets of labels."""
+    tp = [0] * labels
+    fp = [0] * labels
+    fn = [0] * labels
+    for p, g in zip(pred, gold, strict=True):
+        for c in p & g:
+            tp[c] += 1
+        for c in p - g:
+            fp[c] += 1
+        for c in g - p:
+            fn[c] += 1
+    f1 = [2 * t / (2 * t + a + b) if t else 0.0 for t, a, b in zip(tp, fp, fn, strict=True) if t + a + b]
+    micro = 2 * sum(tp) / (2 * sum(tp) + sum(fp) + sum(fn)) if sum(tp) else 0.0
+    return {
+        "accuracy": sum(p == g for p, g in zip(pred, gold, strict=True)) / len(gold)
+        if gold
+        else float("nan"),
+        "macro_f1": sum(f1) / len(f1) if f1 else float("nan"),
+        "micro_f1": micro,
+    }
+
+
 def ordinal_metrics(pred: Sequence[int], gold: Sequence[int]) -> dict:
     """For ordered labels: mean absolute error in label steps, and the share at most one step off."""
     d = [abs(p - g) for p, g in zip(pred, gold, strict=True)]
@@ -118,16 +141,20 @@ def _pm(row: dict, key: str) -> str:
     return _fmt(row.get(key), ".3f") + (f" ± {std:.3f}" if std is not None else "")
 
 
+EXTRA_COLUMNS = (("micro_f1", "Micro-F1"), ("mae", "MAE (label steps)"), ("within_one", "Within one step"))
+
+
 def markdown_table(results: dict) -> str:
     rows = results["models"]
     ref = next((r for r in rows if r["role"] == "teacher" and r.get("latency_ms_b1")), None)
-    ordinal = any("mae" in r for r in rows)  # ordered labels: also distances in label steps
+    # extra quality columns, when the task has them: multi-label (micro-F1) or ordered labels (distances)
+    extra = [(k, name) for k, name in EXTRA_COLUMNS if any(k in r for r in rows)]
     head = (
         "| Model | Device | Accuracy | Macro-F1 "
-        + ("| MAE (label steps) | Within one step " if ordinal else "")
+        + "".join(f"| {name} " for _, name in extra)
         + "| Agreement with teacher | Latency, batch 1 (ms) "
         "| Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |\n"
-        + "|---" * (12 if ordinal else 10)
+        + "|---" * (10 + len(extra))
         + "|\n"
     )
     lines = []
@@ -136,7 +163,7 @@ def markdown_table(results: dict) -> str:
         lines.append(
             f"| {r['name']} | {r['device']} "
             f"| {_pm(r, 'accuracy')} | {_pm(r, 'macro_f1')} "
-            + (f"| {_pm(r, 'mae')} | {_pm(r, 'within_one')} " if ordinal else "")
+            + "".join(f"| {_pm(r, k)} " for k, _ in extra)
             + f"| {_pm(r, 'agreement')} | {_fmt(r.get('latency_ms_b1'), '.1f')} "
             f"| {_fmt(r.get('latency_ms_b32'), '.1f')} | {_fmt(r.get('throughput_per_s'), '.1f')} "
             f"| {_fmt(r.get('size_mb'), '.0f')} | {_fmt(speed, '.1f') + 'x' if speed else 'n/a'} |"
