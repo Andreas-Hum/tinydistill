@@ -578,3 +578,44 @@ def test_synth_command_runs(tmp_path):
     )
     rows = [json.loads(line) for line in out.read_text().splitlines()]  # a random tiny model writes gibberish
     assert all(set(r) == {"review", "prompted_label"} for r in rows)
+
+
+def test_report_rebuilds_the_markdown(tmp_path):
+    run = tmp_path / "run"
+    run.mkdir()
+    results = {
+        "task": "t",
+        "teacher": "T",
+        "student": "S",
+        "data": {"n_train": 2, "n_test": 2},
+        "environment": {"cpu_threads": 2},
+        "models": [
+            {
+                "role": "teacher",
+                "name": "teacher, zero-shot",
+                "device": "cpu",
+                "accuracy": 0.5,
+                "latency_ms_b1": 1000.0,
+            },
+            {
+                "role": "teacher",
+                "name": "teacher, zero-shot",
+                "device": "cuda",
+                "accuracy": 0.5,
+                "latency_ms_b1": 50.0,
+            },
+            {
+                "role": "student",
+                "name": "student, ONNX int8",
+                "device": "cpu",
+                "accuracy": 0.4,
+                "latency_ms_b1": 2.0,
+            },
+        ],
+        "cascade": [{"share_to_teacher": 0.5, "threshold": 0.6, "accuracy": 0.45, "macro_f1": 0.4}],
+    }
+    (run / "results.json").write_text(json.dumps(results))
+    main(["report", str(run)])
+    md = (run / "results.md").read_text()
+    # the cascade uses the fastest teacher: 2 + 0.5 * 50 = 27 ms
+    assert "| 50% | 0.600 | 0.450 | 0.400 | 27.0 |" in md and "teacher, zero-shot on cuda." in md

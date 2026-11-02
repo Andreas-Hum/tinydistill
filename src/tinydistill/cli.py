@@ -258,9 +258,9 @@ def cmd_eval(a: argparse.Namespace) -> None:
         environment,
         hf_weights_mb,
         macro_f1,
-        markdown_table,
         multilabel_metrics,
         ordinal_metrics,
+        render,
         time_calls,
     )
     from .export import Predictor
@@ -459,24 +459,25 @@ def cmd_eval(a: argparse.Namespace) -> None:
         "environment": environment(threads),
         "models": models,
     }
-    md = markdown_table(results)
     deployed = _deployed(run)
     if labelled and deployed is not None and not multi:  # the cascade is for single-label tasks
-        from .evaluate import cascade_curve, cascade_table
+        from .evaluate import cascade_curve
 
         probs = deployed.predict_proba(texts)
-        curve = cascade_curve(probs.max(-1).tolist(), probs.argmax(-1).tolist(), teacher_pred, gold)
-        rows = [m for m in models if m["role"] == "student" and m.get("latency_ms_b1")]
-        ref = next((m for m in models if m["role"] == "teacher" and m.get("latency_ms_b1")), None)
-        student = next((m for m in rows if "int8" in m["name"]), rows[-1] if rows else None)
-        results["cascade"] = curve
-        md += "\n### Cascade: student first, unsure texts to the teacher\n\n" + cascade_table(
-            curve,
-            student and student["latency_ms_b1"],
-            ref and ref["latency_ms_b1"],
-            f"{ref['name']} on {ref['device']}" if ref else "teacher",
+        results["cascade"] = cascade_curve(
+            probs.max(-1).tolist(), probs.argmax(-1).tolist(), teacher_pred, gold
         )
     (run / "results.json").write_text(json.dumps(results, indent=2))
+    md = render(results)
+    (run / "results.md").write_text(md)
+    print(md)
+
+
+def cmd_report(a: argparse.Namespace) -> None:
+    from .evaluate import render
+
+    run = Path(a.run)
+    md = render(json.loads((run / "results.json").read_text()))
     (run / "results.md").write_text(md)
     print(md)
 
@@ -787,6 +788,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--license", help="licence identifier for the model card (check student, teacher and data)"
     )
     psh.set_defaults(fn=cmd_push)
+    sub.add_parser(
+        "report", parents=[run_dir], help="rebuild RUN/results.md from RUN/results.json"
+    ).set_defaults(fn=cmd_report)
     cmp = sub.add_parser("compare", help="one markdown table comparing several runs (e.g. student sizes)")
     cmp.add_argument("runs", nargs="+", help="run directories or results.json files")
     cmp.set_defaults(fn=cmd_compare)

@@ -292,7 +292,26 @@ def cascade_table(
     note = (
         "\nThe student answers every text and passes its least confident ones to the teacher. Thresholds are "
         "set on the test texts to hit each share; in deployment, set them on a validation split. "
-        "Latency is the "
-        f"student's batch-1 latency plus the share times the {teacher_name}'s.\n"
+        "Latency is the student's batch-1 latency plus the share times the batch-1 latency of the "
+        f"{teacher_name}.\n"
     )
     return head + "\n".join(rows) + "\n" + note
+
+
+def render(results: dict) -> str:
+    """The whole report from results.json: the results table and, if there is one, the cascade table."""
+    md = markdown_table(results)
+    if results.get("cascade"):
+        rows = results["models"]
+        students = [m for m in rows if m["role"] == "student" and m.get("latency_ms_b1")]
+        student = next((m for m in students if "int8" in m["name"]), students[-1] if students else None)
+        # A cascade sends its unsure texts to a teacher on its fastest device, so the latency uses that one.
+        teachers = [m for m in rows if m["role"] == "teacher" and m.get("latency_ms_b1")]
+        fast = min(teachers, key=lambda m: m["latency_ms_b1"]) if teachers else None
+        md += "\n### Cascade: student first, unsure texts to the teacher\n\n" + cascade_table(
+            results["cascade"],
+            student and student["latency_ms_b1"],
+            fast and fast["latency_ms_b1"],
+            f"{fast['name']} on {fast['device']}" if fast else "teacher",
+        )
+    return md
