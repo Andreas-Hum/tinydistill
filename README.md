@@ -168,7 +168,9 @@ with and without a leading space (forms that tokenise identically count once):
     score(label) = log sum over forms c of p(c | prompt(x))
 
 This is verbaliser coverage: it only counts more ways of writing the same answer, and there is no calibration or
-prior correction. A softmax over the label scores gives the soft targets. The prompt lists each label in its
+prior correction. All forms share the prefix tree below, but with many labels they still add up; a task file can
+list fewer (`surface_forms: [lowercase, capitalised]` drops UPPERCASE, which tokenises into many pieces, and
+`surface_forms: []` scores the name as written only). A softmax over the label scores gives the soft targets. The prompt lists each label in its
 primary form, the name as written. The scores are cached as JSON lines keyed by a hash of the text, in a file
 named after a fingerprint of the teacher, prompt and continuations, so an interrupted run resumes and a changed
 prompt never reuses old scores.

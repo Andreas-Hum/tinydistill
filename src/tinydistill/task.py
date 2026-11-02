@@ -9,6 +9,8 @@ from pathlib import Path
 
 import yaml
 
+SURFACE_FORMS = ("lowercase", "capitalised", "uppercase")
+
 
 def label_name(label_id: str) -> str:
     """Natural-language name for a label id: card_arrival -> 'card arrival', top-up -> 'top up'."""
@@ -24,6 +26,8 @@ class Task:
     text_field: str = "text"
     label_field: str | None = "label"
     descriptions: list[str | None] = field(default_factory=list)  # optional, shown in the prompt only
+    # Extra ways of writing each name that the teacher's score includes (the name as written always counts).
+    surface_forms: tuple[str, ...] = SURFACE_FORMS
 
     def render(self, text: str) -> str:
         """The user message for one input text."""
@@ -43,6 +47,7 @@ class Task:
             "text_field": self.text_field,
             "label_field": self.label_field,
             "prompt": self.prompt,
+            "surface_forms": list(self.surface_forms),
             "labels": labels,
         }
 
@@ -60,6 +65,12 @@ def _parse_label(path, lid: str, value) -> tuple[str, str | None]:
         desc = value.get("description")
         return str(name), (str(desc) if desc else None)
     raise ValueError(f"{path}: label {lid!r} must be a name, a mapping with name/description, or empty")
+
+
+def _parse_forms(path, value) -> tuple[str, ...]:
+    if not isinstance(value, list) or not set(value) <= set(SURFACE_FORMS):
+        raise ValueError(f"{path}: 'surface_forms' must be a list drawn from {list(SURFACE_FORMS)}")
+    return tuple(f for f in SURFACE_FORMS if f in value)
 
 
 def load_task(path: str | Path) -> Task:
@@ -93,4 +104,5 @@ def load_task(path: str | Path) -> Task:
         text_field=str(raw.get("text_field", "text")),
         label_field=raw.get("label_field", "label"),
         descriptions=descs if any(descs) else [],
+        surface_forms=_parse_forms(path, raw.get("surface_forms", list(SURFACE_FORMS))),
     )

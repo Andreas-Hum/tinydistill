@@ -109,6 +109,13 @@ def test_surface_variants_and_deduplication(lm, task):
         " CARD ARRIVAL",
     ]
     assert surface_variants("Visa or Mastercard")[:2] == ["Visa or Mastercard", " Visa or Mastercard"]
+    assert surface_variants("card arrival", ("lowercase", "capitalised")) == [
+        "card arrival",
+        " card arrival",
+        "Card arrival",
+        " Card arrival",
+    ]
+    assert surface_variants("Card", ()) == ["Card", " Card"]
     model, tok = lm
     scorer = LabelScorer(model, tok, task)
     assert len(set(map(tuple, scorer.forms))) == len(scorer.forms)  # identical tokenisations kept once
@@ -164,3 +171,16 @@ def test_4bit_needs_cuda(task):
 
     with pytest.raises(SystemExit, match="CUDA"):
         load_teacher(TINY_LM, task, device="cpu", load_4bit=True)
+
+
+def test_task_can_drop_uppercase_forms(lm, task):
+    model, tok = lm
+    full = LabelScorer(model, tok, task)
+    lean = LabelScorer(
+        model, tok, type(task)(**{**task.__dict__, "surface_forms": ("lowercase", "capitalised")})
+    )
+    names_only = LabelScorer(model, tok, type(task)(**{**task.__dict__, "surface_forms": ()}))
+    assert len(names_only.forms) < len(lean.forms) < len(full.forms)
+    upper = {tuple(tok(v.upper(), add_special_tokens=False)["input_ids"]) for v in task.verbalisations}
+    assert not any(tuple(f[:-1]) in upper for f in lean.forms)
+    assert lean.fingerprint() != full.fingerprint()

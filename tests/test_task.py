@@ -61,3 +61,18 @@ def test_list_form_and_round_trip(tmp_path):
 def test_invalid_tasks_are_rejected(tmp_path, labels, prompt, message):
     with pytest.raises(ValueError, match=message):
         load_task(write(tmp_path, labels, prompt))
+
+
+def test_surface_forms_option(tmp_path):
+    assert load_task(write(tmp_path, ["a", "b"])).surface_forms == ("lowercase", "capitalised", "uppercase")
+    p = tmp_path / "t.yaml"
+    p.write_text(
+        yaml.safe_dump({"prompt": PROMPT, "labels": ["a", "b"], "surface_forms": ["uppercase", "lowercase"]})
+    )
+    task = load_task(p)
+    assert task.surface_forms == ("lowercase", "uppercase")  # canonical order
+    (tmp_path / "saved.yaml").write_text(yaml.safe_dump(task.to_dict()))
+    assert load_task(tmp_path / "saved.yaml") == task
+    p.write_text(yaml.safe_dump({"prompt": PROMPT, "labels": ["a", "b"], "surface_forms": ["shouty"]}))
+    with pytest.raises(ValueError, match="surface_forms"):
+        load_task(p)

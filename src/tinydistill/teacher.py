@@ -38,11 +38,12 @@ def text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:20]
 
 
-def surface_variants(name: str) -> list[str]:
-    """Common ways of writing a label: as written, lowercase, Capitalised, UPPERCASE; each with and without a
-    leading space. The caller drops forms that tokenise identically."""
+def surface_variants(name: str, kinds=("lowercase", "capitalised", "uppercase")) -> list[str]:
+    """Common ways of writing a label: as written, plus the chosen kinds of lowercase, Capitalised and
+    UPPERCASE; each with and without a leading space. The caller drops forms that tokenise identically."""
     low = name.lower()
-    cased = [name, low, low[:1].upper() + low[1:], name.upper()]
+    variant = {"lowercase": low, "capitalised": low[:1].upper() + low[1:], "uppercase": name.upper()}
+    cased = [name, *(variant[k] for k in ("lowercase", "capitalised", "uppercase") if k in kinds)]
     out: list[str] = []
     for form in cased:
         for v in (form, " " + form):
@@ -84,7 +85,12 @@ class LabelScorer:
         self.form_label: list[int] = []  # which label each continuation belongs to
         seen: dict[tuple[int, ...], int] = {}
         for li, name in enumerate(task.verbalisations):
-            for text in surface_variants(name) if surface_forms else [name if self.chat else " " + name]:
+            texts = (
+                surface_variants(name, task.surface_forms)
+                if surface_forms
+                else [name if self.chat else " " + name]
+            )
+            for text in texts:
                 ids = tuple(tokenizer(text, add_special_tokens=False)["input_ids"] + end)
                 if seen.get(ids, li) != li:
                     other = task.verbalisations[seen[ids]]
