@@ -555,3 +555,26 @@ def test_multi_label_end_to_end(tmp_path, capsys):
     main(["predict", str(run / "onnx"), "great price"])
     out = json.loads(capsys.readouterr().out)
     assert set(out) == {"text", "labels", "scores"} and set(out["scores"]) == set(task.labels)
+
+
+def test_synth_command_runs(tmp_path):
+    (tmp_path / "task.yaml").write_text(TASK)
+    out = tmp_path / "synth.jsonl"
+    main(
+        [
+            "synth",
+            str(tmp_path / "task.yaml"),
+            "--per-label",
+            "2",
+            "--out",
+            str(out),
+            "--teacher",
+            TINY_LM,
+            "--device",
+            "cpu",
+            "--temperature",
+            "1.0",
+        ]
+    )
+    rows = [json.loads(line) for line in out.read_text().splitlines()]  # a random tiny model writes gibberish
+    assert all(set(r) == {"review", "prompted_label"} for r in rows)

@@ -563,20 +563,18 @@ def cmd_web(a: argparse.Namespace) -> None:
 
 def cmd_synth(a: argparse.Namespace) -> None:
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     from .synth import generator, synthesise
-    from .teacher import pick_device
+    from .teacher import load_teacher
 
     task = load_task(a.task)
     torch.manual_seed(a.seed)
-    device = pick_device(a.device)
     name = _teachers(a.teacher)[0]
     log(f"loading {name} to write example texts")
-    tok = AutoTokenizer.from_pretrained(name)
-    dtype = torch.bfloat16 if device == "cuda" else torch.float32
-    model = AutoModelForCausalLM.from_pretrained(name, dtype=dtype).to(device).eval()
-    n = synthesise(task, generator(model, tok, a.temperature), a.per_label, Path(a.out), log=log)
+    scorer = load_teacher(name, task, a.device, a.load_4bit)  # its model and tokenizer write the texts
+    n = synthesise(
+        task, generator(scorer.model, scorer.tok, a.temperature), a.per_label, Path(a.out), log=log
+    )
     log(f"wrote {n} texts to {a.out}; label them with `tinydistill run {a.task} --data {a.out} ...`")
 
 
@@ -772,6 +770,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--teacher", default=DEFAULT_TEACHER, help="the model that writes (the first if several)"
     )
     syn.add_argument("--temperature", type=float, default=0.9)
+    syn.add_argument("--load-4bit", action="store_true", help="load the model in 4 bit (bitsandbytes, CUDA)")
     syn.set_defaults(fn=cmd_synth)
     ini = sub.add_parser("init", help="write a starter task file from a dataset's labels")
     ini.add_argument("data", help=".csv, .jsonl or hf:<dataset>[:<config>]:<split> with gold labels")
