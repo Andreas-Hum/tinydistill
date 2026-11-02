@@ -9,6 +9,17 @@ those targets, and the result is exported to ONNX (optionally int8) for fast CPU
 
 It continues my bachelor's project on inference optimisation by distilling LLMs.
 
+```mermaid
+flowchart LR
+    A["Task prompt +<br/>unlabelled texts"] --> B["LLM teacher<br/>(Qwen2.5)"]
+    B -- "soft labels" --> C["Small encoder<br/>student"]
+    C --> D["ONNX / int8<br/>export"]
+    D --> E["Fast CPU<br/>inference"]
+```
+
+Each step is one command: `tinydistill label` (teacher), `train` (student), `export` (ONNX / int8) and
+`predict` (inference), or `tinydistill run` for all of them.
+
 ## Results
 
 Two tasks with `Qwen/Qwen2.5-1.5B-Instruct` as the zero-shot teacher, and Banking77 also with
