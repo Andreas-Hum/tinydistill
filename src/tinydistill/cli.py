@@ -94,7 +94,7 @@ def cmd_label(a: argparse.Namespace) -> None:
     seconds, scored = 0.0, 0
     for name in _teachers(a.teacher):  # one teacher in memory at a time
         log(f"loading teacher {name}")
-        scorer = load_teacher(name, task, a.device, a.load_4bit, a.teacher_tokens, examples)
+        scorer = load_teacher(name, task, a.device, a.load_4bit, a.teacher_tokens, examples, a.vllm_url)
         fingerprints.append(scorer.fingerprint())
         device = str(scorer.device)
         cache = ScoreCache(cache_dir / f"teacher-{fingerprints[-1]}.jsonl")
@@ -145,6 +145,7 @@ def cmd_label(a: argparse.Namespace) -> None:
             "label_seconds": round(seconds, 1),
             "label_texts_scored": scored,
             "teacher_tokens": a.teacher_tokens,
+            "vllm_url": a.vllm_url,
         },
     )
 
@@ -264,6 +265,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
         hf_weights_mb,
         macro_f1,
         markdown_table,
+        ordinal_metrics,
         time_calls,
     )
     from .export import Predictor
@@ -287,7 +289,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
     def quality(pred: list[int]) -> dict:
         if not gold:
             return {}
-        return {
+        extra = ordinal_metrics(pred, gold) if task.ordinal else {}
+        return extra | {
             "accuracy": accuracy(pred, gold),
             "macro_f1": macro_f1(pred, gold),
             "agreement": accuracy(pred, teacher_pred),
@@ -300,6 +303,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
     )
     examples = [(r["text"], r["gold"]) for r in _read_jsonl(run / "examples.jsonl")] or None
     devices = [d for d in (a.teacher_devices or meta.get("teacher_device", "cpu")).split(",") if d]
+    if meta.get("vllm_url"):
+        devices = ["vllm"]  # the teacher runs on the server
     members: list[dict] = []
     for ti, name in enumerate(teachers):
         own = [_argmax(r["teacher_scores"][ti]) for r in labelled] if len(teachers) > 1 else teacher_pred
@@ -318,10 +323,19 @@ def cmd_eval(a: argparse.Namespace) -> None:
             if not a.skip_teacher_bench:
                 log(f"benchmarking the teacher {name} on {dev}")
                 scorer = load_teacher(
-                    name, task, dev, meta.get("load_4bit", False), meta.get("teacher_tokens", 2048), examples
+                    name,
+                    task,
+                    dev,
+                    meta.get("load_4bit", False),
+                    meta.get("teacher_tokens", 2048),
+                    examples,
+                    meta.get("vllm_url"),
                 )
-                row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
-                row["size_mb"] = scorer.model.get_memory_footprint() / 1e6  # weights as loaded (e.g. 4-bit)
+                if hasattr(scorer, "model"):  # a local model (not a vLLM server)
+                    row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
+                    row["size_mb"] = (
+                        scorer.model.get_memory_footprint() / 1e6
+                    )  # weights as loaded (e.g. 4-bit)
                 score = scorer.score_many  # several texts are packed into shared forward passes
                 row.update(bench(score, bench_texts, a.teacher_reps))
                 if row["latency_ms_b1"] * 32 * 4 < 180_000:  # batch 32 only when it takes under three minutes
@@ -435,10 +449,57 @@ def cmd_eval(a: argparse.Namespace) -> None:
         "environment": environment(threads),
         "models": models,
     }
-    (run / "results.json").write_text(json.dumps(results, indent=2))
     md = markdown_table(results)
+    deployed = _deployed(run)
+    if labelled and deployed is not None:
+        from .evaluate import cascade_curve, cascade_table
+
+        probs = deployed.predict_proba(texts)
+        curve = cascade_curve(probs.max(-1).tolist(), probs.argmax(-1).tolist(), teacher_pred, gold)
+        rows = [m for m in models if m["role"] == "student" and m.get("latency_ms_b1")]
+        ref = next((m for m in models if m["role"] == "teacher" and m.get("latency_ms_b1")), None)
+        student = next((m for m in rows if "int8" in m["name"]), rows[-1] if rows else None)
+        results["cascade"] = curve
+        md += "\n### Cascade: student first, unsure texts to the teacher\n\n" + cascade_table(
+            curve,
+            student and student["latency_ms_b1"],
+            ref and ref["latency_ms_b1"],
+            f"{ref['name']} on {ref['device']}" if ref else "teacher",
+        )
+    (run / "results.json").write_text(json.dumps(results, indent=2))
     (run / "results.md").write_text(md)
     print(md)
+
+
+def _deployed(run: Path):
+    """The model a deployment would use: int8 ONNX if exported, else fp32 ONNX, else None."""
+    from .export import Predictor
+
+    onnx = run / "onnx"
+    if (onnx / "model.int8.onnx").exists() or (onnx / "model.onnx").exists():
+        return Predictor(onnx)
+    return None
+
+
+def _run_teacher(run: Path, device: str):
+    """The run's teacher (or ensemble), with its prompt and few-shot examples, for scoring new texts."""
+    from .teacher import Ensemble, load_teacher
+
+    meta, task = _meta(run), load_task(run / "task.yaml")
+    examples = [(r["text"], r["gold"]) for r in _read_jsonl(run / "examples.jsonl")] or None
+    members = [
+        load_teacher(
+            t,
+            task,
+            device,
+            meta.get("load_4bit", False),
+            meta.get("teacher_tokens", 2048),
+            examples,
+            meta.get("vllm_url"),
+        )
+        for t in meta.get("teachers") or [meta["teacher"]]
+    ]
+    return members[0] if len(members) == 1 else Ensemble(members)
 
 
 def cmd_predict(a: argparse.Namespace) -> None:
@@ -454,6 +515,14 @@ def cmd_predict(a: argparse.Namespace) -> None:
     if not texts:
         raise SystemExit("give texts as arguments or --data FILE")
     pr = Predictor(a.model, int8=False if a.fp32 else None)
+    if a.cascade:
+        from .export import Cascade
+
+        cascade = Cascade(pr, _run_teacher(Path(a.cascade), a.device), a.threshold)
+        for t, r in zip(texts, cascade.predict(texts), strict=True):
+            r["confidence"] = round(r["confidence"], 4)
+            print(json.dumps({"text": t, **r}, ensure_ascii=False))
+        return
     probs = pr.predict_proba(texts)
     for t, p in zip(texts, probs, strict=True):
         i = int(p.argmax())
@@ -462,6 +531,49 @@ def cmd_predict(a: argparse.Namespace) -> None:
                 {"text": t, "label": pr.labels[i], "confidence": round(float(p[i]), 4)}, ensure_ascii=False
             )
         )
+
+
+def cmd_serve(a: argparse.Namespace) -> None:
+    from .export import Cascade, Predictor
+    from .serve import make_server
+
+    model = Predictor(a.model)
+    if a.cascade:
+        model = Cascade(model, _run_teacher(Path(a.cascade), a.device), a.threshold)
+    server = make_server(model, a.host, a.port)
+    log(f"serving {a.model} on http://{a.host}:{server.server_port} (POST /predict, GET /health)")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+def cmd_web(a: argparse.Namespace) -> None:
+    from .web import build_site
+
+    page = build_site(Path(a.model), Path(a.out), a.title)
+    log(f"wrote {page}; serve the folder over HTTP, e.g. python -m http.server -d {a.out}")
+
+
+def cmd_synth(a: argparse.Namespace) -> None:
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    from .synth import generator, synthesise
+    from .teacher import pick_device
+
+    task = load_task(a.task)
+    torch.manual_seed(a.seed)
+    device = pick_device(a.device)
+    name = _teachers(a.teacher)[0]
+    log(f"loading {name} to write example texts")
+    tok = AutoTokenizer.from_pretrained(name)
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    model = AutoModelForCausalLM.from_pretrained(name, dtype=dtype).to(device).eval()
+    n = synthesise(task, generator(model, tok, a.temperature), a.per_label, Path(a.out), log=log)
+    log(f"wrote {n} texts to {a.out}; label them with `tinydistill run {a.task} --data {a.out} ...`")
 
 
 def cmd_init(a: argparse.Namespace) -> None:
@@ -534,6 +646,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--cache-dir",
         help="where teacher scores are cached (default: the run directory); "
         "runs that share it label each text once",
+    )
+    label.add_argument(
+        "--vllm-url",
+        help="score with this vLLM server (OpenAI API base, e.g. http://host:8000/v1), not a local model",
     )
     label.add_argument(
         "--few-shot",
@@ -618,7 +734,41 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--data", help="file with texts (.csv, .jsonl or hf:...)")
     pr.add_argument("--text-field", default="text")
     pr.add_argument("--fp32", action="store_true", help="use the fp32 model even if an int8 one exists")
+    pr.add_argument(
+        "--cascade", metavar="RUN", help="send texts the student is unsure about to RUN's teacher"
+    )
+    pr.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="with --cascade: the student's top probability below which the teacher answers",
+    )
     pr.set_defaults(fn=cmd_predict)
+    srv = sub.add_parser("serve", parents=[common], help="serve an exported model over HTTP (JSON)")
+    srv.add_argument("model", help="directory written by `export` (run/onnx)")
+    srv.add_argument(
+        "--host", default="127.0.0.1", help="interface to listen on (default: this machine only)"
+    )
+    srv.add_argument("--port", type=int, default=8000)
+    srv.add_argument(
+        "--cascade", metavar="RUN", help="send texts the student is unsure about to RUN's teacher"
+    )
+    srv.add_argument("--threshold", type=float, default=0.5, help="with --cascade: see `predict --help`")
+    srv.set_defaults(fn=cmd_serve)
+    web = sub.add_parser("web", help="a static web page that runs the model in the browser")
+    web.add_argument("model", help="directory written by `export` (run/onnx)")
+    web.add_argument("--out", default="site", help="folder to write the page and model into")
+    web.add_argument("--title", help="page title (default: from the task name)")
+    web.set_defaults(fn=cmd_web)
+    syn = sub.add_parser("synth", parents=[common], help="have the teacher write unlabelled example texts")
+    syn.add_argument("task", help="task YAML file")
+    syn.add_argument("--per-label", type=int, required=True, help="texts to write per label")
+    syn.add_argument("--out", required=True, help="JSONL file to write (usable as --data)")
+    syn.add_argument(
+        "--teacher", default=DEFAULT_TEACHER, help="the model that writes (the first if several)"
+    )
+    syn.add_argument("--temperature", type=float, default=0.9)
+    syn.set_defaults(fn=cmd_synth)
     ini = sub.add_parser("init", help="write a starter task file from a dataset's labels")
     ini.add_argument("data", help=".csv, .jsonl or hf:<dataset>[:<config>]:<split> with gold labels")
     ini.add_argument("--out", default="task.yaml")

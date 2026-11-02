@@ -142,12 +142,48 @@ Banking77 splits are sorted by intent, so a limited run only sees a few intents.
 | `tinydistill eval RUN` | writes `RUN/results.md` and `RUN/results.json` |
 | `tinydistill predict RUN/onnx TEXT... [--data FILE]` | classifies texts, prints JSON lines |
 | `tinydistill compare RUN...` | one table comparing runs, e.g. teachers or student sizes |
+| `tinydistill serve RUN/onnx [--cascade RUN]` | a JSON HTTP endpoint (`POST /predict`) |
+| `tinydistill web RUN/onnx --out site` | a static page that runs the model in the browser |
 | `tinydistill push RUN/onnx --repo user/name` | uploads the model to the Hugging Face Hub with a model card |
+| `tinydistill synth TASK.yaml --per-label N --out texts.jsonl` | has the teacher write unlabelled example texts |
 
 Data can be `.csv`, `.jsonl` or `hf:<dataset>[:<config>]:<split>` (needs the `hf` extra). Useful options:
 `--teacher` (any Hugging Face causal LM), `--load-4bit` (bitsandbytes, CUDA only: `pip install "tinydistill[4bit]"`),
 `--student` (any Hugging Face encoder), `--epochs`, `--lr`, `--device`, `--threads`, `--seed`, and `--cache-dir`
 (runs that share it label each text only once). See `tinydistill <command> --help`.
+
+### Choosing the teacher
+
+`--teacher` takes any Hugging Face causal LM with a chat template; the tests check the scoring against a
+plain forward pass for Llama, Mistral, Phi, Gemma 2 and GPT-2 style models as well as Qwen. Several teachers,
+comma-separated, are an **ensemble**: each scores every text (one model in memory at a time) and the soft
+labels are the mean of their label probabilities. `tinydistill compare` then puts the runs side by side.
+
+A **vLLM server** can be the teacher instead of a local model, so a large model on a GPU cluster does the
+labelling: start it with `vllm serve MODEL --enable-prefix-caching` and pass `--vllm-url http://host:8000/v1`
+with `--teacher MODEL`. Only the tokenizer is loaded locally; every continuation is scored exactly from the
+server's prompt log-probabilities, so the soft labels are the same as with the local model.
+
+### No unlabelled data?
+
+`tinydistill synth TASK.yaml --per-label 200 --out texts.jsonl` asks the teacher to write example inputs for
+each label, from the task's own instruction. This is the only place where the teacher generates text, and only
+inputs: the file has no label field, and the texts are labelled by the usual scoring when you pass them as
+`--data`. Generated texts are less varied than real ones; use real texts when you have them.
+
+### Deploying: cascade, server, browser
+
+**Cascade.** `eval` adds a table of what happens when the student answers and passes the texts it is least
+sure about to the teacher: accuracy and mean latency for 0 % to 100 % of the texts sent on. At inference,
+`tinydistill predict RUN/onnx --cascade RUN --threshold T` (and `serve --cascade`) does this for real: texts
+whose top student probability is below T go to the run's teacher. Choose T on a validation split.
+
+**Server.** `tinydistill serve RUN/onnx` answers `POST /predict` with `{"texts": [...]}` and `GET /health`,
+using only the standard library. It listens on 127.0.0.1 unless you pass `--host`.
+
+**Browser.** `tinydistill web RUN/onnx --out site` writes a static page plus the model in the layout
+[transformers.js](https://github.com/huggingface/transformers.js) expects; the int8 model then runs in the
+visitor's browser with no server at all. Serve the folder with any static host (GitHub Pages works).
 
 ### A few gold labels
 
@@ -215,6 +251,9 @@ labels:
   - card_arrival
   # ...
 ```
+
+For labels with an order, such as 1 to 5 stars, add `ordinal: true`: the results then also show the mean
+absolute error in label steps and the share of predictions at most one step off.
 
 `{labels}` (required) becomes a bulleted list of the label names, `{text}` is the input, and an optional
 `{examples}` line holds few-shot examples (it disappears when there are none). The name is what the teacher

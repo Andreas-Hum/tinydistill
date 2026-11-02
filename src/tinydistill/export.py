@@ -41,6 +41,7 @@ def export_onnx(student_dir: Path, out_dir: Path, int8: bool = False, opset: int
         dynamo=False,
     )
     tok.save_pretrained(out_dir)
+    model.config.save_pretrained(out_dir)  # config.json: labels for tools such as transformers.js
     labels = [model.config.id2label[i] for i in range(model.config.num_labels)]
     (out_dir / "labels.json").write_text(json.dumps(labels, indent=1), encoding="utf-8")
     written = [path]
@@ -101,3 +102,31 @@ class Predictor:
 
     def predict(self, texts: list[str], batch_size: int = 32) -> list[str]:
         return [self.labels[i] for i in self.logits(texts, batch_size).argmax(-1)]
+
+
+class Cascade:
+    """The student answers; texts where its top probability is below ``threshold`` go to the teacher.
+
+    ``teacher`` is a LabelScorer (see ``load_teacher``) for the same task and label order."""
+
+    def __init__(self, student: Predictor, teacher, threshold: float):
+        self.student, self.teacher, self.threshold = student, teacher, threshold
+
+    def predict(self, texts: list[str]) -> list[dict]:
+        probs = self.student.predict_proba(texts)
+        out = [
+            {"label": self.student.labels[int(p.argmax())], "confidence": float(p.max()), "by": "student"}
+            for p in probs
+        ]
+        unsure = [i for i, p in enumerate(probs) if p.max() < self.threshold]
+        if unsure:
+            for i, scores in zip(unsure, self.teacher.score_many([texts[i] for i in unsure]), strict=True):
+                s = np.asarray(scores, dtype=np.float64)
+                p = np.exp(s - s.max())
+                p /= p.sum()
+                out[i] = {
+                    "label": self.student.labels[int(p.argmax())],
+                    "confidence": float(p.max()),
+                    "by": "teacher",
+                }
+        return out

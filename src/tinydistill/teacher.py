@@ -53,22 +53,21 @@ def surface_variants(name: str, kinds=("lowercase", "capitalised", "uppercase"))
     return out
 
 
-class LabelScorer:
-    def __init__(
+class _Prompt:
+    """The rendered prompt split around the text, and every label's continuations, as token ids. Shared by the
+    local scorer and the vLLM client, which score the same continuations."""
+
+    def _prepare(
         self,
-        model,
         tokenizer,
         task: Task,
-        use_chat_template: bool = True,
-        surface_forms: bool = True,
-        max_tokens: int = 2048,
-        examples: list[tuple[str, int]] | None = None,
-    ):
-        self.model = model.eval()
-        self.max_tokens = max_tokens  # tokens per forward pass when packing several texts
+        use_chat_template: bool,
+        surface_forms: bool,
+        examples: list[tuple[str, int]] | None,
+        max_positions: int | None,
+    ) -> None:
         self.tok = tokenizer
         self.task = task
-        self.device = next(model.parameters()).device
         self.chat = use_chat_template and bool(getattr(tokenizer, "chat_template", None))
 
         # Split the rendered prompt around the text.
@@ -86,10 +85,10 @@ class LabelScorer:
         if not self.chat and tokenizer.bos_token_id is not None:
             ids = [tokenizer.bos_token_id, *ids]
         self.prefix_ids: list[int] = ids
-        limit = getattr(getattr(model, "config", None), "max_position_embeddings", None)
-        if isinstance(limit, int) and len(ids) >= limit:
+        if isinstance(max_positions, int) and len(ids) >= max_positions:
             raise ValueError(
-                f"the prompt has {len(ids)} tokens, more than the teacher's {limit}; use fewer examples"
+                f"the prompt has {len(ids)} tokens, more than the teacher's {max_positions}; "
+                "use fewer examples"
             )
 
         # Continuations: each surface form of each label name + the end-of-turn token. Forms that tokenise
@@ -114,6 +113,51 @@ class LabelScorer:
                     seen[ids] = li
                     self.forms.append(list(ids))
                     self.form_label.append(li)
+
+    def text_ids(self, text: str) -> list[int]:
+        return self.tok(text + self.suffix, add_special_tokens=False)["input_ids"]
+
+    def _label_scores(self, f: torch.Tensor) -> list[list[float]]:
+        """(texts, forms) log-probabilities -> per label, the log of the summed probability of its forms."""
+        f = f.double()
+        idx = torch.tensor(self.form_label, device=f.device).expand_as(f)
+        n = len(self.task.labels)
+        top = torch.full((f.shape[0], n), -torch.inf, dtype=f.dtype, device=f.device)
+        top = top.scatter_reduce(1, idx, f, "amax")
+        total = torch.zeros_like(top).scatter_add_(1, idx, (f - top.gather(1, idx)).exp())
+        return (top + total.log()).tolist()
+
+    def score(self, text: str) -> list[float]:
+        """Every label's score: log of the summed probability of its surface forms given the prompt."""
+        return self.score_many([text])[0]
+
+    def score_many(self, texts: list[str]) -> list[list[float]]:
+        return self._label_scores(self.form_scores_many(texts))
+
+    def form_scores(self, text: str) -> torch.Tensor:
+        """Log-probability of every continuation in ``self.forms`` given the prompt for ``text``."""
+        return self.form_scores_many([text])[0]
+
+    def form_scores_many(self, texts: list[str]) -> torch.Tensor:
+        raise NotImplementedError
+
+
+class LabelScorer(_Prompt):
+    def __init__(
+        self,
+        model,
+        tokenizer,
+        task: Task,
+        use_chat_template: bool = True,
+        surface_forms: bool = True,
+        max_tokens: int = 2048,
+        examples: list[tuple[str, int]] | None = None,
+    ):
+        self.model = model.eval()
+        self.max_tokens = max_tokens  # tokens per forward pass when packing several texts
+        self.device = next(model.parameters()).device
+        limit = getattr(getattr(model, "config", None), "max_position_embeddings", None)
+        self._prepare(tokenizer, task, use_chat_template, surface_forms, examples, limit)
         self._build_tree()
         self._prefix_cache = None
 
@@ -153,9 +197,6 @@ class LabelScorer:
         self._targets = torch.tensor(targets, dtype=torch.long, device=dev)
         self._owner = torch.tensor(owner, dtype=torch.long, device=dev)
 
-    def text_ids(self, text: str) -> list[int]:
-        return self.tok(text + self.suffix, add_special_tokens=False)["input_ids"]
-
     def fingerprint(self) -> str:
         """Identifies everything that changes the scores, so caches are never mixed up."""
         cfg = getattr(self.model, "config", None)
@@ -169,24 +210,6 @@ class LabelScorer:
             "form_label": self.form_label,
         }
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
-
-    def score(self, text: str) -> list[float]:
-        """Every label's score: log of the summed probability of its surface forms given the prompt."""
-        return self.score_many([text])[0]
-
-    def score_many(self, texts: list[str]) -> list[list[float]]:
-        """Label scores for several texts, packed into as few forward passes as the token budget allows."""
-        f = self.form_scores_many(texts).double()  # (texts, forms)
-        idx = torch.tensor(self.form_label, device=f.device).expand_as(f)
-        n = len(self.task.labels)
-        top = torch.full((len(texts), n), -torch.inf, dtype=f.dtype, device=f.device)
-        top = top.scatter_reduce(1, idx, f, "amax")
-        total = torch.zeros_like(top).scatter_add_(1, idx, (f - top.gather(1, idx)).exp())
-        return (top + total.log()).tolist()
-
-    def form_scores(self, text: str) -> torch.Tensor:
-        """Log-probability of every continuation in ``self.forms`` given the prompt for ``text``."""
-        return self.form_scores_many([text])[0]
 
     @torch.no_grad()
     def form_scores_many(self, texts: list[str]) -> torch.Tensor:
@@ -294,6 +317,86 @@ def combine_scores(per_teacher: list[list[float]]) -> list[float]:
     return probs.log().tolist()
 
 
+class VLLMScorer(_Prompt):
+    """The same scoring through a vLLM server's OpenAI-compatible completions endpoint.
+
+    For each text, every continuation is sent as a token-id prompt (prompt prefix + text + continuation) with
+    ``prompt_logprobs``, which returns the log-probability of each prompt token; the continuation's tokens are
+    summed. Start the server with prefix caching (``vllm serve MODEL --enable-prefix-caching``) so the shared
+    prompt is computed once. Only the tokenizer is loaded locally."""
+
+    def __init__(
+        self,
+        url: str,
+        model: str,
+        tokenizer,
+        task: Task,
+        examples=None,
+        workers: int = 8,
+        surface_forms: bool = True,
+        timeout: float = 600,
+    ):
+        self.url, self.model_name, self.workers, self.timeout = url.rstrip("/"), model, workers, timeout
+        self.device = "vllm"
+        self._prepare(tokenizer, task, True, surface_forms, examples, None)
+
+    def fingerprint(self) -> str:
+        key = {
+            "model": self.model_name,
+            "server": "vllm",
+            "prefix": self.prefix_ids,
+            "suffix": self.suffix,
+            "forms": self.forms,
+            "form_label": self.form_label,
+        }
+        return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
+
+    def _one(self, text: str) -> list[float]:
+        import urllib.request
+
+        prompt = self.prefix_ids + self.text_ids(text)
+        body = {
+            "model": self.model_name,
+            "prompt": [prompt + f for f in self.forms],
+            "max_tokens": 1,
+            "temperature": 0,
+            "prompt_logprobs": 0,
+        }
+        req = urllib.request.Request(
+            f"{self.url}/completions",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            choices = sorted(json.loads(r.read())["choices"], key=lambda c: c["index"])
+        out = []
+        for form, choice in zip(self.forms, choices, strict=True):
+            lps = choice["prompt_logprobs"][len(prompt) :]
+            out.append(sum(entry[str(tok)]["logprob"] for tok, entry in zip(form, lps, strict=True)))
+        return out
+
+    def form_scores_many(self, texts: list[str]) -> torch.Tensor:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(self.workers) as pool:
+            rows = list(pool.map(self._one, texts))
+        return torch.tensor(rows, dtype=torch.float64).reshape(len(texts), len(self.forms))
+
+
+class Ensemble:
+    """Several teachers used as one: their label probabilities are averaged (as in labelling)."""
+
+    def __init__(self, members: list[LabelScorer]):
+        self.members = members
+
+    def score_many(self, texts: list[str]) -> list[list[float]]:
+        per = [m.score_many(texts) for m in self.members]
+        return [combine_scores([p[i] for p in per]) for i in range(len(texts))]
+
+    def score(self, text: str) -> list[float]:
+        return self.score_many([text])[0]
+
+
 def load_teacher(
     name: str,
     task: Task,
@@ -301,9 +404,13 @@ def load_teacher(
     load_4bit: bool = False,
     max_tokens: int = 2048,
     examples: list[tuple[str, int]] | None = None,
-) -> LabelScorer:
-    device = pick_device(device)
+    vllm_url: str | None = None,
+) -> LabelScorer | VLLMScorer:
+    """A local teacher, or with ``vllm_url`` the same model served by vLLM (then ``device`` is not used)."""
     tok = AutoTokenizer.from_pretrained(name)
+    if vllm_url:
+        return VLLMScorer(vllm_url, name, tok, task, examples)
+    device = pick_device(device)
     kwargs: dict = {}
     if load_4bit:
         if not device.startswith("cuda"):

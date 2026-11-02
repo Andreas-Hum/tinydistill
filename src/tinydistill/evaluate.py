@@ -30,6 +30,12 @@ def macro_f1(pred: Sequence[int], gold: Sequence[int]) -> float:
     return sum(f1s) / len(f1s)
 
 
+def ordinal_metrics(pred: Sequence[int], gold: Sequence[int]) -> dict:
+    """For ordered labels: mean absolute error in label steps, and the share at most one step off."""
+    d = [abs(p - g) for p, g in zip(pred, gold, strict=True)]
+    return {"mae": sum(d) / len(d), "within_one": sum(x <= 1 for x in d) / len(d)} if d else {}
+
+
 def time_calls(fn: Callable[[list[str]], object], texts: list[str], batch: int, reps: int) -> float:
     """Median wall time (ms) of fn on `reps` different batches of `batch` texts, after one warm-up call."""
 
@@ -115,10 +121,14 @@ def _pm(row: dict, key: str) -> str:
 def markdown_table(results: dict) -> str:
     rows = results["models"]
     ref = next((r for r in rows if r["role"] == "teacher" and r.get("latency_ms_b1")), None)
+    ordinal = any("mae" in r for r in rows)  # ordered labels: also distances in label steps
     head = (
-        "| Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) "
+        "| Model | Device | Accuracy | Macro-F1 "
+        + ("| MAE (label steps) | Within one step " if ordinal else "")
+        + "| Agreement with teacher | Latency, batch 1 (ms) "
         "| Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |\n"
-        "|---|---|---|---|---|---|---|---|---|---|\n"
+        + "|---" * (12 if ordinal else 10)
+        + "|\n"
     )
     lines = []
     for r in rows:
@@ -126,7 +136,8 @@ def markdown_table(results: dict) -> str:
         lines.append(
             f"| {r['name']} | {r['device']} "
             f"| {_pm(r, 'accuracy')} | {_pm(r, 'macro_f1')} "
-            f"| {_pm(r, 'agreement')} | {_fmt(r.get('latency_ms_b1'), '.1f')} "
+            + (f"| {_pm(r, 'mae')} | {_pm(r, 'within_one')} " if ordinal else "")
+            + f"| {_pm(r, 'agreement')} | {_fmt(r.get('latency_ms_b1'), '.1f')} "
             f"| {_fmt(r.get('latency_ms_b32'), '.1f')} | {_fmt(r.get('throughput_per_s'), '.1f')} "
             f"| {_fmt(r.get('size_mb'), '.0f')} | {_fmt(speed, '.1f') + 'x' if speed else 'n/a'} |"
         )
@@ -205,3 +216,56 @@ def compare_table(runs: list[tuple[str, dict]]) -> str:
     threads = sorted({res["environment"]["cpu_threads"] for _, res in runs})
     note = f"\nAll latencies on the CPU with {', '.join(map(str, threads))} threads.\n" if threads else ""
     return head + "\n".join(lines) + "\n" + note
+
+
+def cascade_curve(
+    confidence: Sequence[float],
+    student_pred: Sequence[int],
+    teacher_pred: Sequence[int],
+    gold: Sequence[int],
+    shares: Sequence[float] = (0.0, 0.1, 0.2, 0.3, 0.5, 1.0),
+) -> list[dict]:
+    """Student-then-teacher cascade: for each share s, the s least confident texts (by the student's top
+    probability) go to the teacher and the rest keep the student's answer. Returns, per share, the confidence
+    threshold that achieves it, and the accuracy and macro-F1 of the combined answers."""
+    n = len(gold)
+    order = sorted(range(n), key=lambda i: confidence[i])  # least confident first
+    out = []
+    for share in shares:
+        k = round(share * n)
+        routed = set(order[:k])
+        pred = [teacher_pred[i] if i in routed else student_pred[i] for i in range(n)]
+        threshold = confidence[order[k]] if k < n else 1.0  # texts below this go to the teacher
+        out.append(
+            {
+                "share_to_teacher": k / n if n else 0.0,
+                "threshold": threshold,
+                "accuracy": accuracy(pred, gold),
+                "macro_f1": macro_f1(pred, gold),
+            }
+        )
+    return out
+
+
+def cascade_table(
+    curve: list[dict], student_ms: float | None, teacher_ms: float | None, teacher_name: str
+) -> str:
+    head = (
+        "| Share sent to the teacher | Student confidence threshold | Accuracy | Macro-F1 "
+        "| Mean latency per text (ms) |\n|---|---|---|---|---|\n"
+    )
+    rows = []
+    for c in curve:
+        latency = student_ms + c["share_to_teacher"] * teacher_ms if student_ms and teacher_ms else None
+        rows.append(
+            f"| {c['share_to_teacher']:.0%} | {c['threshold']:.3f} "
+            f"| {c['accuracy']:.3f} | {c['macro_f1']:.3f} "
+            f"| {_fmt(latency, '.1f')} |"
+        )
+    note = (
+        "\nThe student answers every text and passes its least confident ones to the teacher. Thresholds are "
+        "set on the test texts to hit each share; in deployment, set them on a validation split. "
+        "Latency is the "
+        f"student's batch-1 latency plus the share times the {teacher_name}'s.\n"
+    )
+    return head + "\n".join(rows) + "\n" + note

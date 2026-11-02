@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import yaml
 
@@ -85,3 +87,26 @@ def test_examples_render_in_place_and_vanish_without_any(tmp_path):
     assert task.render("hi", [("great\nfilm", 0), ("bad", 1)]) == (
         'Pick one:\n- pos\n- neg\n\nExamples:\n- "great film" -> pos\n- "bad" -> neg\n\nText: hi'
     )
+
+
+def test_synthetic_texts_are_parsed_deduplicated_and_unlabelled(tmp_path):
+    from tinydistill.synth import parse_lines, request, synthesise
+
+    task = load_task(write(tmp_path, {"pos": None, "neg": {"description": "a complaint"}}))
+    assert (
+        "neg" in request(task, 1, 5)
+        and "a complaint" in request(task, 1, 5)
+        and "{text}" not in request(task, 1, 5)
+    )
+    assert parse_lines('1. "Great film"\n- Loved it!\n• meh it was ok\npos\nab\n', task) == [
+        "Great film",
+        "Loved it!",
+        "meh it was ok",
+    ]
+    replies = iter(["1. great\n2. Great\n3. superb", "4. lovely", "bad\nawful\nterrible\nworse"])
+    n = synthesise(
+        task, lambda message: next(replies), per_label=3, out=tmp_path / "s.jsonl", log=lambda m: None
+    )
+    rows = [json.loads(line) for line in (tmp_path / "s.jsonl").read_text().splitlines()]
+    assert n == 6 and [r["text"] for r in rows] == ["great", "superb", "lovely", "bad", "awful", "terrible"]
+    assert all("label" not in r for r in rows)  # never mistaken for gold labels

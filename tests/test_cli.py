@@ -362,3 +362,119 @@ def test_teacher_ensemble(tmp_path):
     ens, members = results["models"][0], [m for m in results["models"] if m["role"] == "teacher member"]
     assert ens["latency_ms_b1"] == pytest.approx(sum(m["latency_ms_b1"] for m in members))
     assert "Speed-up is relative to the teacher ensemble" in (run / "results.md").read_text()
+
+
+def test_cascade_in_eval_and_predict(tmp_path, capsys):
+    (tmp_path / "task.yaml").write_text(TASK)
+    rows = [
+        {"review": f"it was {w}", "sentiment": "pos" if i % 2 == 0 else "neg"}
+        for i, w in enumerate(["good", "bad", "great", "awful", "fine", "poor"])
+    ]
+    write_jsonl(tmp_path / "d.jsonl", rows)
+    run = tmp_path / "run"
+    main(
+        [
+            "run",
+            str(tmp_path / "task.yaml"),
+            "--data",
+            str(tmp_path / "d.jsonl"),
+            "--test",
+            str(tmp_path / "d.jsonl"),
+            "--out",
+            str(run),
+            "--teacher",
+            TINY_LM,
+            "--student",
+            TINY_ENCODER,
+            "--epochs",
+            "1",
+            "--batch-size",
+            "4",
+            "--reps",
+            "2",
+            "--teacher-reps",
+            "2",
+            "--device",
+            "cpu",
+            "--int8",
+        ]
+    )
+    results = json.loads((run / "results.json").read_text())
+    assert [c["share_to_teacher"] for c in results["cascade"]][0] == 0.0
+    assert results["cascade"][-1]["share_to_teacher"] == 1.0
+    teacher_acc = results["models"][0]["accuracy"]
+    assert results["cascade"][-1]["accuracy"] == pytest.approx(teacher_acc)  # everything to the teacher
+    assert "### Cascade" in (run / "results.md").read_text()
+
+    capsys.readouterr()
+    main(
+        [
+            "predict",
+            str(run / "onnx"),
+            "good stuff",
+            "bad stuff",
+            "--cascade",
+            str(run),
+            "--threshold",
+            "1.01",
+            "--device",
+            "cpu",
+        ]
+    )
+    out = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [o["by"] for o in out] == ["teacher", "teacher"]  # nobody is that confident
+    main(
+        [
+            "predict",
+            str(run / "onnx"),
+            "good stuff",
+            "--cascade",
+            str(run),
+            "--threshold",
+            "0",
+            "--device",
+            "cpu",
+        ]
+    )
+    assert json.loads(capsys.readouterr().out)["by"] == "student"
+
+
+def test_ordinal_task_reports_distances(tmp_path):
+    task = TASK.replace(
+        "labels:\n  pos: positive review\n  neg: negative review\n",
+        "ordinal: true\nlabels:\n  low: bad review\n  mid: average review\n  high: great review\n",
+    )
+    (tmp_path / "task.yaml").write_text(task)
+    rows = [{"review": f"review {i}", "sentiment": ["low", "mid", "high"][i % 3]} for i in range(9)]
+    write_jsonl(tmp_path / "d.jsonl", rows)
+    run = tmp_path / "run"
+    main(
+        [
+            "run",
+            str(tmp_path / "task.yaml"),
+            "--data",
+            str(tmp_path / "d.jsonl"),
+            "--test",
+            str(tmp_path / "d.jsonl"),
+            "--out",
+            str(run),
+            "--teacher",
+            TINY_LM,
+            "--student",
+            TINY_ENCODER,
+            "--epochs",
+            "1",
+            "--batch-size",
+            "4",
+            "--reps",
+            "2",
+            "--teacher-reps",
+            "2",
+            "--device",
+            "cpu",
+        ]
+    )
+    results = json.loads((run / "results.json").read_text())
+    assert all("mae" in m and "within_one" in m for m in results["models"])
+    head = (run / "results.md").read_text().splitlines()[0]
+    assert "| MAE (label steps) | Within one step |" in head

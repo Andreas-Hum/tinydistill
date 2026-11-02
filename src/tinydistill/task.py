@@ -28,6 +28,7 @@ class Task:
     descriptions: list[str | None] = field(default_factory=list)  # optional, shown in the prompt only
     # Extra ways of writing each name that the teacher's score includes (the name as written always counts).
     surface_forms: tuple[str, ...] = SURFACE_FORMS
+    ordinal: bool = False  # the labels are listed in order (e.g. 1 to 5 stars): also report distances
 
     def render(self, text: str, examples: list[tuple[str, int]] | None = None) -> str:
         """The user message for one input text. ``examples`` are (text, label index) pairs shown in place of
@@ -55,6 +56,7 @@ class Task:
             "label_field": self.label_field,
             "prompt": self.prompt,
             "surface_forms": list(self.surface_forms),
+            "ordinal": self.ordinal,
             "labels": labels,
         }
 
@@ -112,6 +114,7 @@ def load_task(path: str | Path) -> Task:
         label_field=raw.get("label_field", "label"),
         descriptions=descs if any(descs) else [],
         surface_forms=_parse_forms(path, raw.get("surface_forms", list(SURFACE_FORMS))),
+        ordinal=bool(raw.get("ordinal", False)),
     )
 
 

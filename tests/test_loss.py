@@ -76,3 +76,23 @@ def test_aggregate_over_seeds():
     )
     assert agg["macro_f1_seeds"] == [0.5, 0.7]
     assert aggregate([{}]) == {}
+
+
+def test_cascade_curve_by_hand():
+    from tinydistill.evaluate import cascade_curve
+
+    confidence = [0.9, 0.2, 0.6, 0.4]
+    student = [0, 1, 1, 0]  # right, wrong, right, wrong
+    teacher = [0, 0, 1, 1]  # all right
+    gold = [0, 0, 1, 1]
+    c = cascade_curve(confidence, student, teacher, gold, shares=(0.0, 0.5, 1.0))
+    assert [x["accuracy"] for x in c] == [0.5, 1.0, 1.0]
+    assert [x["share_to_teacher"] for x in c] == [0.0, 0.5, 1.0]
+    assert c[1]["threshold"] == 0.6  # texts below 0.6 (the 0.2 and 0.4 ones) go to the teacher
+
+
+def test_ordinal_metrics_by_hand():
+    from tinydistill.evaluate import ordinal_metrics
+
+    m = ordinal_metrics([0, 2, 4, 1], [0, 1, 1, 1])  # distances 0, 1, 3, 0
+    assert m == {"mae": 1.0, "within_one": 0.75}
