@@ -73,7 +73,7 @@ clf.predict_proba(["How do I top up my card?"])  # numpy array, one row per text
 ```yaml
 name: banking77
 text_field: text        # column holding the input text
-label_field: label      # column holding gold labels (names, or integers indexing `labels`)
+label_field: label      # column holding gold labels (ids, or integers indexing `labels`)
 prompt: |-
   You are classifying messages that customers sent to their bank's support chat.
   Choose the single intent from this list that best matches the message:
@@ -82,13 +82,22 @@ prompt: |-
   Message: {text}
 
   Reply with the intent exactly as written in the list.
-labels:                 # name: verbalisation (what the teacher should say)
-  activate_my_card: activate my card
-  card_arrival: card arrival
+labels:
+  - activate_my_card    # a bare id: its name is derived, "activate my card"
+  - card_arrival
   # ...
 ```
 
-`{labels}` becomes a bulleted list of the verbalisations; `{text}` is the input.
+`{labels}` (required) becomes a bulleted list of the label names, and `{text}` is the input. The name is what
+the teacher scores. Each label can be a bare id as above, `id: name`, or carry a description that is shown in
+the list (`- bullish: positive for the stock`) but not scored:
+
+```yaml
+labels:
+  bearish:
+    description: negative for the stock, company or market
+  lost_card: lost or stolen card
+```
 
 ## How the label scoring works
 

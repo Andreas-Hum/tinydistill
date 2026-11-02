@@ -1,0 +1,63 @@
+import pytest
+import yaml
+
+from tinydistill.task import label_name, load_task
+
+PROMPT = "Pick one:\n{labels}\n\nText: {text}"
+
+
+def write(tmp_path, labels, prompt=PROMPT):
+    p = tmp_path / "task.yaml"
+    p.write_text(yaml.safe_dump({"name": "t", "prompt": prompt, "labels": labels}))
+    return p
+
+
+def test_label_names_are_derived_from_ids():
+    assert label_name("card_arrival") == "card arrival"
+    assert label_name("top-up--limits") == "top up limits"
+    assert label_name("visa_or_mastercard ") == "visa or mastercard"
+
+
+def test_three_label_forms_and_descriptions_in_the_prompt(tmp_path):
+    task = load_task(
+        write(
+            tmp_path,
+            {
+                "card_arrival": None,
+                "lost_card": "lost or stolen card",
+                "pin": {"description": "anything about the card's PIN"},
+            },
+        )
+    )
+    assert task.labels == ["card_arrival", "lost_card", "pin"]
+    assert task.verbalisations == ["card arrival", "lost or stolen card", "pin"]
+    assert task.render("hello") == (
+        "Pick one:\n- card arrival\n- lost or stolen card\n"
+        "- pin: anything about the card's PIN\n\nText: hello"
+    )
+
+
+def test_list_form_and_round_trip(tmp_path):
+    task = load_task(write(tmp_path, ["age_limit", "atm_support"]))
+    assert task.verbalisations == ["age limit", "atm support"]
+    assert task.descriptions == []
+    # the run directory stores the task via to_dict(); it must load back identically
+    for t in (task, load_task(write(tmp_path, {"a_b": {"name": "x", "description": "y"}, "c": None}))):
+        p = tmp_path / "saved.yaml"
+        p.write_text(yaml.safe_dump(t.to_dict()))
+        assert load_task(p) == t
+
+
+@pytest.mark.parametrize(
+    "labels, prompt, message",
+    [
+        (["a", "b"], "No list here: {text}", "{labels}"),
+        (["a", "b"], "{labels} {text} {text}", "{text}"),
+        ({"a_b": None, "a b": None}, PROMPT, "unique"),
+        ({"a": {"nmae": "x"}, "b": None}, PROMPT, "unknown keys"),
+        (["only_one"], PROMPT, "two labels"),
+    ],
+)
+def test_invalid_tasks_are_rejected(tmp_path, labels, prompt, message):
+    with pytest.raises(ValueError, match=message):
+        load_task(write(tmp_path, labels, prompt))

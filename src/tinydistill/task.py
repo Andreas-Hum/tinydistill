@@ -1,66 +1,96 @@
-"""Task definition: label names, their verbalisations and the instruction prompt."""
+"""Task definition: label ids, their natural-language names (what the teacher scores), optional descriptions
+and the instruction prompt."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
 
+def label_name(label_id: str) -> str:
+    """Natural-language name for a label id: card_arrival -> 'card arrival', top-up -> 'top up'."""
+    return re.sub(r"[\s_\-.]+", " ", label_id).strip()
+
+
 @dataclass(frozen=True)
 class Task:
     name: str
-    labels: list[str]  # label names, in a fixed order (class index = position)
-    verbalisations: list[str]  # what the teacher is asked to say for each label
-    prompt: str  # must contain {text}; may contain {labels}
+    labels: list[str]  # label ids, in a fixed order (class index = position)
+    verbalisations: list[str]  # natural-language label names; the teacher scores these
+    prompt: str  # must contain {labels} and {text}
     text_field: str = "text"
     label_field: str | None = "label"
+    descriptions: list[str | None] = field(default_factory=list)  # optional, shown in the prompt only
 
     def render(self, text: str) -> str:
         """The user message for one input text."""
-        options = "\n".join(f"- {v}" for v in self.verbalisations)
+        descs = self.descriptions or [None] * len(self.labels)
+        options = "\n".join(
+            f"- {v}: {d}" if d else f"- {v}" for v, d in zip(self.verbalisations, descs, strict=True)
+        )
         return self.prompt.replace("{labels}", options).replace("{text}", text)
 
     def to_dict(self) -> dict:
+        labels = {}
+        for i, (lid, v) in enumerate(zip(self.labels, self.verbalisations, strict=True)):
+            d = self.descriptions[i] if self.descriptions else None
+            labels[lid] = {"name": v, "description": d} if d else v
         return {
             "name": self.name,
             "text_field": self.text_field,
             "label_field": self.label_field,
             "prompt": self.prompt,
-            "labels": dict(zip(self.labels, self.verbalisations, strict=True)),
+            "labels": labels,
         }
 
 
-def load_task(path: str | Path) -> Task:
-    """Load a task YAML file.
+def _parse_label(path, lid: str, value) -> tuple[str, str | None]:
+    if value is None:
+        return label_name(lid), None
+    if isinstance(value, str):
+        return value, None
+    if isinstance(value, dict):
+        unknown = set(value) - {"name", "description"}
+        if unknown:
+            raise ValueError(f"{path}: label {lid!r} has unknown keys {sorted(unknown)}")
+        name = value.get("name") or label_name(lid)
+        desc = value.get("description")
+        return str(name), (str(desc) if desc else None)
+    raise ValueError(f"{path}: label {lid!r} must be a name, a mapping with name/description, or empty")
 
-    ``labels`` is either a mapping ``name: verbalisation`` or a list of names (each name is then its own
-    verbalisation).
-    """
+
+def load_task(path: str | Path) -> Task:
+    """Load a task YAML file. ``labels`` is a list of label ids, or a mapping from id to either a name or
+    ``{name: ..., description: ...}`` (both optional). A missing name is derived from the id."""
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"{path}: expected a mapping at the top level")
     labels = raw.get("labels")
     if isinstance(labels, dict):
-        names = [str(k) for k in labels]
-        verbs = [str(v) if v is not None else str(k) for k, v in labels.items()]
+        items = [(str(k), v) for k, v in labels.items()]
     elif isinstance(labels, list):
-        names = verbs = [str(x) for x in labels]
+        items = [(str(k), None) for k in labels]
     else:
         raise ValueError(f"{path}: 'labels' must be a mapping or a list")
-    if len(names) < 2:
+    if len(items) < 2:
         raise ValueError(f"{path}: need at least two labels")
+    parsed = [_parse_label(path, lid, v) for lid, v in items]
+    verbs = [p[0] for p in parsed]
+    descs = [p[1] for p in parsed]
     if len(set(verbs)) != len(verbs):
-        raise ValueError(f"{path}: verbalisations must be unique")
+        raise ValueError(f"{path}: label names must be unique")
     prompt = raw.get("prompt")
-    if not isinstance(prompt, str) or prompt.count("{text}") != 1:
-        raise ValueError(f"{path}: 'prompt' must be a string containing {{text}} exactly once")
+    if not isinstance(prompt, str) or prompt.count("{text}") != 1 or "{labels}" not in prompt:
+        raise ValueError(f"{path}: 'prompt' must contain {{labels}} and contain {{text}} exactly once")
     return Task(
         name=str(raw.get("name", Path(path).stem)),
-        labels=names,
+        labels=[lid for lid, _ in items],
         verbalisations=verbs,
         prompt=prompt,
         text_field=str(raw.get("text_field", "text")),
         label_field=raw.get("label_field", "label"),
+        descriptions=descs if any(descs) else [],
     )
