@@ -297,7 +297,7 @@ def test_push_writes_a_model_card_and_uploads(tmp_path, monkeypatch):
     (tmp_path / "run" / "results.md").write_text("| Model |\n|---|\n| x |\n")
     main(["push", str(onnx), "--repo", "me/clf", "--private", "--license", "apache-2.0"])
     card = (onnx / "README.md").read_text(encoding="utf-8")
-    assert "license: apache-2.0" in card and "`T`" in card and "## Results" in card and '"me/clf"' in card
+    assert "license: apache-2.0" in card and "`T`" in card and "## Results" in card and '"hf:me/clf"' in card
     assert calls == [("create", "me/clf", True), ("upload", str(onnx), "me/clf")]
 
 
@@ -877,3 +877,85 @@ def test_label_skips_loading_the_teacher_when_everything_is_cached(tmp_path, mon
     monkeypatch.setattr(tinydistill.teacher, "load_teacher", real)
     main([*args, "--out", str(tmp_path / "c")])
     assert "1 texts scored now" in capsys.readouterr().err
+
+
+def test_models_load_from_the_hub(tmp_path, monkeypatch, capsys):
+    import huggingface_hub
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+    from tinydistill import Predictor
+    from tinydistill.export import export_onnx
+
+    model = AutoModelForSequenceClassification.from_pretrained(
+        TINY_ENCODER, num_labels=2, id2label={0: "neg", 1: "pos"}, ignore_mismatched_sizes=True
+    )
+    model.save_pretrained(tmp_path / "student")
+    AutoTokenizer.from_pretrained(TINY_ENCODER).save_pretrained(tmp_path / "student")
+    export_onnx(tmp_path / "student", tmp_path / "onnx")
+    asked = []
+
+    def fake_download(repo, allow_patterns):
+        asked.append(repo)
+        return str(tmp_path / "onnx")
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_download)
+    assert Predictor("hf:me/clf").predict(["good"])[0] in ("neg", "pos")
+    main(["predict", "hf:me/clf", "good"])
+    assert json.loads(capsys.readouterr().out)["label"] in ("neg", "pos")
+    assert asked == ["me/clf", "me/clf"]
+    with pytest.raises(FileNotFoundError, match="hf:user/name"):
+        Predictor(tmp_path / "missing")
+
+
+def test_train_keeps_the_best_epoch_on_held_out_texts(tmp_path):
+    (tmp_path / "task.yaml").write_text(TASK)
+    rows = [
+        {"review": f"it was {w} {i}", "sentiment": s}
+        for i in range(5)
+        for w, s in [("good", "pos"), ("bad", "neg")]
+    ]
+    write_jsonl(tmp_path / "d.jsonl", rows)
+    run = tmp_path / "run"
+    main(
+        [
+            "label",
+            str(tmp_path / "task.yaml"),
+            "--data",
+            str(tmp_path / "d.jsonl"),
+            "--test",
+            str(tmp_path / "d.jsonl"),
+            "--teacher",
+            TINY_LM,
+            "--device",
+            "cpu",
+            "--out",
+            str(run),
+        ]
+    )
+    main(
+        [
+            "train",
+            str(run),
+            "--student",
+            TINY_ENCODER,
+            "--epochs",
+            "3",
+            "--val-share",
+            "0.2",
+            "--patience",
+            "1",
+            "--gold-per-class",
+            "1",
+            "--gold-only",
+            "--device",
+            "cpu",
+        ]
+    )
+    meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
+    assert meta["val_share"] == 0.2 and set(meta["kept_epochs"]) == {"student", "student-kgold"}
+    assert all(1 <= e <= 3 for runs in meta["kept_epochs"].values() for e in runs)
+    main(["export", str(run)])
+    main(["eval", str(run), "--reps", "2", "--teacher-reps", "2", "--skip-teacher-bench"])
+    assert "holds out 20% of its training texts and keeps the epoch" in (run / "results.md").read_text(
+        encoding="utf-8"
+    )

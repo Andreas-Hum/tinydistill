@@ -133,8 +133,24 @@ def export_explain(student_dir: Path, out_dir: Path, int8: bool = False, opset: 
     return q
 
 
+def model_path(path: str | Path) -> Path:
+    """An exported model's folder: a local path, or ``hf:user/name`` for a model on the Hugging Face Hub (as
+    uploaded by `tinydistill push`), downloaded once and then read from the local Hub cache."""
+    if str(path).startswith("hf:"):
+        from huggingface_hub import snapshot_download
+
+        repo = str(path).removeprefix("hf:")
+        return Path(snapshot_download(repo, allow_patterns=["*.onnx", "*.json", "*.txt", "*.model"]))
+    if not Path(path).is_dir():
+        raise FileNotFoundError(
+            f"{path} is not a folder; for a model on the Hugging Face Hub write hf:user/name"
+        )
+    return Path(path)
+
+
 class Predictor:
-    """Run an exported model: ``Predictor("runs/x/onnx").predict(["text", ...])``."""
+    """Run an exported model: ``Predictor("runs/x/onnx").predict(["text", ...])``, or one on the Hugging Face
+    Hub: ``Predictor("hf:user/name")``."""
 
     def __init__(
         self, path: str | Path, int8: bool | None = None, threads: int | None = None, max_length: int = 128
@@ -142,7 +158,7 @@ class Predictor:
         import onnxruntime as ort
         from transformers import AutoTokenizer
 
-        path = Path(path)
+        path = model_path(path)
         if int8 is None:
             int8 = (path / "model.int8.onnx").exists()
         file = path / ("model.int8.onnx" if int8 else "model.onnx")

@@ -1,206 +1,81 @@
 # tinydistill
 
+<a href="https://pypi.org/project/tinydistill/"><img src="https://img.shields.io/pypi/v/tinydistill.svg" alt="PyPI version"></a>
+<a href="https://pypi.org/project/tinydistill/"><img src="https://img.shields.io/pypi/pyversions/tinydistill.svg" alt="Supported Python versions"></a>
+<a href="https://github.com/Andreas-Hum/tinydistill/actions/workflows/ci.yml"><img src="https://github.com/Andreas-Hum/tinydistill/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<a href="https://pepy.tech/projects/tinydistill"><img src="https://static.pepy.tech/badge/tinydistill/month" alt="Downloads per month"></a>
+<a href="https://github.com/Andreas-Hum/tinydistill/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Andreas-Hum/tinydistill.svg" alt="MIT licence"></a>
+<a href="https://colab.research.google.com/github/Andreas-Hum/tinydistill/blob/main/notebooks/quickstart.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"></a>
+<a href="https://andreas-hum.github.io/tinydistill/"><img src="https://img.shields.io/badge/demo-live-2a78d6.svg" alt="Live demo"></a>
+
 **Most of a large model's quality on one task, many times faster, on a CPU.**
 
-`tinydistill` turns an LLM classification prompt into a small encoder classifier by knowledge distillation.
-You describe the task in a short YAML file (labels, how to say each label, an instruction prompt) and give it
-unlabelled texts. An instruction-tuned LLM labels them with soft targets, a small encoder learns to imitate
-those targets, and the result is exported to ONNX (optionally int8) for fast CPU inference.
+`tinydistill` turns an LLM classification prompt into a small classifier by knowledge distillation. Describe
+the task in a short YAML file and give it unlabelled texts: an instruction-tuned LLM labels them with soft
+targets, a small encoder learns to imitate them, and the result is exported to ONNX (optionally int8) for fast
+inference on a CPU, in a browser or behind an HTTP server. It continues my bachelor's project on inference
+optimisation by distilling LLMs.
 
-It continues my bachelor's project on inference optimisation by distilling LLMs.
+<p align="center">
+  <a href="https://andreas-hum.github.io/tinydistill/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/demo-dark.png">
+      <img alt="The live demo: a 23 MB Banking77 classifier running in the browser, showing the word pieces and what each layer of the model would answer" src="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/demo-light.png" width="640">
+    </picture>
+  </a>
+</p>
+<p align="center"><i>The <a href="https://andreas-hum.github.io/tinydistill/">live demo</a>: a 23 MB student distilled from Qwen2.5-7B runs in your
+browser and shows what happens inside it.</i></p>
 
-```mermaid
-flowchart LR
-    A["Task prompt +<br/>unlabelled texts"] --> B["LLM teacher(s)<br/>Qwen · Mistral · Phi · ..."]
-    S["Synthetic texts<br/>(synth)"] -.-> B
-    V["vLLM server"] -.-> B
-    K["A few gold labels<br/>per class"] -.-> B
-    K -.-> C
-    B -- "soft labels<br/>(ensembled)" --> C["Small encoder<br/>student"]
-    C --> D["ONNX / int8<br/>export"]
-    D --> E["Fast CPU<br/>inference"]
-    D --> W["Browser · server ·<br/>Hugging Face Hub"]
-    E -.-> F["Cascade: unsure<br/>texts to the LLM"]
+## Highlights
+
+- **No labels needed.** Any instruction-tuned LLM on the Hugging Face Hub labels your texts by scoring every
+  label in one forward pass: no text generation, no answer parsing ([how](#how-the-label-scoring-works)).
+- **Small, fast students.** A 23 MB MiniLM or an 8 MB static-embedding model, more accurate than its 7B teacher
+  on Banking77 and over 200x faster on a CPU than the teacher on a GPU ([results](#results)).
+- **Any teacher.** Local models in full precision or 4 bit, ensembles of several model families, or a remote
+  [vLLM](https://github.com/vllm-project/vllm) server ([choosing the teacher](#choosing-the-teacher)).
+- **Honest numbers.** Every run reports the accuracy, latency and size of teacher and student, with gold-only
+  baselines, upper bounds and several seeds.
+- **A few labels go a long way.** Gold examples can go into the teacher's prompt and the student's loss
+  ([a few gold labels](#a-few-gold-labels)).
+- **Tools around the loop.** Tune the setup on a dev split, see where it goes wrong, pick texts to label,
+  route unsure texts to the LLM and retrain on them ([improving a run](#improving-a-run)).
+- **Deploy anywhere.** ONNX and int8, `tinydistill serve`, a static web page, or the Hugging Face Hub and
+  `Predictor("hf:user/name")` ([deploying](#deploying-cascade-server-browser)).
+
+## Installation
+
+```sh
+pip install tinydistill               # label, train, export, predict
+pip install "tinydistill[hf]"         # + Hugging Face datasets as input (hf:<dataset>:<split>)
+pip install "tinydistill[hf,4bit]"    # + 4-bit teachers with bitsandbytes (CUDA)
 ```
 
-Each step is one command: `tinydistill label` (teacher), `train` (student), `export` (ONNX / int8) and
-`predict` (inference), or `tinydistill run` for all of them. Dashed parts are optional: synthetic texts when
-there is no unlabelled data, a vLLM server as the teacher, a few gold labels for the teacher's prompt and the
-student's loss, and a cascade that hands the student's least confident texts to the LLM. The exported model
-runs on a CPU, in a [browser](#deploying-cascade-server-browser), behind `tinydistill serve`, or from the
-Hugging Face Hub.
-
-## Results
-
-Teachers are `Qwen/Qwen2.5-1.5B-Instruct` and `Qwen/Qwen2.5-7B-Instruct` (4 bit), zero-shot or with 8 gold
-examples per class in the prompt; the student is `sentence-transformers/all-MiniLM-L6-v2` unless a table says
-otherwise. Quality is measured on gold-labelled test texts that no model trains on, and students are trained
-with 3 seeds (mean ± standard deviation). Every table below is filled by the task's `run.sh` from its saved
-results files in [`examples/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples); the text only
-quotes them.
-
-**Try it:** the [live demo](https://andreas-hum.github.io/tinydistill/) runs the Banking77 student (7B 8-shot
-teacher, int8, 23 MB) in your browser and shows what happens inside it: the word pieces, what each layer would
-answer, where the classifier looks, which words matter, and the teacher's soft labels next to the student's.
-
-### Banking77: the hard case
-
-Intent detection with 77 fine-grained classes ([Banking77](https://huggingface.co/datasets/PolyAI/banking77),
-CC BY 4.0), reproduced by [`examples/banking77/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/banking77/run.sh).
-One row per teacher; the student columns are the deployed int8 model:
-
-<!-- results: banking77/teachers.md -->
-| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| banking77-1.5b | zero-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.404 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.386 ± 0.004 | 0.313 ± 0.005 | 0.766 ± 0.004 | ONNX int8 | 1.2 | 37.3 | 23 |
-| banking77-1.5b-8shot | 8-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.513 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.485 ± 0.009 | 0.406 ± 0.007 | 0.706 ± 0.002 | ONNX int8 | 1.1 | 36.4 | 23 |
-| banking77-7b | zero-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.629 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.618 ± 0.003 | 0.579 ± 0.005 | 0.817 ± 0.007 | ONNX int8 | 1.4 | 39.2 | 23 |
-| banking77-7b-8shot | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.729 ± 0.011 | 0.697 ± 0.015 | 0.800 ± 0.003 | ONNX int8 | 1.4 | 40.2 | 23 |
-
-All latencies on the CPU with 2 threads.
-<!-- /results -->
-
-The student follows its teacher, so the teacher sets the ceiling: a bigger model and 8 examples per class
-each help a lot. The full table for the best teacher, with the student trained on the same 616 gold labels
-alone (baseline) and on all 10,003 gold labels (upper bound), and the cascade:
-
-<!-- results: banking77/banking77-7b-8shot.md -->
-| Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
-|---|---|---|---|---|---|---|---|---|---|
-| teacher, 8-shot, 4-bit | cuda | 0.783 | 0.779 | n/a | 264.0 | 7434.4 | 4.3 | 5443 | 1.0x |
-| student, PyTorch | cpu | 0.729 ± 0.011 | 0.697 ± 0.015 | 0.800 ± 0.003 | 4.4 | 89.3 | 358.5 | 91 | 60.3x |
-| student, ONNX fp32 | cpu | 0.727 | 0.696 | 0.801 | 3.4 | 90.9 | 352.2 | 91 | 77.6x |
-| student, ONNX int8 | cpu | 0.726 | 0.694 | 0.797 | 1.4 | 40.2 | 795.7 | 23 | 186.3x |
-| baseline: student on 8 gold labels per class, no teacher | cpu | 0.490 ± 0.014 | 0.449 ± 0.018 | 0.473 ± 0.015 | n/a | n/a | n/a | n/a | n/a |
-| upper bound: student on all gold labels | cpu | 0.914 ± 0.005 | 0.914 ± 0.005 | 0.775 ± 0.001 | n/a | n/a | n/a | n/a | n/a |
-
-Task `banking77`, 3080 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-7B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The teacher's prompt shows 8 gold training examples per class (616 texts). The student learns from the teacher's soft labels on all 10003 training texts, plus cross-entropy on 8 gold labels per class (616 texts, weight 1.0). The baseline is the same student trained with cross-entropy on those 616 gold labels only, without the teacher. The upper bound is the same student trained with cross-entropy on all 10003 gold training labels and no teacher; its speed equals the student's. Values with ± are the mean and standard deviation over 3 training seeds; the ONNX rows are the exported first-seed model.
-CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher packs several texts into one forward pass; it is timed at batch 32 only when that takes under three minutes, otherwise its throughput is 1 / batch-1 latency. Speed-up is relative to the teacher, 8-shot, 4-bit on cuda.
-
-### Cascade: student first, unsure texts to the teacher
-
-| Share sent to the teacher | Student confidence threshold | Accuracy | Macro-F1 | Mean latency per text (ms) |
-|---|---|---|---|---|
-| 0% | 0.080 | 0.726 | 0.694 | 1.4 |
-| 10% | 0.231 | 0.744 | 0.718 | 27.8 |
-| 20% | 0.302 | 0.750 | 0.730 | 54.2 |
-| 30% | 0.355 | 0.764 | 0.748 | 80.6 |
-| 50% | 0.440 | 0.778 | 0.769 | 133.4 |
-| 100% | 1.000 | 0.783 | 0.779 | 265.4 |
-
-The student answers every text and passes its least confident ones to the teacher. Thresholds are set on the test texts to hit each share; in deployment, set them on a validation split. Latency is the student's batch-1 latency plus the share times the batch-1 latency of the teacher, 8-shot, 4-bit on cuda.
-<!-- /results -->
-
-The distilled student is far better than the same student trained on the few gold labels alone, and runs on a
-CPU in about a millisecond. Sending its least confident texts to the teacher closes most of the remaining gap
-to the teacher.
-
-Other students, the same teacher and soft labels. Students train for 5 epochs unless the name says otherwise.
-`static` is the static-embedding student (`--student static`: token vectors from MiniLM-L6, averaged, no
-attention), trained for 20 epochs at learning rate 1e-3:
-
-<!-- results: banking77/students.md -->
-| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| banking77-7b-8shot | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.729 ± 0.011 | 0.697 ± 0.015 | 0.800 ± 0.003 | ONNX int8 | 1.4 | 40.2 | 23 |
-| all-MiniLM-L12-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.743 ± 0.011 | 0.710 ± 0.016 | 0.815 ± 0.004 | ONNX int8 | 3.3 | 79.2 | 34 |
-| all-MiniLM-L12-v2-20-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.817 ± 0.001 | 0.814 ± 0.001 | 0.875 ± 0.002 | ONNX int8 | 3.2 | 82.0 | 34 |
-| all-MiniLM-L6-v2-10-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.808 ± 0.003 | 0.801 ± 0.002 | 0.860 ± 0.004 | ONNX int8 | 1.1 | 38.1 | 23 |
-| all-MiniLM-L6-v2-20-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.813 ± 0.002 | 0.811 ± 0.003 | 0.868 ± 0.003 | ONNX int8 | 1.2 | 36.3 | 23 |
-| all-mpnet-base-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.814 ± 0.004 | 0.805 ± 0.007 | 0.863 ± 0.001 | ONNX int8 | 7.3 | 220.4 | 110 |
-| bge-small-en-v1.5 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `BAAI/bge-small-en-v1.5` | 33 | 0.739 ± 0.008 | 0.706 ± 0.011 | 0.815 ± 0.004 | ONNX int8 | 2.7 | 75.2 | 34 |
-| static | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `static` | 8 | 0.803 ± 0.001 | 0.801 ± 0.001 | 0.824 ± 0.001 | ONNX int8 | 0.1 | 5.1 | 8 |
-
-All latencies on the CPU with 2 threads.
-<!-- /results -->
-
-Training longer matters more than a bigger student: with 20 epochs instead of 5, the 23M-parameter MiniLM-L6
-student is as accurate as the 110M-parameter mpnet, at a sixth of its latency, and more accurate than its own
-7B teacher. Learning from the teacher's soft labels on 10,000 texts, plus the 616 gold labels, smooths out
-some of the teacher's individual mistakes. The static student is about a point behind the MiniLM students
-trained as long, at a tenth of a millisecond per text and 8 MB. Ten epochs get most of the way (MiniLM-L6:
-0.808), so 10 is the default from 0.3.1. On the easier financial-tweets task, 20 epochs give the same accuracy
-as 5 ([`financial-tweets-7b-20-epochs.md`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/financial-tweets/financial-tweets-7b-20-epochs.md)).
-The other tables on this page were trained for 5 epochs, the default until 0.3.1.
-
-### Financial tweets: an easier task
-
-Sentiment of financial news tweets, 3 classes
-([Twitter Financial News Sentiment](https://huggingface.co/datasets/zeroshot/twitter-financial-news-sentiment),
-MIT licence per the dataset card), reproduced by
-[`examples/financial-tweets/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/financial-tweets/run.sh).
-The validation split is the test set. The rows include an ensemble of three model families (Qwen2.5-7B,
-Mistral-7B and Phi-3.5-mini, all 4 bit) and a student trained only on texts the teacher wrote itself
-(`tinydistill synth`, no real training texts):
-
-<!-- results: financial-tweets/teachers.md -->
-| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| financial-tweets-1.5b | zero-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.537 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.514 ± 0.004 | 0.538 ± 0.004 | 0.810 ± 0.004 | ONNX int8 | 1.6 | 85.1 | 23 |
-| financial-tweets-1.5b-8shot | 8-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.314 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.295 ± 0.003 | 0.276 ± 0.003 | 0.870 ± 0.006 | ONNX int8 | 1.8 | 77.2 | 23 |
-| financial-tweets-7b | zero-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.832 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.825 ± 0.007 | 0.768 ± 0.009 | 0.870 ± 0.005 | ONNX int8 | 2.5 | 105.7 | 23 |
-| financial-tweets-ensemble | teacher ensemble of 3, zero-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct,mistralai/Mistral-7B-Instruct-v0.3,microsoft/Phi-3.5-mini-instruct` | 0.842 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.828 ± 0.006 | 0.778 ± 0.005 | 0.884 ± 0.007 | ONNX int8 | 1.6 | 99.4 | 23 |
-| financial-tweets-synthetic | zero-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.832 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.596 ± 0.037 | 0.571 ± 0.027 | 0.615 ± 0.045 | ONNX int8 | 1.6 | 110.4 | 23 |
-
-All latencies on the CPU with 2 threads.
-<!-- /results -->
-
-Here the 7B teacher is close to the student trained on all gold labels, and the student is close to the
-teacher. The ensemble adds a little. Few-shot examples hurt on this skewed task (see
-[Limitations](#limitations)). The student that saw only about 1,500 texts the teacher wrote itself is far
-behind the one trained on real tweets: generated texts are much less varied than real ones, so `synth` is a
-way to start without data, not a replacement for it. Full tables per run are in
-[`examples/financial-tweets/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples/financial-tweets).
-
-### GoEmotions: multi-label
-
-Reddit comments with any of 27 emotions or neutral
-([GoEmotions](https://huggingface.co/datasets/google-research-datasets/go_emotions), Apache 2.0), reproduced
-by [`examples/go-emotions/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/go-emotions/run.sh).
-The teacher answers one yes/no question per label; accuracy is the share of texts with exactly the right set
-of labels.
-
-<!-- results: go-emotions/go-emotions-1.5b.md -->
-| Model | Device | Accuracy | Macro-F1 | Micro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
-|---|---|---|---|---|---|---|---|---|---|---|
-| teacher, zero-shot | cpu | 0.004 | 0.191 | 0.186 | n/a | 9990.9 | n/a | 0.1 | 6175 | 1.0x |
-| teacher, zero-shot | cuda | 0.004 | 0.191 | 0.186 | n/a | 74.3 | 2131.6 | 15.0 | 3087 | 134.5x |
-| student, PyTorch | cpu | 0.002 ± 0.001 | 0.111 ± 0.004 | 0.141 ± 0.002 | 0.015 ± 0.002 | 5.4 | 116.3 | 275.2 | 91 | 1857.3x |
-| student, ONNX fp32 | cpu | 0.002 | 0.106 | 0.141 | 0.016 | 4.8 | 115.7 | 276.6 | 91 | 2072.9x |
-| student, ONNX int8 | cpu | 0.002 | 0.108 | 0.141 | 0.016 | 2.0 | 66.3 | 482.8 | 23 | 5026.0x |
-| baseline: student on 8 gold labels per class, no teacher | cpu | 0.000 ± 0.000 | 0.000 ± 0.000 | 0.000 ± 0.000 | 0.007 ± 0.000 | n/a | n/a | n/a | n/a | n/a |
-| upper bound: student on all gold labels | cpu | 0.225 ± 0.021 | 0.034 ± 0.019 | 0.320 ± 0.034 | 0.007 ± 0.000 | n/a | n/a | n/a | n/a | n/a |
-
-Task `go-emotions`, 5427 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-1.5B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The student learns from the teacher's soft labels on all 10000 training texts, plus cross-entropy on 8 gold labels per class (223 texts, weight 1.0). The baseline is the same student trained with cross-entropy on those 223 gold labels only, without the teacher. The upper bound is the same student trained with cross-entropy on all 10000 gold training labels and no teacher; its speed equals the student's. Values with ± are the mean and standard deviation over 3 training seeds; the ONNX rows are the exported first-seed model.
-CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher packs several texts into one forward pass; it is timed at batch 32 only when that takes under three minutes, otherwise its throughput is 1 / batch-1 latency. Speed-up is relative to the teacher, zero-shot on cpu.
-<!-- /results -->
-
-This is a hard setting for a 1.5B teacher: it answers yes far too often, so exact-set accuracy is near zero,
-and the student inherits that. The run shows that multi-label tasks work end to end, not that a small
-teacher is good at them; use a larger teacher.
-
-### A vLLM teacher agrees with the local one
-
-[`examples/vllm-smoke.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/vllm-smoke.sh)
-labels 300 financial tweets with `Qwen/Qwen2.5-1.5B-Instruct` locally and through a vLLM server:
-
-<!-- results: vllm-smoke.md -->
-| Texts | Same top label | Largest difference in a label score | Mean difference |
-|---|---|---|---|
-| 300 | 100.0% | 0.611 | 0.0900 |
-
-Qwen2.5-1.5B-Instruct scoring 300 financial tweets locally (bf16, tinydistill) and through vLLM (prompt log-probabilities); label scores are log-probabilities, so small differences are numerical.
-<!-- /results -->
+Python 3.11 or newer, on Linux, macOS or Windows. Labelling with a large teacher wants a GPU; training and
+inference are fine on a CPU. For a CPU-only PyTorch, install it first:
+`pip install torch --index-url https://download.pytorch.org/whl/cpu`.
 
 ## Quickstart
 
 ```sh
-pip install "tinydistill[hf]"
 curl -LO https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/examples/banking77/task.yaml
 tinydistill run task.yaml --data hf:PolyAI/banking77:train --test hf:PolyAI/banking77:test \
   --out runs/banking77 --int8
 tinydistill predict runs/banking77/onnx "I still haven't received my new card"
 ```
+
+The same from Python, with the exported model:
+
+```python
+from tinydistill import Predictor
+
+clf = Predictor("runs/banking77/onnx")  # or a model on the Hub: Predictor("hf:user/name")
+clf.predict(["I still haven't received my new card"])  # a list of label names
+```
+
+Or try it without installing anything: the [Colab notebook](https://colab.research.google.com/github/Andreas-Hum/tinydistill/blob/main/notebooks/quickstart.ipynb) distils a sentiment classifier in a
+few minutes on a free GPU.
 
 Labelling the full dataset with the default teacher wants a GPU. For a quick look on a CPU, add
 `--teacher Qwen/Qwen2.5-0.5B-Instruct --limit 200 --test-limit 200`. `--limit` takes the first rows, and the
@@ -236,6 +111,69 @@ teacher at all). See `tinydistill <command> --help`.
 
 Long steps print their progress, speed and time left every few seconds and write it to `RUN/status.json`;
 `tinydistill status RUN` reads it from another terminal and tells you whether the process is still alive.
+
+## Results
+
+Banking77 intent detection: 77 fine-grained classes, 3,080 held-out test texts. The students learn from the
+teacher's soft labels on 10,003 training texts plus 8 gold labels per class. Latency is per text, one at a
+time:
+
+<!-- results: headline.md -->
+| Model | Runs on | Test accuracy | Latency per text | Size | Speed-up |
+|---|---|---|---|---|---|
+| Teacher: `Qwen/Qwen2.5-7B-Instruct`, 4-bit, 8 examples per class in the prompt | RTX 4090 | 0.783 | 264 ms | 5.4 GB | 1x |
+| Student: MiniLM-L6, int8 ONNX | CPU, 2 threads | 0.814 | 1.2 ms | 23 MB | 214x |
+| Student: static embeddings, int8 ONNX | CPU, 2 threads | 0.802 | 0.1 ms | 8 MB | 3244x |
+<!-- /results -->
+
+- The students are **more accurate than their teacher**: learning its soft labels across 10,000 texts smooths
+  out some of its individual mistakes.
+- On a CPU they are **hundreds of times faster** than the teacher on a GPU, at a fraction of its size.
+- **The teacher sets the ceiling.** With a 1.5B teacher, or without examples in its prompt, the students are
+  much weaker; the same student trained on all 10,003 gold labels reaches 0.914.
+
+[RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md) has every run: four teachers, five student models trained for 5 to 20 epochs, the gold-only baseline,
+the upper bound and the cascade on Banking77, a teacher ensemble and synthetic texts on financial tweets,
+multi-label GoEmotions, and a vLLM check. Every number comes from a saved results file written by the
+scripts in [`examples/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples).
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Task prompt +<br/>unlabelled texts"] --> B["LLM teacher(s)<br/>Qwen · Mistral · Phi · ..."]
+    S["Synthetic texts<br/>(synth)"] -.-> B
+    V["vLLM server"] -.-> B
+    K["A few gold labels<br/>per class"] -.-> B
+    K -.-> C
+    B -- "soft labels<br/>(ensembled)" --> C["Small encoder<br/>student"]
+    C --> D["ONNX / int8<br/>export"]
+    D --> E["Fast CPU<br/>inference"]
+    D --> W["Browser · server ·<br/>Hugging Face Hub"]
+    E -.-> F["Cascade: unsure<br/>texts to the LLM"]
+```
+
+Each step is one command: `tinydistill label` (teacher), `train` (student), `export` (ONNX / int8) and
+`predict` (inference), or `tinydistill run` for all of them. Dashed parts are optional: synthetic texts when
+there is no unlabelled data, a vLLM server as the teacher, a few gold labels for the teacher's prompt and the
+student's loss, and a cascade that hands the student's least confident texts to the LLM. The exported model
+runs on a CPU, in a [browser](#deploying-cascade-server-browser), behind `tinydistill serve`, or from the
+Hugging Face Hub.
+
+## Guide
+
+### Training the student
+
+The student trains for `--epochs` passes over the training texts (default 10) on the KL divergence to the
+teacher's soft labels, plus cross-entropy on any gold labels (`--gold-per-class`, `--gold-file`). On Banking77,
+training longer mattered more than a bigger student: MiniLM-L6 reaches 0.729 after 5 epochs and 0.813 after 20
+([RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#banking77-the-hard-case)).
+
+To choose the number of epochs from the data, `--val-share 0.05` holds out 5% of the training texts (texts
+without gold labels, so no labels are lost), measures the loss on them after every epoch, keeps the best epoch
+and stops after `--patience` epochs (default 3) without improvement. No gold labels are needed: the held-out
+loss is measured against the teacher's soft labels. `--seeds N` trains every student N times and reports the
+mean and standard deviation.
 
 **Static student.** `--student static` (or `static:<encoder>`) trains a student with no attention at all: one
 vector per token, averaged, then a linear layer, started from the encoder's own token representations (as in
@@ -289,6 +227,11 @@ using only the standard library. It listens on 127.0.0.1 unless you pass `--host
 visitor's browser with no server at all. Below the answer, an "Inside the model" view shows each step of the inference
 (tokens, the answer after each layer, attention, probabilities, which words matter, the teacher's soft labels
 for the examples and the cascade), so the page also explains distillation. Serve the folder with any static host (GitHub Pages works).
+
+**Hugging Face Hub.** `tinydistill push RUN/onnx --repo user/name` uploads the model with a model card. Anyone
+can then use it without the run directory: `Predictor("hf:user/name")` in Python, or
+`tinydistill predict hf:user/name "some text"`, `serve hf:user/name` and `web hf:user/name --out site` on the
+command line.
 
 ### A few gold labels
 
@@ -440,7 +383,16 @@ The student minimises KL(teacher || student) over the training texts, plus `--ce
 cross-entropy on the K gold labels per class chosen by `--gold-per-class`, if any (standard knowledge
 distillation, Hinton et al., 2015).
 
-## Limitations
+## When to use tinydistill, and when not
+
+Use it when an LLM prompt already classifies your texts well enough, but it is too slow, too expensive or too
+large to run on every text: tinydistill keeps most of its quality in a model that runs in milliseconds on a CPU.
+Do not use it when the LLM itself is not good at the task (the student inherits its mistakes), when you have
+enough gold labels to train a classifier directly, or when the task needs generated text rather than a choice
+among labels.
+
+### Limitations
+
 
 - **The teacher caps the student.** The student learns to imitate the teacher, mistakes included. A small LLM
   choosing zero-shot among many fine-grained labels can be weak: Qwen2.5-0.5B-Instruct, for example, often
@@ -465,7 +417,7 @@ distillation, Hinton et al., 2015).
   own hardware.
 - ONNX export uses PyTorch's TorchScript-based exporter.
 
-## Development
+## Contributing
 
 ```sh
 python -m venv .venv && . .venv/bin/activate
@@ -478,8 +430,30 @@ The tests run on a CPU in a few seconds with tiny random models from `hf-interna
 scores against a direct computation, the distillation loss and metrics against hand-computed values, cache
 resumption, that the ONNX export reproduces the PyTorch logits, and the whole CLI end to end.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to propose changes, [SECURITY.md](SECURITY.md) for reporting
-vulnerabilities and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for the code of conduct.
+See [CONTRIBUTING.md](https://github.com/Andreas-Hum/tinydistill/blob/main/CONTRIBUTING.md) for how to propose changes, [SECURITY.md](https://github.com/Andreas-Hum/tinydistill/blob/main/SECURITY.md) for reporting
+vulnerabilities and [CODE_OF_CONDUCT.md](https://github.com/Andreas-Hum/tinydistill/blob/main/CODE_OF_CONDUCT.md) for the code of conduct.
+
+## Citation
+
+If tinydistill helps your work, please cite it:
+
+```bibtex
+@software{tinydistill,
+  author = {Andreas-Hum},
+  title = {tinydistill: distil an LLM classification prompt into a small, fast model},
+  url = {https://github.com/Andreas-Hum/tinydistill},
+  year = {2026},
+}
+```
+
+## Star history
+
+<a href="https://www.star-history.com/#Andreas-Hum/tinydistill&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Andreas-Hum/tinydistill&type=Date&theme=dark">
+    <img alt="Star history of tinydistill" src="https://api.star-history.com/svg?repos=Andreas-Hum/tinydistill&type=Date" width="600">
+  </picture>
+</a>
 
 ## References
 

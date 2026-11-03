@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use tinydistill, please cite it as below."
+title: "tinydistill: distil an LLM classification prompt into a small, fast model"
+type: software
+authors:
+  - alias: Andreas-Hum
+repository-code: "https://github.com/Andreas-Hum/tinydistill"
+url: "https://andreas-hum.github.io/tinydistill/"
+license: MIT
+version: 0.3.2
+date-released: "2026-11-03"
+keywords:
+  - knowledge distillation
+  - large language models
+  - text classification
+  - onnx

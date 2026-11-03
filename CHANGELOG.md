@@ -1,7 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 (2026-11-03)
 
+- Models load straight from the Hugging Face Hub: `Predictor("hf:user/name")`, and `predict`, `serve` and
+  `web` take `hf:user/name`. The model card that `push` writes shows this.
+- `train --val-share S` holds out a share of the training texts, keeps the epoch with the lowest loss on them
+  and stops early after `--patience` epochs without improvement; no gold labels needed.
+- A quickstart notebook (`notebooks/quickstart.ipynb`) that runs on Colab.
+- The README follows the layout of widely used libraries (highlights, installation, quickstart, a results
+  summary); the full results are in `RESULTS.md`.
 - Fix: `tinydistill status` on Windows sent Ctrl+C to the process it checked; it now only queries it.
 - Fix: files are read and written as UTF-8 on every platform (Windows defaulted to its legacy code page).
 - `numpy` is a declared dependency, and the minimum torch is 2.6 (transformers needs it to load `.bin`

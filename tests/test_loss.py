@@ -151,3 +151,32 @@ def test_suggest_ranks_disagreement_then_uncertainty_and_spreads_labels():
     assert chosen[0] == 2 and {int(p[i].argmax()) for i in chosen[:2]} == {0, 1}  # alternates labels
     multi = priority(np.array([[0.9, 0.5]]), np.array([[0.2, 0.5]]), multi_label=True)
     assert multi[0] > priority(np.array([[0.9, 0.1]]), np.array([[0.9, 0.1]]), multi_label=True)[0]
+
+
+def test_best_epoch_is_kept_and_training_stops_early(tmp_path):
+    from conftest import TINY_ENCODER
+
+    from tinydistill.student import train_student
+
+    texts = [f"text number {i}" for i in range(20)]
+    probs = torch.tensor([[0.8, 0.2]] * 20)
+    lines = []
+    kept = train_student(
+        texts,
+        probs,
+        ["a", "b"],
+        tmp_path / "s",
+        TINY_ENCODER,
+        epochs=6,
+        batch_size=4,
+        lr=0.0,
+        log=lines.append,
+        val_share=0.2,
+        patience=1,
+    )  # nothing is learned, so the held-out loss never improves after epoch 1
+    assert kept == 1
+    assert sum(line.startswith("epoch ") for line in lines) == 2 and "held-out loss" in lines[0]
+    assert any("keeping epoch 1" in line for line in lines) and (tmp_path / "s" / "config.json").exists()
+    assert (
+        train_student(texts, probs, ["a", "b"], tmp_path / "t", TINY_ENCODER, epochs=2, log=lines.append) == 2
+    )

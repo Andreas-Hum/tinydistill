@@ -44,5 +44,7 @@ for run in banking77-1.5b banking77-1.5b-8shot banking77-7b banking77-7b-8shot; 
 done
 tinydistill compare runs/banking77-1.5b runs/banking77-1.5b-8shot runs/banking77-7b runs/banking77-7b-8shot \
   > examples/banking77/teachers.md
+mkdir -p examples/banking77/students
+for dir in runs/banking77-students/*/; do cp "$dir/results.json" "examples/banking77/students/$(basename "$dir").json"; done
 tinydistill compare runs/banking77-7b-8shot runs/banking77-students/* > examples/banking77/students.md
 python examples/update_readme.py

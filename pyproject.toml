@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tinydistill"
-version = "0.3.1"
+version = "0.3.2"
 description = "Distil an LLM classification prompt into a small, fast model that runs on a CPU."
 readme = "README.md"
 license = "MIT"
@@ -14,6 +14,11 @@ authors = [{ name = "Andreas-Hum" }]
 keywords = ["knowledge distillation", "llm", "text classification", "onnx", "inference"]
 classifiers = [
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
   "Operating System :: OS Independent",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]

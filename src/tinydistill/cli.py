@@ -249,45 +249,65 @@ def cmd_train(a: argparse.Namespace) -> None:
     from .progress import Progress
 
     def batches(n: int) -> int:
+        n -= round(a.val_share * n)  # held out from training
         return a.epochs * -(-n // a.batch_size)
 
     per_seed = batches(len(texts)) + (batches(len(kgold)) if a.gold_only else 0)
     per_seed += batches(len(upper)) if a.upper_bound else 0
     bar = Progress("train", a.seeds * per_seed, log, run / "status.json", unit="batches")
     t0 = time.perf_counter()
+    sel = {"val_share": a.val_share, "patience": a.patience}
+    kept: dict[str, list[int]] = {}
     for i in range(a.seeds):
         seed = a.seed + i
         out = run if i == 0 else run / "seeds" / str(seed)
         hp = (a.epochs, a.batch_size, a.lr, a.max_length, device, seed, log, task.multi_label)
         log(f"seed {seed}: distilling {a.student} on {len(rows)} texts, {n_gold} with gold labels ({device})")
-        train_student(
-            texts, probs, task.labels, out / "student", a.student, gold, a.ce_weight, *hp, on_step=bar.update
+        kept.setdefault("student", []).append(
+            train_student(
+                texts,
+                probs,
+                task.labels,
+                out / "student",
+                a.student,
+                gold,
+                a.ce_weight,
+                *hp,
+                on_step=bar.update,
+                **sel,
+            )
         )
         if a.gold_only:
             log(f"seed {seed}: baseline, {a.student} on the {len(kgold)} gold labels only, no teacher")
-            train_student(
-                [texts[j] for j in kgold],
-                None,
-                task.labels,
-                out / "student-kgold",
-                a.student,
-                [gold[j] for j in kgold],
-                0.0,
-                *hp,
-                on_step=bar.update,
+            kept.setdefault("student-kgold", []).append(
+                train_student(
+                    [texts[j] for j in kgold],
+                    None,
+                    task.labels,
+                    out / "student-kgold",
+                    a.student,
+                    [gold[j] for j in kgold],
+                    0.0,
+                    *hp,
+                    on_step=bar.update,
+                    **sel,
+                )
             )
         if a.upper_bound:
             log(f"seed {seed}: upper bound, {a.student} on all {len(upper)} gold training labels, no teacher")
-            train_student(
-                [texts[j] for j in upper],
-                None,
-                task.labels,
-                out / "student-gold",
-                a.student,
-                [all_gold[j] for j in upper],
-                0.0,
-                *hp,
-                on_step=bar.update,
+            kept.setdefault("student-gold", []).append(
+                train_student(
+                    [texts[j] for j in upper],
+                    None,
+                    task.labels,
+                    out / "student-gold",
+                    a.student,
+                    [all_gold[j] for j in upper],
+                    0.0,
+                    *hp,
+                    on_step=bar.update,
+                    **sel,
+                )
             )
     bar.finish()
     _meta(
@@ -295,6 +315,9 @@ def cmd_train(a: argparse.Namespace) -> None:
         {
             "student": a.student,
             "epochs": a.epochs,
+            "val_share": a.val_share,
+            "patience": a.patience if a.val_share else None,
+            "kept_epochs": kept if a.val_share else None,
             "lr": a.lr,
             "batch_size": a.batch_size,
             "gold_per_class": a.gold_per_class,
@@ -522,6 +545,9 @@ def cmd_eval(a: argparse.Namespace) -> None:
             k: meta.get(k)
             for k in (
                 "epochs",
+                "val_share",
+                "patience",
+                "kept_epochs",
                 "lr",
                 "batch_size",
                 "gold_per_class",
@@ -655,9 +681,10 @@ def cmd_serve(a: argparse.Namespace) -> None:
 
 
 def cmd_web(a: argparse.Namespace) -> None:
+    from .export import model_path
     from .web import build_site
 
-    page = build_site(Path(a.model), Path(a.out), a.title, note=a.note)
+    page = build_site(model_path(a.model), Path(a.out), a.title, note=a.note)
     log(f"wrote {page}; serve the folder over HTTP, e.g. python -m http.server -d {a.out}")
 
 
@@ -918,6 +945,15 @@ def build_parser() -> argparse.ArgumentParser:
         "(no attention: much smaller and faster; try --epochs 20 --lr 1e-3)",
     )
     train.add_argument("--epochs", type=int, default=10, help="passes over the training texts (default 10)")
+    train.add_argument(
+        "--val-share",
+        type=float,
+        default=0.0,
+        metavar="S",
+        help="hold out this share of the training texts and keep the epoch with the lowest loss on them, "
+        "stopping early after --patience epochs without improvement (e.g. 0.05; default: off, keep the last)",
+    )
+    train.add_argument("--patience", type=int, default=3, help="epochs without improvement before stopping")
     train.add_argument("--batch-size", type=int, default=32)
     train.add_argument("--lr", type=float, default=1e-4)
     train.add_argument("--max-length", type=int, default=128)
@@ -980,7 +1016,7 @@ def build_parser() -> argparse.ArgumentParser:
         fn=cmd_eval
     )
     pr = sub.add_parser("predict", parents=[common], help="classify texts with an exported model")
-    pr.add_argument("model", help="directory written by `export` (run/onnx)")
+    pr.add_argument("model", help="directory written by `export` (run/onnx), or hf:user/name on the Hub")
     pr.add_argument("texts", nargs="*")
     pr.add_argument("--data", help="file with texts (.csv, .jsonl or hf:...)")
     pr.add_argument("--text-field", default="text")
@@ -997,7 +1033,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pr.set_defaults(fn=cmd_predict)
     srv = sub.add_parser("serve", parents=[common], help="serve an exported model over HTTP (JSON)")
-    srv.add_argument("model", help="directory written by `export` (run/onnx)")
+    srv.add_argument("model", help="directory written by `export` (run/onnx), or hf:user/name on the Hub")
     srv.add_argument(
         "--host", default="127.0.0.1", help="interface to listen on (default: this machine only)"
     )
@@ -1009,7 +1045,7 @@ def build_parser() -> argparse.ArgumentParser:
     srv.add_argument("--log", help="with --cascade: append the texts the teacher answered (for `refresh`)")
     srv.set_defaults(fn=cmd_serve)
     web = sub.add_parser("web", help="a static web page that runs the model in the browser")
-    web.add_argument("model", help="directory written by `export` (run/onnx)")
+    web.add_argument("model", help="directory written by `export` (run/onnx), or hf:user/name on the Hub")
     web.add_argument("--out", default="site", help="folder to write the page and model into")
     web.add_argument("--title", help="page title (default: from the task name)")
     web.add_argument("--note", help="an extra footer line, e.g. the dataset's licence and source")

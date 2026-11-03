@@ -105,7 +105,13 @@ def train_student(
     log: Callable[[str], None] = print,
     multi_label: bool = False,
     on_step: Callable[[], None] | None = None,
-) -> None:
+    val_share: float = 0.0,
+    patience: int = 3,
+) -> int:
+    """Train and save the student; returns the epoch whose model is saved. With ``val_share`` > 0 that share
+    of the texts is held out (texts without gold labels when there is a teacher), the loss on them is measured
+    after every epoch, the epoch with the lowest one is kept, and training stops after ``patience`` epochs
+    without improvement. Otherwise every epoch is used and the last one is kept."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
     if static := encoder_of(model_name):
@@ -130,45 +136,46 @@ def train_student(
     else:
         gold_t = torch.tensor([-1 if g is None else g for g in gold])
 
-    steps = epochs * math.ceil(len(texts) / batch_size)
+    val: list[int] = []
+    if val_share > 0:
+        pool = [i for i, g in enumerate(gold) if teacher_probs is None or g is None]
+        val = sorted(
+            random.Random(seed + 2).sample(pool, min(len(pool), max(1, round(val_share * len(texts)))))
+        )
+    held = set(val)
+    order = [i for i in range(len(texts)) if i not in held]
+
+    def loss_of(idx: list[int]) -> torch.Tensor:
+        enc = tok(
+            [texts[i] for i in idx], padding=True, truncation=True, max_length=max_length, return_tensors="pt"
+        )
+        logits = model(**{k: v.to(device) for k, v in enc.items()}).logits
+        if multi_label:
+            g = gold_t[idx].to(device)
+            if teacher_probs is None:  # supervised only: every text has gold labels
+                return F.binary_cross_entropy_with_logits(logits.float(), g)
+            return distillation_loss_multilabel(
+                logits, teacher_probs[idx].to(device), g, has_gold[idx].to(device), ce_weight
+            )
+        if teacher_probs is None:  # supervised only (baseline, upper bound): every text has a gold label
+            return F.cross_entropy(logits.float(), gold_t[idx].to(device))
+        return distillation_loss(logits, teacher_probs[idx].to(device), gold_t[idx].to(device), ce_weight)
+
+    steps = epochs * math.ceil(len(order) / batch_size)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
     warm = max(1, steps // 10)
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: min((s + 1) / warm, max(0.0, (steps - s) / (steps - warm + 1e-9)))
     )
 
-    order = list(range(len(texts)))
+    best_loss, best_state, best_epoch = math.inf, None, epochs
     for epoch in range(epochs):
         model.train()
         rng.shuffle(order)
         t0, total = time.perf_counter(), 0.0
         for b in range(0, len(order), batch_size):
             idx = order[b : b + batch_size]
-            enc = tok(
-                [texts[i] for i in idx],
-                padding=True,
-                truncation=True,
-                max_length=max_length,
-                return_tensors="pt",
-            )
-            enc = {k: v.to(device) for k, v in enc.items()}
-            logits = model(**enc).logits
-            if multi_label:
-                g = gold_t[idx].to(device)
-                if teacher_probs is None:  # supervised only: every text has gold labels
-                    loss = F.binary_cross_entropy_with_logits(logits.float(), g)
-                else:
-                    loss = distillation_loss_multilabel(
-                        logits, teacher_probs[idx].to(device), g, has_gold[idx].to(device), ce_weight
-                    )
-            elif (
-                teacher_probs is None
-            ):  # supervised only (the upper-bound model): every text has a gold label
-                loss = F.cross_entropy(logits.float(), gold_t[idx].to(device))
-            else:
-                loss = distillation_loss(
-                    logits, teacher_probs[idx].to(device), gold_t[idx].to(device), ce_weight
-                )
+            loss = loss_of(idx)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
@@ -177,10 +184,29 @@ def train_student(
             total += loss.item() * len(idx)
             if on_step:
                 on_step()
-        log(f"epoch {epoch + 1}/{epochs}: loss {total / len(texts):.4f} ({time.perf_counter() - t0:.0f}s)")
+        line = f"epoch {epoch + 1}/{epochs}: loss {total / len(order):.4f}"
+        if val:
+            model.eval()
+            with torch.no_grad():
+                v = sum(
+                    loss_of(val[b : b + 64]).item() * len(val[b : b + 64]) for b in range(0, len(val), 64)
+                )
+            v /= len(val)
+            line += f", held-out loss {v:.4f}"
+            if v < best_loss:
+                best_loss, best_epoch = v, epoch + 1
+                best_state = {k: t.detach().clone() for k, t in model.state_dict().items()}
+        log(f"{line} ({time.perf_counter() - t0:.0f}s)")
+        if val and epoch + 1 - best_epoch >= patience:
+            log(f"no improvement on the held-out texts for {patience} epochs: stopping")
+            break
+    if best_state is not None:
+        model.load_state_dict(best_state)
+        log(f"keeping epoch {best_epoch} (lowest held-out loss, on {len(val)} texts)")
     out_dir.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(out_dir)
     tok.save_pretrained(out_dir)
+    return best_epoch
 
 
 def load_student(path: Path, device: str = "cpu"):

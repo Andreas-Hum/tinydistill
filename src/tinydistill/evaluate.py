@@ -198,6 +198,14 @@ def markdown_table(results: dict) -> str:
             f"{tr.get('n_gold_upper_bound')} gold training labels and no teacher; "
             "its speed equals the student's."
         )
+    if tr.get("val_share"):
+        kept = sorted({e for runs in (tr.get("kept_epochs") or {}).values() for e in runs})
+        trained += (
+            f" Each student holds out {tr['val_share']:.0%} of its training texts and keeps the epoch "
+            f"with the lowest loss on them (up to {tr.get('epochs')} epochs, stopping after "
+            f"{tr.get('patience')} without improvement)"
+            + (f"; kept epochs: {', '.join(map(str, kept))}." if kept else ".")
+        )
     if tr.get("shortlist"):
         recall = tr.get("shortlist_recall")
         trained += f" The teacher scores only the {tr['shortlist']} labels most similar to each text" + (
