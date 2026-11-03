@@ -100,11 +100,13 @@ def test_web_page_layout(tmp_path):
         f"{folder}/tokenizer.json",
         f"{folder}/onnx/model_quantized.onnx",
     } <= files
-    assert json.loads((tmp_path / "site" / folder / "config.json").read_text())["id2label"] == {
+    assert json.loads((tmp_path / "site" / folder / "config.json").read_text(encoding="utf-8"))[
+        "id2label"
+    ] == {
         "0": "neg",
         "1": "pos",
     }
-    text = page.read_text()
+    text = page.read_text(encoding="utf-8")
     assert "<title>Demo</title>" in text and '"q8"' in text and "&lt;b&gt;hi&lt;/b&gt;" in text
     assert "<b>hi</b>" not in text and "<b>hi<\\/b>" in text  # escaped in the HTML; "<\/" in the JSON data
     import onnxruntime as ort

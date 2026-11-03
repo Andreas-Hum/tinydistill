@@ -107,7 +107,7 @@ def test_synthetic_texts_are_parsed_deduplicated_and_unlabelled(tmp_path):
     n = synthesise(
         task, lambda message: next(replies), per_label=3, out=tmp_path / "s.jsonl", log=lambda m: None
     )
-    rows = [json.loads(line) for line in (tmp_path / "s.jsonl").read_text().splitlines()]
+    rows = [json.loads(line) for line in (tmp_path / "s.jsonl").read_text(encoding="utf-8").splitlines()]
     assert n == 6 and [r["text"] for r in rows] == ["great", "superb", "lovely", "bad", "awful", "terrible"]
     assert all("label" not in r for r in rows)  # never mistaken for gold labels
 

@@ -62,7 +62,7 @@ def test_end_to_end(tmp_path, capsys):
             "2",
         ]
     )
-    results = json.loads((run / "results.json").read_text())
+    results = json.loads((run / "results.json").read_text(encoding="utf-8"))
     names = [m["name"] for m in results["models"]]
     assert names == ["teacher, zero-shot", "student, PyTorch", "student, ONNX fp32", "student, ONNX int8"]
     for m in results["models"]:
@@ -73,19 +73,19 @@ def test_end_to_end(tmp_path, capsys):
         "n_train": 18,
         "n_test": 6,
     }
-    md = (run / "results.md").read_text()
+    md = (run / "results.md").read_text(encoding="utf-8")
     assert md.startswith("| Model | Device |") and "student, ONNX int8" in md
 
-    assert json.loads((run / "status.json").read_text())["finished"]
+    assert json.loads((run / "status.json").read_text(encoding="utf-8"))["finished"]
     capsys.readouterr()
     main(["status", str(run)])
     assert "eval:" in capsys.readouterr().out
 
     main(["analyse", str(run)])
     out = capsys.readouterr().out
-    assert out.startswith("Teacher accuracy") and (run / "analysis.html").read_text().startswith(
-        "<!doctype html>"
-    )
+    assert out.startswith("Teacher accuracy") and (run / "analysis.html").read_text(
+        encoding="utf-8"
+    ).startswith("<!doctype html>")
 
     # Labelling again resumes entirely from the cache.
     capsys.readouterr()
@@ -162,13 +162,13 @@ def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "every text is in the cache, so the teacher is not loaded" in err  # shared cache
 
-    results = json.loads((tmp_path / "b" / "results.json").read_text())
+    results = json.loads((tmp_path / "b" / "results.json").read_text(encoding="utf-8"))
     assert results["training"]["gold_per_class"] == 2
     assert results["training"]["n_gold"] == 4  # 2 per class, 2 classes
     assert results["training"]["n_gold_upper_bound"] == 18
     upper = [m for m in results["models"] if m["role"] == "upper bound"]
     assert len(upper) == 1 and 0 <= upper[0]["accuracy"] <= 1
-    md = (tmp_path / "b" / "results.md").read_text()
+    md = (tmp_path / "b" / "results.md").read_text(encoding="utf-8")
     assert "cross-entropy on 4 gold-labelled texts (2 per class; weight 1.0)" in md and "upper bound" in md
     roles = [m["role"] for m in results["models"]]
     assert roles.count("baseline") == 1 and roles.count("student") == 2  # PyTorch row + ONNX fp32 row
@@ -183,7 +183,7 @@ def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
         table[0].startswith("| Run | Teacher | Teacher accuracy | Student |") and len(table) == 6
     )  # header, rule, 2 rows, note
     assert table[2].startswith("| a |") and table[3].startswith("| b/results |") and " ± " in table[3]
-    first = json.loads((tmp_path / "a" / "results.json").read_text())
+    first = json.loads((tmp_path / "a" / "results.json").read_text(encoding="utf-8"))
     assert first["training"]["gold_per_class"] == 0 and not first["training"]["upper_bound"]
 
 
@@ -228,12 +228,16 @@ def test_few_shot_teacher(tmp_path, capsys):
             "1",
         ]
     )
-    examples = [json.loads(line) for line in (run / "examples.jsonl").read_text().splitlines()]
+    examples = [
+        json.loads(line) for line in (run / "examples.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     assert len(examples) == 2 and {e["gold"] for e in examples} == {0, 1}
-    results = json.loads((run / "results.json").read_text())
+    results = json.loads((run / "results.json").read_text(encoding="utf-8"))
     assert results["models"][0]["name"] == "teacher, 1-shot"
     assert results["training"]["few_shot"] == 1 and results["training"]["n_examples"] == 2
-    assert "prompt shows 1 gold training examples per class (2 texts)" in (run / "results.md").read_text()
+    assert "prompt shows 1 gold training examples per class (2 texts)" in (run / "results.md").read_text(
+        encoding="utf-8"
+    )
 
     (tmp_path / "plain.yaml").write_text(TASK)  # no {examples} line
     with pytest.raises(SystemExit, match="examples"):
@@ -292,7 +296,7 @@ def test_push_writes_a_model_card_and_uploads(tmp_path, monkeypatch):
     (tmp_path / "run" / "meta.json").write_text('{"teacher": "T", "student": "S"}')
     (tmp_path / "run" / "results.md").write_text("| Model |\n|---|\n| x |\n")
     main(["push", str(onnx), "--repo", "me/clf", "--private", "--license", "apache-2.0"])
-    card = (onnx / "README.md").read_text()
+    card = (onnx / "README.md").read_text(encoding="utf-8")
     assert "license: apache-2.0" in card and "`T`" in card and "## Results" in card and '"me/clf"' in card
     assert calls == [("create", "me/clf", True), ("upload", str(onnx), "me/clf")]
 
@@ -358,7 +362,7 @@ def test_teacher_ensemble(tmp_path):
             "cpu",
         ]
     )
-    row = json.loads((run / "train.jsonl").read_text().splitlines()[0])
+    row = json.loads((run / "train.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert len(row["teacher_scores"]) == 2
     import torch
 
@@ -366,13 +370,13 @@ def test_teacher_ensemble(tmp_path):
     assert torch.tensor(row["scores"], dtype=torch.float64).exp().tolist() == pytest.approx(
         want.tolist(), abs=1e-9
     )
-    results = json.loads((run / "results.json").read_text())
+    results = json.loads((run / "results.json").read_text(encoding="utf-8"))
     roles = [(m["role"], m["name"]) for m in results["models"]]
     assert roles[0] == ("teacher", "teacher ensemble of 2, zero-shot")
     assert [r for r, _ in roles].count("teacher member") == 2
     ens, members = results["models"][0], [m for m in results["models"] if m["role"] == "teacher member"]
     assert ens["latency_ms_b1"] == pytest.approx(sum(m["latency_ms_b1"] for m in members))
-    assert "Speed-up is relative to the teacher ensemble" in (run / "results.md").read_text()
+    assert "Speed-up is relative to the teacher ensemble" in (run / "results.md").read_text(encoding="utf-8")
 
 
 def test_cascade_in_eval_and_predict(tmp_path, capsys):
@@ -410,12 +414,12 @@ def test_cascade_in_eval_and_predict(tmp_path, capsys):
             "--int8",
         ]
     )
-    results = json.loads((run / "results.json").read_text())
+    results = json.loads((run / "results.json").read_text(encoding="utf-8"))
     assert [c["share_to_teacher"] for c in results["cascade"]][0] == 0.0
     assert results["cascade"][-1]["share_to_teacher"] == 1.0
     teacher_acc = results["models"][0]["accuracy"]
     assert results["cascade"][-1]["accuracy"] == pytest.approx(teacher_acc)  # everything to the teacher
-    assert "### Cascade" in (run / "results.md").read_text()
+    assert "### Cascade" in (run / "results.md").read_text(encoding="utf-8")
 
     capsys.readouterr()
     main(
@@ -485,9 +489,9 @@ def test_ordinal_task_reports_distances(tmp_path):
             "cpu",
         ]
     )
-    results = json.loads((run / "results.json").read_text())
+    results = json.loads((run / "results.json").read_text(encoding="utf-8"))
     assert all("mae" in m and "within_one" in m for m in results["models"])
-    head = (run / "results.md").read_text().splitlines()[0]
+    head = (run / "results.md").read_text(encoding="utf-8").splitlines()[0]
     assert "| MAE (label steps) | Within one step |" in head
 
 
@@ -555,9 +559,9 @@ def test_multi_label_end_to_end(tmp_path, capsys):
             "--upper-bound",
         ]
     )
-    results = json.loads((run / "results.json").read_text())
+    results = json.loads((run / "results.json").read_text(encoding="utf-8"))
     assert all("micro_f1" in m for m in results["models"]) and "cascade" not in results
-    assert "| Micro-F1 |" in (run / "results.md").read_text().splitlines()[0]
+    assert "| Micro-F1 |" in (run / "results.md").read_text(encoding="utf-8").splitlines()[0]
     pr = Predictor(run / "onnx")
     assert pr.multi_label and all(set(p) <= set(task.labels) for p in pr.predict(["a", "b"]))
     with pytest.raises(ValueError, match="single-label"):
@@ -587,7 +591,9 @@ def test_synth_command_runs(tmp_path):
             "1.0",
         ]
     )
-    rows = [json.loads(line) for line in out.read_text().splitlines()]  # a random tiny model writes gibberish
+    rows = [
+        json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()
+    ]  # a random tiny model writes gibberish
     assert all(set(r) == {"review", "prompted_label"} for r in rows)
 
 
@@ -627,7 +633,7 @@ def test_report_rebuilds_the_markdown(tmp_path):
     }
     (run / "results.json").write_text(json.dumps(results))
     main(["report", str(run)])
-    md = (run / "results.md").read_text()
+    md = (run / "results.md").read_text(encoding="utf-8")
     # the cascade uses the fastest teacher: 2 + 0.5 * 50 = 27 ms
     assert "| 50% | 0.600 | 0.450 | 0.400 | 27.0 |" in md and "teacher, zero-shot on cuda." in md
 
@@ -668,7 +674,7 @@ def test_suggest_then_train_with_the_gold_file(tmp_path, capsys):
     )
     out = tmp_path / "to_label.jsonl"
     main(["suggest", str(run), "--n", "4", "--out", str(out)])
-    picked = [json.loads(line) for line in out.read_text().splitlines()]
+    picked = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
     assert (
         len(picked) == 4
         and len({r["review"] for r in picked}) == 4
@@ -680,7 +686,7 @@ def test_suggest_then_train_with_the_gold_file(tmp_path, capsys):
     capsys.readouterr()
     main(["train", str(run), "--gold-file", str(out), "--gold-only", *common[2:6], "--device", "cpu"])
     assert "--gold-file: 4 of 4 labelled texts are in the training data" in capsys.readouterr().err
-    meta = json.loads((run / "meta.json").read_text())
+    meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
     assert meta["n_gold_file"] == 4 and meta["n_gold"] == 4 and (run / "student-kgold").is_dir()
 
 
@@ -714,7 +720,7 @@ def test_tune_tries_every_setting_on_a_dev_split(tmp_path, capsys):
             str(out),
         ]
     )
-    results = json.loads(out.with_suffix(".json").read_text())
+    results = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
     # task.yaml with 0 and 1 examples; alt.yaml only zero-shot (it has no {examples} line)
     assert sorted((r["prompt"], r["few_shot"]) for r in results) == [
         ("alt.yaml", 0),
@@ -722,7 +728,7 @@ def test_tune_tries_every_setting_on_a_dev_split(tmp_path, capsys):
         ("task.yaml", 1),
     ]
     assert [r["accuracy"] for r in results] == sorted((r["accuracy"] for r in results), reverse=True)
-    assert "Best: `tinydistill run" in out.with_suffix(".md").read_text()
+    assert "Best: `tinydistill run" in out.with_suffix(".md").read_text(encoding="utf-8")
 
 
 def test_cascade_log_then_refresh(tmp_path, capsys):
@@ -778,16 +784,19 @@ def test_cascade_log_then_refresh(tmp_path, capsys):
             "cpu",
         ]
     )
-    logged = [json.loads(line) for line in log_file.read_text().splitlines()]
+    logged = [json.loads(line) for line in log_file.read_text(encoding="utf-8").splitlines()]
     assert [r["text"] for r in logged] == ["brand new text", "another new one"] and len(
         logged[0]["scores"]
     ) == 2
     capsys.readouterr()
     main(["refresh", str(run), "--log", str(log_file), "--out", str(new), "--skip-teacher-bench", *common])
     assert "plus 2 the teacher answered" in capsys.readouterr().err
-    assert len((new / "train.jsonl").read_text().splitlines()) == 10 and (new / "results.json").exists()
-    assert json.loads((new / "meta.json").read_text())["refresh_added"] == 2
-    status = json.loads((new / "status.json").read_text())
+    assert (
+        len((new / "train.jsonl").read_text(encoding="utf-8").splitlines()) == 10
+        and (new / "results.json").exists()
+    )
+    assert json.loads((new / "meta.json").read_text(encoding="utf-8"))["refresh_added"] == 2
+    status = json.loads((new / "status.json").read_text(encoding="utf-8"))
     assert status["stage"] == "eval" and status["finished"] and status["done"] == status["total"]
 
 
@@ -833,12 +842,12 @@ def test_shortlist_scores_k_labels_and_reports_recall(tmp_path):
             str(run),
         ]
     )
-    test = [json.loads(line) for line in (run / "test.jsonl").read_text().splitlines()]
+    test = [json.loads(line) for line in (run / "test.jsonl").read_text(encoding="utf-8").splitlines()]
     assert all(sum(x > NOT_SCORED / 2 for x in r["scores"]) == 1 for r in test)
-    results = json.loads((run / "results.json").read_text())
+    results = json.loads((run / "results.json").read_text(encoding="utf-8"))
     want = sum(r["scores"][r["gold"]] > NOT_SCORED / 2 for r in test) / len(test)
     assert results["training"]["shortlist_recall"] == want
-    assert "the 1 labels most similar to each text" in (run / "results.md").read_text()
+    assert "the 1 labels most similar to each text" in (run / "results.md").read_text(encoding="utf-8")
 
 
 def test_label_skips_loading_the_teacher_when_everything_is_cached(tmp_path, monkeypatch, capsys):
@@ -859,7 +868,9 @@ def test_label_skips_loading_the_teacher_when_everything_is_cached(tmp_path, mon
 
     monkeypatch.setattr(tinydistill.teacher, "load_teacher", no_loading)
     main([*args, "--limit", "2", "--out", str(tmp_path / "b")])
-    assert (tmp_path / "a" / "train.jsonl").read_text() == (tmp_path / "b" / "train.jsonl").read_text()
+    assert (tmp_path / "a" / "train.jsonl").read_text(encoding="utf-8") == (
+        tmp_path / "b" / "train.jsonl"
+    ).read_text(encoding="utf-8")
     assert "not loaded" in capsys.readouterr().err
     with pytest.raises(AssertionError, match="was loaded"):  # a new text needs the teacher
         main([*args, "--out", str(tmp_path / "c")])
