@@ -95,15 +95,17 @@ The distilled student is far better than the same student trained on the few gol
 CPU in about a millisecond. Sending its least confident texts to the teacher closes most of the remaining gap
 to the teacher.
 
-Other students, the same teacher and soft labels. `static` is the static-embedding student
-(`--student static`: token vectors from MiniLM-L6, averaged, no attention), trained for 20 epochs at learning
-rate 1e-3 instead of 5 epochs at 1e-4:
+Other students, the same teacher and soft labels. Students train for 5 epochs unless the name says 20.
+`static` is the static-embedding student (`--student static`: token vectors from MiniLM-L6, averaged, no
+attention), trained for 20 epochs at learning rate 1e-3:
 
 <!-- results: banking77/students.md -->
 | Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | banking77-7b-8shot | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.729 ± 0.011 | 0.697 ± 0.015 | 0.800 ± 0.003 | ONNX int8 | 1.4 | 40.2 | 23 |
 | all-MiniLM-L12-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.743 ± 0.011 | 0.710 ± 0.016 | 0.815 ± 0.004 | ONNX int8 | 3.3 | 79.2 | 34 |
+| all-MiniLM-L12-v2-20-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.817 ± 0.001 | 0.814 ± 0.001 | 0.875 ± 0.002 | ONNX int8 | 3.2 | 82.0 | 34 |
+| all-MiniLM-L6-v2-20-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.813 ± 0.002 | 0.811 ± 0.003 | 0.868 ± 0.003 | ONNX int8 | 1.2 | 36.3 | 23 |
 | all-mpnet-base-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.814 ± 0.004 | 0.805 ± 0.007 | 0.863 ± 0.001 | ONNX int8 | 7.3 | 220.4 | 110 |
 | bge-small-en-v1.5 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `BAAI/bge-small-en-v1.5` | 33 | 0.739 ± 0.008 | 0.706 ± 0.011 | 0.815 ± 0.004 | ONNX int8 | 2.7 | 75.2 | 34 |
 | static | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `static` | 8 | 0.803 ± 0.001 | 0.801 ± 0.001 | 0.824 ± 0.001 | ONNX int8 | 0.1 | 5.1 | 8 |
@@ -111,10 +113,11 @@ rate 1e-3 instead of 5 epochs at 1e-4:
 All latencies on the CPU with 2 threads.
 <!-- /results -->
 
-Two students are more accurate than their own teacher: the 110M-parameter mpnet and the static student.
-Learning from the teacher's soft labels on 10,000 texts, plus the 616 gold labels, smooths out some of its
-individual mistakes. The static student does this at about a tenth of a millisecond per text and 8 MB. It
-also trained four times longer, so the gap to the small transformers is not only about architecture.
+Training longer matters more than a bigger student: with 20 epochs instead of 5, the 23M-parameter MiniLM-L6
+student is as accurate as the 110M-parameter mpnet, at a sixth of its latency, and more accurate than its own
+7B teacher. Learning from the teacher's soft labels on 10,000 texts, plus the 616 gold labels, smooths out
+some of the teacher's individual mistakes. The static student is about a point behind the MiniLM students
+trained as long, at a tenth of a millisecond per text and 8 MB.
 
 ### Financial tweets: an easier task
 
@@ -233,8 +236,8 @@ Long steps print their progress, speed and time left every few seconds and write
 **Static student.** `--student static` (or `static:<encoder>`) trains a student with no attention at all: one
 vector per token, averaged, then a linear layer, started from the encoder's own token representations (as in
 Model2Vec). It is much smaller and faster than a transformer student. It ignores word order, so it can miss
-meaning that depends on it (negation, "A rather than B"); on Banking77 it beat the small transformer
-students and came close to mpnet (see the results). It exports to ONNX and runs with `predict` and `serve` like any other student, but
+meaning that depends on it (negation, "A rather than B"); on Banking77 it came within about a point of
+MiniLM students trained as long (see the results). It exports to ONNX and runs with `predict` and `serve` like any other student, but
 not in the browser page. Train it longer and at a higher learning rate, such as `--epochs 20 --lr 1e-3`.
 
 ### Choosing the teacher

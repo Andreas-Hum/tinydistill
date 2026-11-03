@@ -28,6 +28,11 @@ done
 # a static-embedding student (no attention), which wants a higher learning rate and more epochs
 tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student static --lr 1e-3 --epochs 20 \
   --out runs/banking77-students/static --skip-teacher-bench
+# the two smallest transformer students trained as long as the static one, for a like-for-like comparison
+for student in sentence-transformers/all-MiniLM-L6-v2 sentence-transformers/all-MiniLM-L12-v2; do
+  tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student "$student" --epochs 20 \
+    --out "runs/banking77-students/${student##*/}-20-epochs" --skip-teacher-bench
+done
 
 for run in banking77-1.5b banking77-1.5b-8shot banking77-7b banking77-7b-8shot; do
   cp "runs/$run/results.json" "examples/banking77/$run.json"
