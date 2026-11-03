@@ -223,7 +223,8 @@ Banking77 splits are sorted by intent, so a limited run only sees a few intents.
 Data can be `.csv`, `.jsonl` or `hf:<dataset>[:<config>]:<split>` (needs the `hf` extra). Useful options:
 `--teacher` (any Hugging Face causal LM), `--load-4bit` (bitsandbytes, CUDA only: `pip install "tinydistill[4bit]"`),
 `--student` (any Hugging Face encoder), `--epochs`, `--lr`, `--device`, `--threads`, `--seed`, and `--cache-dir`
-(runs that share it label each text only once). See `tinydistill <command> --help`.
+(runs that share it label each text only once, and a run whose texts are all cached does not load the
+teacher at all). See `tinydistill <command> --help`.
 
 Long steps print their progress, speed and time left every few seconds and write it to `RUN/status.json`;
 `tinydistill status RUN` reads it from another terminal and tells you whether the process is still alive.

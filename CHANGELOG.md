@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `label` does not load the teacher when every text is already in the cache, so training new students on
+  cached labels needs neither the time nor the GPU for the teacher.
+
 ## 0.3.0 (2026-11-03)
 
 - Few labels: `label --few-shot K` puts K gold examples per class in the teacher's prompt (`{examples}`);
