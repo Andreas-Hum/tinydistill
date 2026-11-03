@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix: with many labels, teacher scoring used up GPU memory (a float32 log-softmax over the whole vocabulary
+  for every kept row) and slowed to a crawl; it now takes only the target tokens' log-probabilities. CLINC150
+  (151 labels) labels at about 30 texts per second instead of under 2, with 10 GB less memory.
+
 ## 0.3.3 (2026-11-03)
 
 - Charts: `tinydistill plot RUN` and `tinydistill.plots` (soft labels, accuracy and speed, training curves,
