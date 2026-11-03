@@ -228,9 +228,10 @@ Long steps print their progress, speed and time left every few seconds and write
 
 **Static student.** `--student static` (or `static:<encoder>`) trains a student with no attention at all: one
 vector per token, averaged, then a linear layer, started from the encoder's own token representations (as in
-Model2Vec). It is much smaller and faster than a transformer student and usually less accurate; it exports to
-ONNX and runs with `predict` and `serve` like any other student. Use a higher learning rate, such as
-`--lr 1e-3`.
+Model2Vec). It is much smaller and faster than a transformer student. It ignores word order, so it can miss
+meaning that depends on it (negation, "A rather than B"); on Banking77 it beat the small transformer
+students and came close to mpnet (see the results). It exports to ONNX and runs with `predict` and `serve` like any other student, but
+not in the browser page. Train it longer and at a higher learning rate, such as `--epochs 20 --lr 1e-3`.
 
 ### Choosing the teacher
 

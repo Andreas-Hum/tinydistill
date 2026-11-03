@@ -881,7 +881,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--student",
         default="sentence-transformers/all-MiniLM-L6-v2",
         help="Hugging Face encoder, or `static` / `static:<encoder>` for a static-embedding student "
-        "(no attention: much smaller and faster, usually less accurate; try --lr 1e-3)",
+        "(no attention: much smaller and faster; try --epochs 20 --lr 1e-3)",
     )
     train.add_argument("--epochs", type=int, default=5)
     train.add_argument("--batch-size", type=int, default=32)
