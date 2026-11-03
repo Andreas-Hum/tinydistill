@@ -1,0 +1,146 @@
+{
+  "task": "financial-tweets",
+  "teacher": "Qwen/Qwen2.5-7B-Instruct",
+  "student": "sentence-transformers/all-MiniLM-L6-v2",
+  "data": {
+    "train": "runs/financial-tweets-synth.jsonl",
+    "test": "hf:zeroshot/twitter-financial-news-sentiment:validation",
+    "n_train": 1498,
+    "n_test": 2388
+  },
+  "training": {
+    "epochs": 5,
+    "lr": 0.0001,
+    "batch_size": 32,
+    "gold_per_class": 0,
+    "gold_file": null,
+    "n_gold_file": 0,
+    "n_gold": 0,
+    "upper_bound": false,
+    "gold_only": false,
+    "seeds": 3,
+    "n_gold_upper_bound": null,
+    "label_texts_scored": 1450,
+    "few_shot": 0,
+    "n_examples": 0,
+    "ce_weight": 0.0,
+    "student_device": "cuda",
+    "train_seconds": 24.6,
+    "teacher_device": "cuda:0",
+    "label_seconds": 39.0,
+    "load_4bit": true,
+    "shortlist": null,
+    "shortlist_model": null
+  },
+  "environment": {
+    "cpu": "x86_64",
+    "cpu_threads": 2,
+    "torch": "2.15.0+cu132",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "omp_num_threads": "2"
+  },
+  "models": [
+    {
+      "role": "teacher",
+      "name": "teacher, zero-shot, 4-bit",
+      "device": "cuda:0",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "accuracy": 0.8320770519262981,
+      "macro_f1": 0.7875756953889134,
+      "size_mb": null
+    },
+    {
+      "role": "student",
+      "name": "student, PyTorch",
+      "device": "cpu",
+      "accuracy": 0.596035734226689,
+      "accuracy_std": 0.036665661678782206,
+      "accuracy_seeds": [
+        0.6025963149078727,
+        0.5565326633165829,
+        0.6289782244556114
+      ],
+      "macro_f1": 0.5713244816190116,
+      "macro_f1_std": 0.02665732407720607,
+      "macro_f1_seeds": [
+        0.5768918102272166,
+        0.5423231407190819,
+        0.5947584939107364
+      ],
+      "agreement": 0.6150195421552206,
+      "agreement_std": 0.044594221601659836,
+      "agreement_seeds": [
+        0.6298157453936348,
+        0.5649078726968174,
+        0.6503350083752094
+      ],
+      "params_m": 22.714371,
+      "size_mb": 90.869492,
+      "latency_ms_b1": 7.094983997376403,
+      "latency_ms_b32": 201.88743250218977,
+      "throughput_per_s": 158.50417038540976
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX fp32",
+      "device": "cpu",
+      "accuracy": 0.6025963149078727,
+      "macro_f1": 0.5768918102272166,
+      "agreement": 0.6298157453936348,
+      "size_mb": 90.990363,
+      "latency_ms_b1": 4.512863499257946,
+      "latency_ms_b32": 205.53205899886962,
+      "throughput_per_s": 155.69347261867304
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX int8",
+      "device": "cpu",
+      "accuracy": 0.5887772194304858,
+      "macro_f1": 0.5649781707432072,
+      "agreement": 0.6092964824120602,
+      "size_mb": 23.043866,
+      "latency_ms_b1": 1.6446619993075728,
+      "latency_ms_b32": 110.40781200063066,
+      "throughput_per_s": 289.83456351636795
+    }
+  ],
+  "cascade": [
+    {
+      "share_to_teacher": 0.0,
+      "threshold": 0.3474777340888977,
+      "accuracy": 0.5887772194304858,
+      "macro_f1": 0.5649781707432072
+    },
+    {
+      "share_to_teacher": 0.10008375209380234,
+      "threshold": 0.6473198533058167,
+      "accuracy": 0.6239530988274706,
+      "macro_f1": 0.5964373199950124
+    },
+    {
+      "share_to_teacher": 0.20016750418760468,
+      "threshold": 0.7862498164176941,
+      "accuracy": 0.6620603015075377,
+      "macro_f1": 0.629430406931593
+    },
+    {
+      "share_to_teacher": 0.2998324958123953,
+      "threshold": 0.8791574239730835,
+      "accuracy": 0.695142378559464,
+      "macro_f1": 0.6609740691275119
+    },
+    {
+      "share_to_teacher": 0.5,
+      "threshold": 0.953889012336731,
+      "accuracy": 0.7491624790619765,
+      "macro_f1": 0.7091235977999758
+    },
+    {
+      "share_to_teacher": 1.0,
+      "threshold": 1.0,
+      "accuracy": 0.8320770519262981,
+      "macro_f1": 0.7875756953889134
+    }
+  ]
+}
