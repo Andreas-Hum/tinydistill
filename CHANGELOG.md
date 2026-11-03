@@ -20,6 +20,16 @@
   transformers.js) and `synth` (the teacher writes unlabelled example texts).
 - Task options: `multi_label: true` (one yes/no question per label) and `ordinal: true` (distances in the
   results).
+- Progress: long steps print progress, speed and time left and write `RUN/status.json`; `tinydistill status`
+  reads it.
+- `tune` compares teachers, few-shot settings and prompts on a dev split of the training data.
+- `analyse` writes an error-analysis page; `suggest` picks texts to label by hand, and `train --gold-file`
+  uses them.
+- `predict`/`serve --log` record the texts the cascade sent to the teacher; `refresh` retrains with them.
+- `label --shortlist K` scores only the K labels most similar to each text, for tasks with many labels;
+  `eval` reports the shortlist recall.
+- `--student static`: a static-embedding student (no attention), much smaller and faster.
+- `report` rebuilds `results.md`; the cascade latency uses the fastest timed teacher.
 
 ## 0.2.0
 

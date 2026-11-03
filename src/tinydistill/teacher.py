@@ -20,6 +20,7 @@ import hashlib
 import json
 from collections.abc import Iterable, Iterator
 from pathlib import Path
+from typing import NamedTuple
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -197,6 +198,21 @@ class _Prompt:
         raise NotImplementedError
 
 
+NOT_SCORED = -1e9  # score of a continuation outside the shortlist: probability effectively 0, valid JSON
+
+
+class _View(NamedTuple):
+    """The label tree, or the part of it a text needs (its shortlisted labels' continuations)."""
+
+    tokens: torch.Tensor  # node input tokens
+    depth: torch.Tensor  # node depth (position offset after the text)
+    anc: torch.Tensor  # node x node: ancestor-or-self
+    rows: torch.Tensor  # per scored token: the node predicting it (-1: the text's last position)
+    targets: torch.Tensor  # per scored token: its id
+    owner: torch.Tensor  # per scored token: its continuation (index into forms)
+    scored: torch.Tensor | None  # which continuations are scored (None: all)
+
+
 class LabelScorer(_Prompt):
     def __init__(
         self,
@@ -207,10 +223,16 @@ class LabelScorer(_Prompt):
         surface_forms: bool = True,
         max_tokens: int = 2048,
         examples: list[tuple[str, int]] | None = None,
+        shortlist=None,
     ):
         self.model = model.eval()
         self.max_tokens = max_tokens  # tokens per forward pass when packing several texts
         self.device = next(model.parameters()).device
+        self.shortlist = (
+            shortlist  # callable: texts -> candidate label indices per text (or None: all labels)
+        )
+        if shortlist is not None and task.multi_label:
+            raise ValueError("--shortlist is for single-label tasks")
         limit = getattr(getattr(model, "config", None), "max_position_embeddings", None)
         self._prepare(tokenizer, task, use_chat_template, surface_forms, examples, limit)
         self._build_tree()
@@ -245,12 +267,42 @@ class LabelScorer(_Prompt):
             if parent[i] >= 0:
                 anc[i] |= anc[parent[i]]
         dev = self.device
-        self._node_tokens = torch.tensor(tokens, dtype=torch.long, device=dev)
-        self._node_depth = torch.tensor(depth, dtype=torch.long, device=dev)
-        self._node_anc = anc.to(dev)
-        self._rows = torch.tensor(rows, dtype=torch.long, device=dev)
-        self._targets = torch.tensor(targets, dtype=torch.long, device=dev)
-        self._owner = torch.tensor(owner, dtype=torch.long, device=dev)
+        t = lambda x: torch.tensor(x, dtype=torch.long, device=dev)  # noqa: E731
+        self._node_tokens, self._node_depth, self._node_anc = t(tokens), t(depth), anc.to(dev)
+        self._rows, self._targets, self._owner = t(rows), t(targets), t(owner)
+        self._full = _View(
+            self._node_tokens, self._node_depth, self._node_anc, self._rows, self._targets, self._owner, None
+        )
+        # for shortlists: each continuation's scored tokens and the nodes they need
+        self._entries = [[] for _ in self.forms]
+        for e, f in enumerate(owner):
+            self._entries[f].append(e)
+        self._rows_list = rows
+
+    def _view(self, labels: list[int] | None) -> _View:
+        """The tree restricted to the continuations of ``labels`` (None: the whole tree)."""
+        if labels is None:
+            return self._full
+        wanted = set(labels)
+        forms = [f for f, lab in enumerate(self.form_label) if lab in wanted]
+        entries = [e for f in forms for e in self._entries[f]]
+        nodes = sorted({self._rows_list[e] for e in entries if self._rows_list[e] >= 0})  # parents come first
+        pos = {node: i for i, node in enumerate(nodes)}
+        dev = self.device
+        sel = torch.tensor(nodes, dtype=torch.long, device=dev)
+        scored = torch.zeros(len(self.forms), dtype=torch.bool, device=dev)
+        scored[forms] = True
+        rows = torch.tensor([pos.get(self._rows_list[e], -1) for e in entries], dtype=torch.long, device=dev)
+        idx = torch.tensor(entries, dtype=torch.long, device=dev)
+        return _View(
+            self._node_tokens[sel],
+            self._node_depth[sel],
+            self._node_anc[sel][:, sel],
+            rows,
+            self._targets[idx],
+            self._owner[idx],
+            scored,
+        )
 
     def fingerprint(self) -> str:
         """Identifies everything that changes the scores, so caches are never mixed up."""
@@ -265,22 +317,27 @@ class LabelScorer(_Prompt):
             "form_label": self.form_label,
             "form_answer": self.form_answer,
         }
+        if self.shortlist is not None:
+            key["shortlist"] = self.shortlist.fingerprint()
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
     @torch.no_grad()
     def form_scores_many(self, texts: list[str]) -> torch.Tensor:
-        """(len(texts), len(self.forms)) log-probabilities, packing texts up to ``max_tokens`` per pass."""
+        """(len(texts), len(self.forms)) log-probabilities, packing texts up to ``max_tokens`` per pass.
+        With a shortlist, continuations of labels outside a text's shortlist get NOT_SCORED."""
         if self._prefix_cache is None:
             self._encode_prefix()
         ids = [self.text_ids(t) for t in texts]
-        N = len(self._node_tokens)
+        labels = self.shortlist(texts) if self.shortlist is not None else [None] * len(texts)
+        views = [self._view(lab) for lab in labels]
         out, pack, used = [], [], 0
-        for x in ids:
-            if pack and used + len(x) + N > self.max_tokens:
+        for x, view in zip(ids, views, strict=True):
+            cost = len(x) + len(view.tokens)
+            if pack and used + cost > self.max_tokens:
                 out.append(self._score_pack(pack))
                 pack, used = [], 0
-            pack.append(x)
-            used += len(x) + N
+            pack.append((x, view))
+            used += cost
         if pack:
             out.append(self._score_pack(pack))
         return torch.cat(out) if out else torch.empty((0, len(self.forms)), device=self.device)
@@ -307,9 +364,16 @@ class LabelScorer(_Prompt):
             ~allow, torch.finfo(dtype).min
         )
 
-    def _score_pack(self, pack: list[list[int]]) -> torch.Tensor:
-        dev, P, N = self.device, len(self.prefix_ids), len(self._node_tokens)
-        L = sum(len(x) for x in pack) + N * len(pack)
+    def _totals(self, per_token: torch.Tensor, view: _View) -> torch.Tensor:
+        total = torch.zeros(len(self.forms), dtype=per_token.dtype, device=self.device)
+        total.index_add_(0, view.owner, per_token)
+        if view.scored is not None:
+            total[~view.scored] = NOT_SCORED
+        return total
+
+    def _score_pack(self, pack: list[tuple[list[int], _View]]) -> torch.Tensor:
+        dev, P = self.device, len(self.prefix_ids)
+        L = sum(len(x) + len(v.tokens) for x, v in pack)
         tokens = torch.empty(L, dtype=torch.long, device=dev)
         positions = torch.empty(L, dtype=torch.long, device=dev)
         allow = torch.zeros((L, P + L), dtype=torch.bool, device=dev)
@@ -318,17 +382,17 @@ class LabelScorer(_Prompt):
         first: list[int] = []  # per text: kept row predicting the first label token (-1: the prompt does)
         node_start: list[int] = []  # per text: kept row of its first tree node
         o = 0
-        for x in pack:
-            n = len(x)
+        for x, view in pack:
+            n, N = len(x), len(view.tokens)
             t = slice(o, o + n)  # this text's rows
             d = slice(o + n, o + n + N)  # its tree nodes
             tokens[t] = torch.tensor(x, dtype=torch.long, device=dev)
-            tokens[d] = self._node_tokens
+            tokens[d] = view.tokens
             positions[t] = torch.arange(P, P + n, device=dev)
-            positions[d] = P + n + self._node_depth
+            positions[d] = P + n + view.depth
             allow[t, P + o : P + o + n] = torch.ones((n, n), dtype=torch.bool, device=dev).tril()
             allow[d, P + o : P + o + n] = True
-            allow[d, P + o + n : P + o + n + N] = self._node_anc
+            allow[d, P + o + n : P + o + n + N] = view.anc
             first.append(len(keep) if n else -1)
             if n:
                 keep.append(o + n - 1)
@@ -336,11 +400,7 @@ class LabelScorer(_Prompt):
             keep.extend(range(o + n, o + n + N))
             o += n + N
         if not keep:  # empty texts and single-token continuations: the prompt predicts everything
-            per_token = self._prefix_last[self._targets]
-            one = torch.zeros(len(self.forms), dtype=per_token.dtype, device=dev).index_add_(
-                0, self._owner, per_token
-            )
-            return one.expand(len(pack), -1)
+            return torch.stack([self._totals(self._prefix_last[v.targets], v) for _, v in pack])
         try:
             logits = self.model(
                 tokens[None],
@@ -356,11 +416,9 @@ class LabelScorer(_Prompt):
                 self._prefix_cache.crop(-extra)  # back to the prompt prefix
         lp = torch.cat([torch.log_softmax(logits.float(), -1), self._prefix_last[None]])  # last row: prompt
         results = []
-        for f, start in zip(first, node_start, strict=True):
-            rows = torch.where(self._rows < 0, f if f >= 0 else len(lp) - 1, start + self._rows)
-            per_token = lp[rows, self._targets]
-            total = torch.zeros(len(self.forms), dtype=per_token.dtype, device=dev)
-            results.append(total.index_add_(0, self._owner, per_token))
+        for (_, view), f, start in zip(pack, first, node_start, strict=True):
+            rows = torch.where(view.rows < 0, f if f >= 0 else len(lp) - 1, start + view.rows)
+            results.append(self._totals(lp[rows, view.targets], view))
         return torch.stack(results)
 
 
@@ -465,10 +523,15 @@ def load_teacher(
     max_tokens: int = 2048,
     examples: list[tuple[str, int]] | None = None,
     vllm_url: str | None = None,
+    shortlist: int | None = None,
+    shortlist_model: str | None = None,
 ) -> LabelScorer | VLLMScorer:
-    """A local teacher, or with ``vllm_url`` the same model served by vLLM (then ``device`` is not used)."""
+    """A local teacher, or with ``vllm_url`` the same model served by vLLM (then ``device`` is not used).
+    ``shortlist`` K: score only the K labels most similar to each text (for tasks with very many labels)."""
     tok = AutoTokenizer.from_pretrained(name)
     if vllm_url:
+        if shortlist:
+            raise SystemExit("--shortlist works with a local teacher, not --vllm-url")
         return VLLMScorer(vllm_url, name, tok, task, examples)
     device = pick_device(device)
     kwargs: dict = {}
@@ -486,7 +549,12 @@ def load_teacher(
     model = AutoModelForCausalLM.from_pretrained(name, **kwargs)
     if not load_4bit:
         model.to(device)
-    return LabelScorer(model, tok, task, max_tokens=max_tokens, examples=examples)
+    short = None
+    if shortlist:
+        from .shortlist import DEFAULT_SHORTLIST_MODEL, Shortlist
+
+        short = Shortlist(task, shortlist, shortlist_model or DEFAULT_SHORTLIST_MODEL, device)
+    return LabelScorer(model, tok, task, max_tokens=max_tokens, examples=examples, shortlist=short)
 
 
 class ScoreCache:
@@ -504,7 +572,9 @@ class ScoreCache:
                         continue
                     self.scores[row["h"]] = row["s"]
 
-    def fill(self, scorer: LabelScorer, texts: Iterable[str], progress=None, batch: int = 64) -> int:
+    def fill(
+        self, scorer: LabelScorer, texts: Iterable[str], progress=None, batch: int = 64, on_read=None
+    ) -> int:
         """Score every text not in the cache yet, ``batch`` texts at a time (the scorer packs them into
         forward passes). Returns how many were scored now."""
         n = 0
@@ -524,6 +594,8 @@ class ScoreCache:
                 pending.clear()
 
             for text in texts:
+                if on_read:
+                    on_read()  # every text read, cached or not (for progress and time left)
                 if text_hash(text) not in self.scores and text not in pending:
                     pending.append(text)
                     if len(pending) == batch:

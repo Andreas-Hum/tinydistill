@@ -76,6 +76,17 @@ def test_end_to_end(tmp_path, capsys):
     md = (run / "results.md").read_text()
     assert md.startswith("| Model | Device |") and "student, ONNX int8" in md
 
+    assert json.loads((run / "status.json").read_text())["finished"]
+    capsys.readouterr()
+    main(["status", str(run)])
+    assert "eval:" in capsys.readouterr().out
+
+    main(["analyse", str(run)])
+    out = capsys.readouterr().out
+    assert out.startswith("Teacher accuracy") and (run / "analysis.html").read_text().startswith(
+        "<!doctype html>"
+    )
+
     # Labelling again resumes entirely from the cache.
     capsys.readouterr()
     main(
@@ -158,7 +169,7 @@ def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
     upper = [m for m in results["models"] if m["role"] == "upper bound"]
     assert len(upper) == 1 and 0 <= upper[0]["accuracy"] <= 1
     md = (tmp_path / "b" / "results.md").read_text()
-    assert "cross-entropy on 2 gold labels per class (4 texts" in md and "upper bound" in md
+    assert "cross-entropy on 4 gold-labelled texts (2 per class; weight 1.0)" in md and "upper bound" in md
     roles = [m["role"] for m in results["models"]]
     assert roles.count("baseline") == 1 and roles.count("student") == 2  # PyTorch row + ONNX fp32 row
     student = results["models"][roles.index("student")]
@@ -619,3 +630,210 @@ def test_report_rebuilds_the_markdown(tmp_path):
     md = (run / "results.md").read_text()
     # the cascade uses the fastest teacher: 2 + 0.5 * 50 = 27 ms
     assert "| 50% | 0.600 | 0.450 | 0.400 | 27.0 |" in md and "teacher, zero-shot on cuda." in md
+
+
+def test_suggest_then_train_with_the_gold_file(tmp_path, capsys):
+    (tmp_path / "task.yaml").write_text(TASK)
+    rows = [{"review": f"text {i}"} for i in range(12)]  # no gold labels at all
+    write_jsonl(tmp_path / "d.jsonl", rows)
+    run = tmp_path / "run"
+    common = [
+        "--teacher",
+        TINY_LM,
+        "--student",
+        TINY_ENCODER,
+        "--epochs",
+        "1",
+        "--batch-size",
+        "4",
+        "--reps",
+        "2",
+        "--teacher-reps",
+        "2",
+        "--device",
+        "cpu",
+    ]
+    main(
+        [
+            "run",
+            str(tmp_path / "task.yaml"),
+            "--data",
+            str(tmp_path / "d.jsonl"),
+            "--test",
+            str(tmp_path / "d.jsonl"),
+            "--out",
+            str(run),
+            *common,
+        ]
+    )
+    out = tmp_path / "to_label.jsonl"
+    main(["suggest", str(run), "--n", "4", "--out", str(out)])
+    picked = [json.loads(line) for line in out.read_text().splitlines()]
+    assert (
+        len(picked) == 4
+        and len({r["review"] for r in picked}) == 4
+        and all(r["sentiment"] == "" for r in picked)
+    )
+    for i, r in enumerate(picked):  # a person labels them
+        r["sentiment"] = "pos" if i % 2 else "neg"
+    write_jsonl(out, picked)
+    capsys.readouterr()
+    main(["train", str(run), "--gold-file", str(out), "--gold-only", *common[2:6], "--device", "cpu"])
+    assert "--gold-file: 4 of 4 labelled texts are in the training data" in capsys.readouterr().err
+    meta = json.loads((run / "meta.json").read_text())
+    assert meta["n_gold_file"] == 4 and meta["n_gold"] == 4 and (run / "student-kgold").is_dir()
+
+
+def test_tune_tries_every_setting_on_a_dev_split(tmp_path, capsys):
+    (tmp_path / "task.yaml").write_text(TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n"))
+    (tmp_path / "alt.yaml").write_text(TASK.replace("Classify the sentiment", "What is the sentiment"))
+    rows = [
+        {"review": f"it was {w} {i}", "sentiment": "pos" if j % 2 == 0 else "neg"}
+        for i in range(4)
+        for j, w in enumerate(["good", "bad", "great", "awful"])
+    ]
+    write_jsonl(tmp_path / "d.jsonl", rows)
+    out = tmp_path / "tune"
+    main(
+        [
+            "tune",
+            str(tmp_path / "task.yaml"),
+            "--prompt",
+            str(tmp_path / "alt.yaml"),
+            "--data",
+            str(tmp_path / "d.jsonl"),
+            "--teacher",
+            TINY_LM,
+            "--few-shot",
+            "0,1",
+            "--dev-size",
+            "6",
+            "--device",
+            "cpu",
+            "--out",
+            str(out),
+        ]
+    )
+    results = json.loads(out.with_suffix(".json").read_text())
+    # task.yaml with 0 and 1 examples; alt.yaml only zero-shot (it has no {examples} line)
+    assert sorted((r["prompt"], r["few_shot"]) for r in results) == [
+        ("alt.yaml", 0),
+        ("task.yaml", 0),
+        ("task.yaml", 1),
+    ]
+    assert [r["accuracy"] for r in results] == sorted((r["accuracy"] for r in results), reverse=True)
+    assert "Best: `tinydistill run" in out.with_suffix(".md").read_text()
+
+
+def test_cascade_log_then_refresh(tmp_path, capsys):
+    (tmp_path / "task.yaml").write_text(TASK)
+    write_jsonl(
+        tmp_path / "d.jsonl",
+        [{"review": f"text {i}", "sentiment": "pos" if i % 2 else "neg"} for i in range(8)],
+    )
+    run, new = tmp_path / "run", tmp_path / "run2"
+    common = [
+        "--student",
+        TINY_ENCODER,
+        "--epochs",
+        "1",
+        "--batch-size",
+        "4",
+        "--reps",
+        "2",
+        "--teacher-reps",
+        "2",
+        "--device",
+        "cpu",
+    ]
+    main(
+        [
+            "run",
+            str(tmp_path / "task.yaml"),
+            "--data",
+            str(tmp_path / "d.jsonl"),
+            "--test",
+            str(tmp_path / "d.jsonl"),
+            "--out",
+            str(run),
+            "--teacher",
+            TINY_LM,
+            *common,
+        ]
+    )
+    log_file = tmp_path / "cascade.jsonl"
+    main(
+        [
+            "predict",
+            str(run / "onnx"),
+            "brand new text",
+            "another new one",
+            "--cascade",
+            str(run),
+            "--threshold",
+            "1.01",
+            "--log",
+            str(log_file),
+            "--device",
+            "cpu",
+        ]
+    )
+    logged = [json.loads(line) for line in log_file.read_text().splitlines()]
+    assert [r["text"] for r in logged] == ["brand new text", "another new one"] and len(
+        logged[0]["scores"]
+    ) == 2
+    capsys.readouterr()
+    main(["refresh", str(run), "--log", str(log_file), "--out", str(new), "--skip-teacher-bench", *common])
+    assert "plus 2 the teacher answered" in capsys.readouterr().err
+    assert len((new / "train.jsonl").read_text().splitlines()) == 10 and (new / "results.json").exists()
+    assert json.loads((new / "meta.json").read_text())["refresh_added"] == 2
+
+
+def test_shortlist_scores_k_labels_and_reports_recall(tmp_path):
+    from tinydistill.teacher import NOT_SCORED
+
+    (tmp_path / "task.yaml").write_text(TASK)
+    rows = [
+        {"review": f"it was {w} {i}", "sentiment": s}
+        for i in range(3)
+        for w, s in [("good", "pos"), ("bad", "neg")]
+    ]
+    write_jsonl(tmp_path / "train.jsonl", rows)
+    write_jsonl(tmp_path / "test.jsonl", rows)
+    run = tmp_path / "run"
+    main(
+        [
+            "run",
+            str(tmp_path / "task.yaml"),
+            "--data",
+            str(tmp_path / "train.jsonl"),
+            "--test",
+            str(tmp_path / "test.jsonl"),
+            "--teacher",
+            TINY_LM,
+            "--student",
+            TINY_ENCODER,
+            "--shortlist",
+            "1",
+            "--shortlist-model",
+            TINY_ENCODER,
+            "--epochs",
+            "1",
+            "--batch-size",
+            "4",
+            "--reps",
+            "2",
+            "--teacher-reps",
+            "2",
+            "--device",
+            "cpu",
+            "--out",
+            str(run),
+        ]
+    )
+    test = [json.loads(line) for line in (run / "test.jsonl").read_text().splitlines()]
+    assert all(sum(x > NOT_SCORED / 2 for x in r["scores"]) == 1 for r in test)
+    results = json.loads((run / "results.json").read_text())
+    want = sum(r["scores"][r["gold"]] > NOT_SCORED / 2 for r in test) / len(test)
+    assert results["training"]["shortlist_recall"] == want
+    assert "the 1 labels most similar to each text" in (run / "results.md").read_text()

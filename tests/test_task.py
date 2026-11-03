@@ -119,3 +119,15 @@ def test_label_list_items_can_be_mappings(tmp_path):
     assert task.labels == ["a_b", "neutral", "c"]
     assert task.verbalisations == ["a b", "no particular emotion", "c"]
     assert task.descriptions == [None, None, "d"]
+
+
+def test_synth_asks_as_often_as_needed(tmp_path):
+    from itertools import count
+
+    from tinydistill.synth import synthesise
+
+    task = load_task(write(tmp_path, ["pos", "neg"]))
+    n = count()
+    batch = lambda message: "\n".join(f"text {next(n)}" for _ in range(10))  # noqa: E731  10 new per request
+    written = synthesise(task, batch, per_label=200, out=tmp_path / "s.jsonl", log=lambda m: None)
+    assert written == 400  # the old fixed limit of 10 requests stopped at 100 per label

@@ -3,10 +3,10 @@ import math
 
 import pytest
 import torch
-from conftest import TINY_LM
+from conftest import TINY_ENCODER, TINY_LM
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from tinydistill.teacher import LabelScorer, surface_variants
+from tinydistill.teacher import NOT_SCORED, LabelScorer, surface_variants
 
 
 @pytest.fixture(scope="module")
@@ -326,3 +326,57 @@ def test_end_of_turn_comes_from_the_chat_template(lm):
     )
     other.add_special_tokens({"additional_special_tokens": ["<|end|>", "<|user|>", "<|assistant|>"]})
     assert end_of_turn(other, True) == [other.convert_tokens_to_ids("<|end|>")]
+
+
+class FixedShortlist:
+    """Candidate labels chosen by hand, per text."""
+
+    def __init__(self, picks: dict[str, list[int]]):
+        self.picks = picks
+
+    def __call__(self, texts):
+        return [self.picks[t] for t in texts]
+
+    def fingerprint(self):
+        return {"picks": sorted(self.picks.items())}
+
+
+@pytest.mark.parametrize(
+    "max_tokens", [1, 10_000]
+)  # texts with different shortlists alone and packed together
+def test_shortlisted_labels_score_as_without_a_shortlist(lm, task, max_tokens):
+    model, tok = lm
+    picks = {"short": [0, 1, 2], "a longer text with several tokens": [1], "mid text": [0, 2], "": [2]}
+    full = LabelScorer(model, tok, task)
+    short = LabelScorer(model, tok, task, max_tokens=max_tokens, shortlist=FixedShortlist(picks))
+    texts = list(picks)
+    got = short.score_many(texts)
+    for t, row in zip(texts, got, strict=True):
+        want = full.score(t)
+        for li in range(len(task.labels)):
+            if li in picks[t]:
+                assert row[li] == pytest.approx(want[li], abs=1e-4)
+            else:
+                assert row[li] < NOT_SCORED / 2  # logsumexp over its unscored forms
+    assert short.fingerprint() != full.fingerprint()
+
+
+def test_shortlist_of_every_label_equals_no_shortlist(lm, task):
+    model, tok = lm
+    texts = ["good", "bad", "fine I guess"]
+    every = FixedShortlist({t: [0, 1, 2] for t in texts})
+    torch.testing.assert_close(
+        torch.tensor(LabelScorer(model, tok, task, max_tokens=10_000, shortlist=every).score_many(texts)),
+        torch.tensor(LabelScorer(model, tok, task).score_many(texts)),
+        atol=1e-4,
+        rtol=0,
+    )
+
+
+def test_shortlist_picks_k_labels_per_text(task):
+    from tinydistill.shortlist import Shortlist
+
+    s = Shortlist(task, 2, TINY_ENCODER)
+    picks = s(["good", "bad", "fine I guess"])
+    assert all(len(p) == 2 and p == sorted(set(p)) and set(p) <= {0, 1, 2} for p in picks)
+    assert Shortlist(task, 9, TINY_ENCODER)(["x"]) == [[0, 1, 2]]  # K above the label count: all labels

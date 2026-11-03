@@ -78,18 +78,19 @@ def synthesise(
     per_label: int,
     out: Path,
     batch: int = 10,
-    max_rounds: int = 10,
+    max_rounds: int | None = None,
     log: Callable[[str], None] = print,
 ) -> int:
-    """Ask for ``batch`` texts per request until each label has ``per_label`` new distinct texts (or
-    ``max_rounds`` requests were made for it). Writes JSON lines with the task's text field and a
-    ``prompted_label`` note. Returns how many texts were written."""
+    """Ask for ``batch`` texts per request until each label has ``per_label`` new distinct texts, or until
+    ``max_rounds`` requests were made for it (by default three times as many as would be needed). Writes JSON
+    lines with the task's text field and a ``prompted_label`` note. Returns how many texts were written."""
     seen: set[str] = set()
     written = 0
+    rounds = max_rounds or 3 * -(-per_label // batch)
     with out.open("w", encoding="utf-8") as f:
         for li, name in enumerate(task.labels):
             got = 0
-            for _ in range(max_rounds):
+            for _ in range(rounds):
                 if got >= per_label:
                     break
                 for t in parse_lines(generate(request(task, li, min(batch, per_label - got))), task):

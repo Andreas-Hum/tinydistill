@@ -71,8 +71,22 @@ def test_web_page_layout(tmp_path):
     model.save_pretrained(run / "student")
     AutoTokenizer.from_pretrained(TINY_ENCODER).save_pretrained(run / "student")
     export_onnx(run / "student", run / "onnx", int8=True)
-    (run / "test.jsonl").write_text(json.dumps({"text": 'say "<b>hi</b>"', "gold": 0}) + "\n")
-    page = build_site(run / "onnx", tmp_path / "site", title="Demo")
+    rows = [{"text": 'say "<b>hi</b>"', "gold": 0}] + [{"text": f"neg {i}", "gold": 1} for i in range(5)]
+    (run / "test.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (run / "results.json").write_text(
+        json.dumps(
+            {
+                "teacher": "T",
+                "student": "S",
+                "data": {"n_test": 6},
+                "models": [
+                    {"role": "teacher", "name": "teacher, 8-shot"},
+                    {"role": "student", "name": "student, ONNX int8", "accuracy": 0.5},
+                ],
+            }
+        )
+    )
+    page = build_site(run / "onnx", tmp_path / "site", title="Demo", note="Data: CC BY 4.0 <x>")
     files = {
         p.relative_to(tmp_path / "site").as_posix() for p in (tmp_path / "site").rglob("*") if p.is_file()
     }
@@ -93,3 +107,6 @@ def test_web_page_layout(tmp_path):
         and "&lt;b&gt;hi&lt;/b&gt;" in text
         and "<b>hi" not in text
     )
+    assert text.count('class="ghost sample"') == 2  # one per gold label, not the first rows
+    assert "Test accuracy 0.500 on 6 held-out texts. Distilled from T (8-shot) into S." in text
+    assert "Data: CC BY 4.0 &lt;x&gt;" in text

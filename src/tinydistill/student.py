@@ -12,6 +12,8 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from .static import encoder_of, new_static  # also registers the static student with transformers
+
 DEFAULT_STUDENT = "sentence-transformers/all-MiniLM-L6-v2"
 
 
@@ -102,18 +104,23 @@ def train_student(
     seed: int = 0,
     log: Callable[[str], None] = print,
     multi_label: bool = False,
+    on_step: Callable[[], None] | None = None,
 ) -> None:
     torch.manual_seed(seed)
     rng = random.Random(seed)
-    tok = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_name,
-        num_labels=len(labels),
-        id2label=dict(enumerate(labels)),
-        label2id={name: i for i, name in enumerate(labels)},
-        ignore_mismatched_sizes=True,
-        problem_type="multi_label_classification" if multi_label else "single_label_classification",
-    ).to(device)
+    if static := encoder_of(model_name):
+        model, tok = new_static(static, labels, multi_label)
+    else:
+        tok = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            num_labels=len(labels),
+            id2label=dict(enumerate(labels)),
+            label2id={name: i for i, name in enumerate(labels)},
+            ignore_mismatched_sizes=True,
+            problem_type="multi_label_classification" if multi_label else "single_label_classification",
+        )
+    model = model.to(device)
     gold = gold or [None] * len(texts)
     if multi_label:  # multi-hot gold, and which texts have it
         has_gold = torch.tensor([g is not None for g in gold])
@@ -168,6 +175,8 @@ def train_student(
             sched.step()
             opt.zero_grad(set_to_none=True)
             total += loss.item() * len(idx)
+            if on_step:
+                on_step()
         log(f"epoch {epoch + 1}/{epochs}: loss {total / len(texts):.4f} ({time.perf_counter() - t0:.0f}s)")
     out_dir.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(out_dir)

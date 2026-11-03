@@ -124,3 +124,30 @@ def test_multilabel_distillation_loss_and_gold_selection():
     kept = few_gold_sets(sets, 1, seed=0)
     assert all(k is None or k == s for k, s in zip(kept, sets, strict=True))
     assert {c for k in kept if k for c in k} == {0, 1, 2}  # every label is covered
+
+
+def test_per_label_metrics_and_confusions_by_hand():
+    from tinydistill.analyse import confusions, per_label
+
+    gold = [0, 0, 1, 1, 2, 2]
+    pred = [0, 1, 1, 1, 1, 2]  # one 0->1 and one 2->1 mistake
+    lab = per_label(pred, gold, 3)
+    assert lab[1] == {"support": 2, "precision": 0.5, "recall": 1.0, "f1": pytest.approx(2 / 3)}
+    assert lab[0]["recall"] == 0.5 and lab[2]["recall"] == 0.5
+    assert confusions(pred, gold, 5) == [(0, 1, 1, [1]), (2, 1, 1, [4])]
+
+
+def test_suggest_ranks_disagreement_then_uncertainty_and_spreads_labels():
+    import numpy as np
+
+    from tinydistill.suggest import pick, priority
+
+    p = np.array([[0.9, 0.1], [0.55, 0.45], [0.6, 0.4], [0.2, 0.8], [0.3, 0.7]])  # teacher
+    q = np.array([[0.8, 0.2], [0.6, 0.4], [0.3, 0.7], [0.1, 0.9], [0.4, 0.6]])  # student
+    score = priority(p, q)
+    assert score.argmax() == 2  # the only disagreement comes first
+    assert score[1] > score[0]  # then the teacher's least certain text
+    chosen = pick(score, p.argmax(-1), 4)
+    assert chosen[0] == 2 and {int(p[i].argmax()) for i in chosen[:2]} == {0, 1}  # alternates labels
+    multi = priority(np.array([[0.9, 0.5]]), np.array([[0.2, 0.5]]), multi_label=True)
+    assert multi[0] > priority(np.array([[0.9, 0.1]]), np.array([[0.9, 0.1]]), multi_label=True)[0]

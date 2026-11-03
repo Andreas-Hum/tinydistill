@@ -160,11 +160,26 @@ Banking77 splits are sorted by intent, so a limited run only sees a few intents.
 | `tinydistill web RUN/onnx --out site` | a static page that runs the model in the browser |
 | `tinydistill push RUN/onnx --repo user/name` | uploads the model to the Hugging Face Hub with a model card |
 | `tinydistill synth TASK.yaml --per-label N --out texts.jsonl` | has the teacher write unlabelled example texts |
+| `tinydistill status RUN` | how far a running step is, and whether it is still running |
+| `tinydistill tune TASK.yaml --data D --teacher a,b --few-shot 0,8` | compares teacher setups on a dev split |
+| `tinydistill analyse RUN` | an error-analysis page: weakest labels, common confusions |
+| `tinydistill suggest RUN --n 200 --out to_label.jsonl` | the texts most worth labelling by hand next |
+| `tinydistill refresh RUN --log cascade.jsonl --out RUN2` | retrains with the texts the cascade sent to the teacher |
+| `tinydistill report RUN` | rebuilds `results.md` from `results.json` |
 
 Data can be `.csv`, `.jsonl` or `hf:<dataset>[:<config>]:<split>` (needs the `hf` extra). Useful options:
 `--teacher` (any Hugging Face causal LM), `--load-4bit` (bitsandbytes, CUDA only: `pip install "tinydistill[4bit]"`),
 `--student` (any Hugging Face encoder), `--epochs`, `--lr`, `--device`, `--threads`, `--seed`, and `--cache-dir`
 (runs that share it label each text only once). See `tinydistill <command> --help`.
+
+Long steps print their progress, speed and time left every few seconds and write it to `RUN/status.json`;
+`tinydistill status RUN` reads it from another terminal and tells you whether the process is still alive.
+
+**Static student.** `--student static` (or `static:<encoder>`) trains a student with no attention at all: one
+vector per token, averaged, then a linear layer, started from the encoder's own token representations (as in
+Model2Vec). It is much smaller and faster than a transformer student and usually less accurate; it exports to
+ONNX and runs with `predict` and `serve` like any other student. Use a higher learning rate, such as
+`--lr 1e-3`.
 
 ### Choosing the teacher
 
@@ -177,6 +192,17 @@ A **vLLM server** can be the teacher instead of a local model, so a large model 
 labelling: start it with `vllm serve MODEL --enable-prefix-caching` and pass `--vllm-url http://host:8000/v1`
 with `--teacher MODEL`. Only the tokenizer is loaded locally; every continuation is scored exactly from the
 server's prompt log-probabilities, so the soft labels are the same as with the local model.
+
+**Many labels.** With hundreds or thousands of labels, scoring every one for every text gets slow.
+`label --shortlist K` first compares each text with the label names (and descriptions) using a small
+sentence-embedding model (`--shortlist-model`, MiniLM by default) and has the teacher score only the K most
+similar labels; the others get probability zero. `eval` reports the **shortlist recall**: how often the gold
+label was among the K. If it is low, raise K.
+
+**Tuning the setup.** `tinydistill tune TASK.yaml --data D --teacher a,b --few-shot 0,8 --prompt other.yaml`
+scores every combination of teacher, number of few-shot examples and prompt on a dev split of gold-labelled
+*training* texts (`--dev-size`, default 200; never the test set) and writes `tune.md` and `tune.json` (`--out`), best first, with
+the `label` command for the winner.
 
 ### No unlabelled data?
 
@@ -214,6 +240,20 @@ chosen examples per class (fixed by `--seed`):
 `train --upper-bound` trains the same student on all gold training labels, again without the teacher: how far
 distillation is from full supervision. `train --seeds N` repeats every student with N training seeds, and the
 results show the mean and standard deviation.
+
+### Improving a run
+
+- `tinydistill analyse RUN` writes `RUN/analysis.html`: precision, recall and F1 of every label for the teacher
+  and the student, the most common confusions with example texts, and texts where the two disagree. Labels
+  the teacher gets wrong usually need a clearer name, a description, or merging.
+- `tinydistill suggest RUN --n 200 --out to_label.jsonl` picks the training texts most worth labelling by hand:
+  where the student and the teacher disagree, then where the teacher is least sure, spread over labels. Fill
+  in the empty label field and pass the file back with `train RUN --gold-file to_label.jsonl`; those labels
+  join the cross-entropy term.
+- `predict --cascade RUN --log cascade.jsonl` (and `serve --cascade ... --log`) records every text the cascade
+  passed to the teacher, with the teacher's scores. `tinydistill refresh RUN --log cascade.jsonl --out RUN2`
+  adds them to the training texts and trains, exports and evaluates a new student on the same test set, so
+  the student learns the inputs it found hard in production.
 
 ### From Python
 
@@ -352,8 +392,10 @@ distillation, Hinton et al., 2015).
   be worse than the zero-shot one; compare both (`tinydistill compare`) before relying on it.
 - **Prompt and label order matter.** Zero-shot LLMs are sensitive to wording and to the order of the options.
 - **Teacher cost grows with labels.** Every text is scored against every surface form of every label (shared
-  prefixes are computed once), one text at a time.
-- **Single-label classification only.** Inputs are truncated to 128 tokens by default (`--max-length`).
+  prefixes are computed once). With very many labels use `--shortlist K`; a gold label outside the shortlist
+  cannot be learned from the teacher for that text.
+- **Multi-label tasks ask one question per label**, so they cost one forward pass per label and text.
+  Inputs are truncated to 128 tokens by default (`--max-length`).
 - **Timings depend on the machine.** The results table states the threads and devices used; rerun `eval` on your
   own hardware.
 - ONNX export uses PyTorch's TorchScript-based exporter.
@@ -370,6 +412,9 @@ ruff check . && ruff format --check . && pytest
 The tests run on a CPU in a few seconds with tiny random models from `hf-internal-testing`. They check the label
 scores against a direct computation, the distillation loss and metrics against hand-computed values, cache
 resumption, that the ONNX export reproduces the PyTorch logits, and the whole CLI end to end.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to propose changes, [SECURITY.md](SECURITY.md) for reporting
+vulnerabilities and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for the code of conduct.
 
 ## References
 
