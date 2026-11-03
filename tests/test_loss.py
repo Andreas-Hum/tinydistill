@@ -175,7 +175,8 @@ def test_best_epoch_is_kept_and_training_stops_early(tmp_path):
         patience=1,
     )  # nothing is learned, so the held-out loss never improves after epoch 1
     assert kept == 1
-    assert sum(line.startswith("epoch ") for line in lines) == 2 and "held-out loss" in lines[0]
+    epochs = [line for line in lines if line.startswith("epoch ")]
+    assert len(epochs) == 2 and "held-out loss" in epochs[0]
     assert any("keeping epoch 1" in line for line in lines) and (tmp_path / "s" / "config.json").exists()
     assert (
         train_student(texts, probs, ["a", "b"], tmp_path / "t", TINY_ENCODER, epochs=2, log=lines.append) == 2

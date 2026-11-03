@@ -358,6 +358,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
         ordinal_metrics,
         render,
         time_calls,
+        top_k_accuracy,
     )
     from .export import Predictor
     from .student import load_student, student_logits
@@ -386,7 +387,9 @@ def cmd_eval(a: argparse.Namespace) -> None:
         raise SystemExit("no texts to evaluate on: label a --test set (or training data) first")
     threads = torch.get_num_threads()
 
-    def quality(pred: list) -> dict:
+    def quality(pred: list, scores: list | None = None) -> dict:
+        """Metrics of predictions; with each text's label scores, also top-3 accuracy (tasks with more than
+        five labels)."""
         if not gold:
             return {}
         if multi:
@@ -394,6 +397,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "agreement": accuracy(pred, teacher_pred)
             }
         extra = ordinal_metrics(pred, gold) if task.ordinal else {}
+        if scores is not None and len(task.labels) > 5:
+            extra["top3_accuracy"] = top_k_accuracy(scores, gold)
         return extra | {
             "accuracy": accuracy(pred, gold),
             "macro_f1": macro_f1(pred, gold),
@@ -418,8 +423,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
     examples = [(r["text"], r["gold"]) for r in _read_jsonl(run / "examples.jsonl")] or None
     members: list[dict] = []
     for ti, name in enumerate(teachers):
-        own = [decide(r["teacher_scores"][ti]) for r in labelled] if len(teachers) > 1 else teacher_pred
-        q = quality(own)
+        own_scores = [r["teacher_scores"][ti] if len(teachers) > 1 else r["scores"] for r in labelled]
+        q = quality([decide(s) for s in own_scores], own_scores)
         q.pop("agreement", None)
         for dev in devices:
             label = f"teacher, {prompt}" + (f": {name.split('/')[-1]}" if len(teachers) > 1 else "")
@@ -463,7 +468,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
         models.extend(members)
     else:  # the ensemble is the actual teacher: it runs every member, so its latency is their sum
         models.extend(m | {"role": "teacher member"} for m in members)
-        q = quality(teacher_pred)
+        q = quality(teacher_pred, [r["scores"] for r in labelled])
         q.pop("agreement", None)
         for dev in devices:
             on_dev = [m for m in members if m["device"] == dev]
@@ -493,9 +498,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
         per_seed = []
         for d in dirs:
             model, tok = load_student(d, "cpu")
-            per_seed.append(
-                quality([decide(z) for z in student_logits(model, tok, texts).tolist()] if texts else [])
-            )
+            z = student_logits(model, tok, texts).tolist() if texts else []
+            per_seed.append(quality([decide(x) for x in z], z))
             bar.update()
         row = {"role": role, "name": row_name, "device": "cpu", **aggregate(per_seed)}
         if role == "student":  # timings and size of the shipped (first-seed) model
@@ -517,12 +521,13 @@ def cmd_eval(a: argparse.Namespace) -> None:
             continue
         log(f"evaluating {f.name} (onnxruntime, CPU)")
         pr = Predictor(run / "onnx", int8=int8, threads=threads)
-        pred = [decide(z) for z in pr.logits(texts).tolist()] if texts else []
+        z = pr.logits(texts).tolist() if texts else []
+        pred = [decide(x) for x in z]
         row = {
             "role": "student",
             "name": f"student, ONNX {'int8' if int8 else 'fp32'}",
             "device": "cpu",
-            **quality(pred),
+            **quality(pred, z),
             "size_mb": dir_size_mb([f]),
         }
         row.update(bench(lambda b, pr=pr: pr.logits(b), bench_texts, a.reps, max(3, a.reps // 5)))
@@ -678,6 +683,16 @@ def cmd_serve(a: argparse.Namespace) -> None:
         pass
     finally:
         server.server_close()
+
+
+def cmd_plot(a: argparse.Namespace) -> None:
+    from .plots import save_all
+
+    files = save_all(Path(a.run), a.out)
+    if not files:
+        raise SystemExit(f"{a.run} has no data to plot: run `tinydistill eval` first")
+    for f in files:
+        print(f)
 
 
 def cmd_web(a: argparse.Namespace) -> None:
@@ -1044,6 +1059,13 @@ def build_parser() -> argparse.ArgumentParser:
     srv.add_argument("--threshold", type=float, default=0.5, help="with --cascade: see `predict --help`")
     srv.add_argument("--log", help="with --cascade: append the texts the teacher answered (for `refresh`)")
     srv.set_defaults(fn=cmd_serve)
+    plo = sub.add_parser(
+        "plot",
+        help="charts of a run as PNG files: training, speed and accuracy, per label, confusions, cascade",
+    )
+    plo.add_argument("run", help="run directory")
+    plo.add_argument("--out", help="folder for the PNG files (default: RUN/plots)")
+    plo.set_defaults(fn=cmd_plot)
     web = sub.add_parser("web", help="a static web page that runs the model in the browser")
     web.add_argument("model", help="directory written by `export` (run/onnx), or hf:user/name on the Hub")
     web.add_argument("--out", default="site", help="folder to write the page and model into")

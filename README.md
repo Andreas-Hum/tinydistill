@@ -50,6 +50,7 @@ browser and shows what happens inside it.</i></p>
 pip install tinydistill               # label, train, export, predict
 pip install "tinydistill[hf]"         # + Hugging Face datasets as input (hf:<dataset>:<split>)
 pip install "tinydistill[hf,4bit]"    # + 4-bit teachers with bitsandbytes (CUDA)
+pip install "tinydistill[plot]"       # + charts of a run (matplotlib)
 ```
 
 Python 3.11 or newer, on Linux, macOS or Windows. Labelling with a large teacher wants a GPU; training and
@@ -74,8 +75,13 @@ clf = Predictor("runs/banking77/onnx")  # or a model on the Hub: Predictor("hf:u
 clf.predict(["I still haven't received my new card"])  # a list of label names
 ```
 
-Or try it without installing anything: the [Colab notebook](https://colab.research.google.com/github/Andreas-Hum/tinydistill/blob/main/notebooks/quickstart.ipynb) distils a sentiment classifier in a
-few minutes on a free GPU.
+Or try it without installing anything, on a free Colab GPU:
+
+| Notebook | What it shows |
+|---|---|
+| [Quickstart](https://colab.research.google.com/github/Andreas-Hum/tinydistill/blob/main/notebooks/quickstart.ipynb) | distil a sentiment classifier in about ten minutes, with charts of what the student learned |
+| [Your own task](https://colab.research.google.com/github/Andreas-Hum/tinydistill/blob/main/notebooks/your_task.ipynb) | write a task for your labels, check the teacher, distil on your texts, find the mistakes, download the model |
+| [Deploy](https://colab.research.google.com/github/Andreas-Hum/tinydistill/blob/main/notebooks/deploy.ipynb) | the model from Python, behind an HTTP server, in a web page, and on the Hugging Face Hub |
 
 Labelling the full dataset with the default teacher wants a GPU. For a quick look on a CPU, add
 `--teacher Qwen/Qwen2.5-0.5B-Instruct --limit 200 --test-limit 200`. `--limit` takes the first rows, and the
@@ -262,6 +268,30 @@ results show the mean and standard deviation.
   passed to the teacher, with the teacher's scores. `tinydistill refresh RUN --log cascade.jsonl --out RUN2`
   adds them to the training texts and trains, exports and evaluates a new student on the same test set, so
   the student learns the inputs it found hard in production.
+
+### Charts and metrics
+
+`tinydistill plot RUN` (with the `plot` extra) writes the charts of a run to `RUN/plots/`; in Python every
+chart is a function in `tinydistill.plots` that returns a matplotlib figure, so it shows inline in a notebook:
+
+| Chart | What it shows |
+|---|---|
+| `soft_labels` | for a few test texts, the teacher's probabilities (the soft labels) next to the student's |
+| `speed_accuracy` | accuracy against latency for the teacher and every form of the student, with the baseline and upper bound |
+| `training` | the loss per epoch on the training texts and, with `--val-share`, on the held-out texts and the kept epoch |
+| `per_label` | F1 of every label for teacher and student, the teacher's weakest first |
+| `confusions` | the confusion matrix over the labels involved in the most mistakes |
+| `cascade` | accuracy as the student passes more of its least confident texts to the teacher |
+
+<p align="center">
+  <img alt="Soft labels on three Banking77 test texts: the teacher's probabilities next to the student's" src="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/banking77-soft-labels.png" width="49%">
+  <img alt="Accuracy against latency on Banking77: the students on a CPU, the teacher on a GPU, the baseline and the upper bound" src="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/banking77-speed-accuracy.png" width="49%">
+</p>
+
+Every run's results report accuracy and macro-F1, agreement with the teacher, latency at batch 1 and 32,
+throughput and size; tasks with more than five labels also get top-3 accuracy, multi-label tasks micro-F1, and
+ordered labels the mean distance in label steps. `tinydistill analyse RUN` adds a page of per-label scores and
+example mistakes.
 
 ### From Python
 

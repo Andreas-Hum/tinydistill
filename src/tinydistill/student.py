@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import random
 import time
@@ -117,15 +118,23 @@ def train_student(
     if static := encoder_of(model_name):
         model, tok = new_static(static, labels, multi_label)
     else:
+        from transformers.utils import logging as hf_logging
+
         tok = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSequenceClassification.from_pretrained(
-            model_name,
-            num_labels=len(labels),
-            id2label=dict(enumerate(labels)),
-            label2id={name: i for i, name in enumerate(labels)},
-            ignore_mismatched_sizes=True,
-            problem_type="multi_label_classification" if multi_label else "single_label_classification",
-        )
+        level = hf_logging.get_verbosity()
+        hf_logging.set_verbosity_error()  # its report of the new (missing) classifier head is expected noise
+        try:
+            model = AutoModelForSequenceClassification.from_pretrained(
+                model_name,
+                num_labels=len(labels),
+                id2label=dict(enumerate(labels)),
+                label2id={name: i for i, name in enumerate(labels)},
+                ignore_mismatched_sizes=True,
+                problem_type="multi_label_classification" if multi_label else "single_label_classification",
+            )
+        finally:
+            hf_logging.set_verbosity(level)
+        log(f"{model_name}: a new classification head for {len(labels)} labels on the pretrained encoder")
     model = model.to(device)
     gold = gold or [None] * len(texts)
     if multi_label:  # multi-hot gold, and which texts have it
@@ -169,6 +178,7 @@ def train_student(
     )
 
     best_loss, best_state, best_epoch = math.inf, None, epochs
+    history: list[dict] = []  # per epoch, saved as history.json next to the model
     for epoch in range(epochs):
         model.train()
         rng.shuffle(order)
@@ -185,6 +195,7 @@ def train_student(
             if on_step:
                 on_step()
         line = f"epoch {epoch + 1}/{epochs}: loss {total / len(order):.4f}"
+        history.append({"epoch": epoch + 1, "loss": total / len(order)})
         if val:
             model.eval()
             with torch.no_grad():
@@ -193,6 +204,7 @@ def train_student(
                 )
             v /= len(val)
             line += f", held-out loss {v:.4f}"
+            history[-1]["held_out_loss"] = v
             if v < best_loss:
                 best_loss, best_epoch = v, epoch + 1
                 best_state = {k: t.detach().clone() for k, t in model.state_dict().items()}
@@ -206,7 +218,12 @@ def train_student(
     out_dir.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(out_dir)
     tok.save_pretrained(out_dir)
-    return best_epoch
+    kept = best_epoch if best_state is not None else len(history)
+    (out_dir / "history.json").write_text(
+        json.dumps({"epochs": history, "kept_epoch": kept, "held_out_texts": len(val)}, indent=1),
+        encoding="utf-8",
+    )
+    return kept
 
 
 def load_student(path: Path, device: str = "cpu"):

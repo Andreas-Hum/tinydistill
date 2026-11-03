@@ -959,3 +959,17 @@ def test_train_keeps_the_best_epoch_on_held_out_texts(tmp_path):
     assert "holds out 20% of its training texts and keeps the epoch" in (run / "results.md").read_text(
         encoding="utf-8"
     )
+
+    history = json.loads((run / "student" / "history.json").read_text(encoding="utf-8"))
+    assert (
+        history["kept_epoch"] == meta["kept_epochs"]["student"][0] and "held_out_loss" in history["epochs"][0]
+    )
+    main(["plot", str(run)])
+    assert {p.name for p in (run / "plots").glob("*.png")} == {
+        "training.png",
+        "speed_accuracy.png",
+        "per_label.png",
+        "confusions.png",
+        "cascade.png",
+        "soft_labels.png",
+    }

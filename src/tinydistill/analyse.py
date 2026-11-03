@@ -53,30 +53,42 @@ CSS = """
 """
 
 
-def build(run: Path, top: int = 15) -> tuple[str, str]:
-    """(HTML page, short Markdown summary) for a single-label run with a gold-labelled test set."""
+def predictions(run: Path) -> dict:
+    """For the gold-labelled test texts of a single-label run: the task, texts, gold labels, and the teacher's
+    and the deployed student's predicted labels."""
     from .export import Predictor
     from .task import load_task
 
     task = load_task(run / "task.yaml")
     if task.multi_label:
-        raise SystemExit("analyse is for single-label tasks; see results.md for multi-label runs")
+        raise SystemExit("this view is for single-label tasks; see results.md for multi-label runs")
     rows = [
         r
         for r in map(json.loads, (run / "test.jsonl").read_text(encoding="utf-8").splitlines())
         if r.get("gold") is not None
     ]
     if not rows:
-        raise SystemExit(f"{run}/test.jsonl has no gold labels to analyse")
-    names = task.labels
+        raise SystemExit(f"{run}/test.jsonl has no gold labels")
     texts = [r["text"] for r in rows]
-    gold = [r["gold"] for r in rows]
-    teacher = [max(range(len(names)), key=r["scores"].__getitem__) for r in rows]
-    student = [int(i) for i in Predictor(run / "onnx").logits(texts).argmax(-1)]
+    n = len(task.labels)
+    return {
+        "task": task,
+        "texts": texts,
+        "gold": [r["gold"] for r in rows],
+        "teacher": [max(range(n), key=r["scores"].__getitem__) for r in rows],
+        "student": [int(i) for i in Predictor(run / "onnx").logits(texts).argmax(-1)],
+    }
+
+
+def build(run: Path, top: int = 15) -> tuple[str, str]:
+    """(HTML page, short Markdown summary) for a single-label run with a gold-labelled test set."""
+    p = predictions(run)
+    task, texts, gold, teacher, student = p["task"], p["texts"], p["gold"], p["teacher"], p["student"]
+    names = task.labels
 
     t_lab, s_lab = per_label(teacher, gold, len(names)), per_label(student, gold, len(names))
     order = sorted(range(len(names)), key=lambda c: t_lab[c]["f1"])  # the teacher's weakest labels first
-    disagree = [i for i in range(len(rows)) if teacher[i] != student[i]]
+    disagree = [i for i in range(len(texts)) if teacher[i] != student[i]]
     t_acc = sum(t == g for t, g in zip(teacher, gold, strict=True)) / len(gold)
     s_acc = sum(s == g for s, g in zip(student, gold, strict=True)) / len(gold)
     e = html.escape
@@ -115,7 +127,7 @@ def build(run: Path, top: int = 15) -> tuple[str, str]:
 <title>Error analysis: {e(task.name)}</title><style>{CSS}</style></head>
 <body><main>
 <h1>Error analysis: {e(task.name)}</h1>
-<p class="sub">{len(rows)} gold-labelled test texts. Teacher accuracy {t_acc:.3f}, student (deployed model)
+<p class="sub">{len(texts)} gold-labelled test texts. Teacher accuracy {t_acc:.3f}, student (deployed model)
 accuracy {s_acc:.3f}; they disagree on {len(disagree)} texts. Written by <code>tinydistill analyse</code>.</p>
 
 <h2>Per label, the teacher's weakest first</h2>
@@ -141,7 +153,7 @@ on the student side.</p>
     worst = [names[c] for c in order[:5]]
     pairs = Counter({(names[g], names[p]): n for g, p, n, _ in confusions(teacher, gold, 5)})
     summary = (
-        f"Teacher accuracy {t_acc:.3f}, student {s_acc:.3f}; they disagree on {len(disagree)} of {len(rows)} texts.\n"
+        f"Teacher accuracy {t_acc:.3f}, student {s_acc:.3f}; they disagree on {len(disagree)} of {len(texts)} texts.\n"
         f"The teacher's weakest labels: {', '.join(worst)}.\n"
         "Its most common mistakes: "
         + "; ".join(f"{g} -> {p} ({n})" for (g, p), n in pairs.most_common(5))

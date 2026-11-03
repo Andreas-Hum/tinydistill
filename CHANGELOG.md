@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Charts: `tinydistill plot RUN` and `tinydistill.plots` (soft labels, accuracy and speed, training curves,
+  per-label F1, confusions, cascade), with the `plot` extra (matplotlib).
+- Training writes `history.json` (the loss per epoch, and the held-out loss with `--val-share`).
+- Results report top-3 accuracy for tasks with more than five labels.
+- Two more notebooks: your own task, and deploying; the quickstart shows the charts.
+- The expected "newly initialized classifier" report from transformers is no longer printed.
+
 ## 0.3.2 (2026-11-03)
 
 - Models load straight from the Hugging Face Hub: `Predictor("hf:user/name")`, and `predict`, `serve` and

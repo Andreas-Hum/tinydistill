@@ -87,6 +87,12 @@ def bench(fn: Callable[[list[str]], object], texts: list[str], reps1: int, reps3
     return out
 
 
+def top_k_accuracy(scores: list[list[float]], gold: list[int], k: int = 3) -> float:
+    """Share of texts whose gold label is among the k highest-scoring labels."""
+    hits = sum(g in sorted(range(len(s)), key=s.__getitem__)[-k:] for s, g in zip(scores, gold, strict=True))
+    return hits / len(gold) if gold else float("nan")
+
+
 def aggregate(per_seed: list[dict]) -> dict:
     """Mean of each metric over seeds; with several seeds also the sample standard deviation and values."""
     if not per_seed or not per_seed[0]:
@@ -141,7 +147,12 @@ def _pm(row: dict, key: str) -> str:
     return _fmt(row.get(key), ".3f") + (f" ± {std:.3f}" if std is not None else "")
 
 
-EXTRA_COLUMNS = (("micro_f1", "Micro-F1"), ("mae", "MAE (label steps)"), ("within_one", "Within one step"))
+EXTRA_COLUMNS = (
+    ("top3_accuracy", "Top-3 accuracy"),
+    ("micro_f1", "Micro-F1"),
+    ("mae", "MAE (label steps)"),
+    ("within_one", "Within one step"),
+)
 
 
 def markdown_table(results: dict) -> str:

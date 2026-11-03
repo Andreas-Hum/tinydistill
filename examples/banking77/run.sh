@@ -47,4 +47,11 @@ tinydistill compare runs/banking77-1.5b runs/banking77-1.5b-8shot runs/banking77
 mkdir -p examples/banking77/students
 for dir in runs/banking77-students/*/; do cp "$dir/results.json" "examples/banking77/students/$(basename "$dir").json"; done
 tinydistill compare runs/banking77-7b-8shot runs/banking77-students/* > examples/banking77/students.md
+python - <<'PY'  # the charts in the README
+from tinydistill import plots
+plots.speed_accuracy("runs/banking77-7b-8shot").savefig("docs/images/banking77-speed-accuracy.png", dpi=130)
+plots.soft_labels("runs/banking77-students/all-MiniLM-L6-v2-20-epochs").savefig(
+    "docs/images/banking77-soft-labels.png", dpi=130
+)
+PY
 python examples/update_readme.py
