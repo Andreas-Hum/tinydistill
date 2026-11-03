@@ -152,6 +152,9 @@ time:
 - On a CPU they are **hundreds of times faster** than the teacher on a GPU, at a fraction of its size.
 - **The teacher sets the ceiling.** With a 1.5B teacher, or without examples in its prompt, the students are
   much weaker; the same student trained on all 10,003 gold labels reaches 0.914.
+- **Compared with SetFit**, a strong few-shot method that needs no LLM, on the same 616 gold labels: 0.813
+  against 0.797 with the same encoder. Distillation needs a GPU for the teacher; SetFit trains in a minute
+  ([comparison](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#compared-with-setfit)).
 
 [RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md) has every run: four teachers, five student models trained for 5 to 20 epochs, the gold-only baseline,
 the upper bound and the cascade on Banking77, a teacher ensemble and synthetic texts on financial tweets,

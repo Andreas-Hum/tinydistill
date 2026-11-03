@@ -74,6 +74,7 @@ attention), trained for 20 epochs at learning rate 1e-3:
 | all-MiniLM-L12-v2-20-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.817 ± 0.001 | 0.814 ± 0.001 | 0.875 ± 0.002 | ONNX int8 | 3.2 | 82.0 | 34 |
 | all-MiniLM-L6-v2-10-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.808 ± 0.003 | 0.801 ± 0.002 | 0.860 ± 0.004 | ONNX int8 | 1.1 | 38.1 | 23 |
 | all-MiniLM-L6-v2-20-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.813 ± 0.002 | 0.811 ± 0.003 | 0.868 ± 0.003 | ONNX int8 | 1.2 | 36.3 | 23 |
+| all-MiniLM-L6-v2-best-of-20 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.807 ± 0.009 | 0.802 ± 0.010 | 0.862 ± 0.006 | ONNX int8 | 1.2 | 38.0 | 23 |
 | all-mpnet-base-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.814 ± 0.004 | 0.805 ± 0.007 | 0.863 ± 0.001 | ONNX int8 | 7.3 | 220.4 | 110 |
 | bge-small-en-v1.5 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `BAAI/bge-small-en-v1.5` | 33 | 0.739 ± 0.008 | 0.706 ± 0.011 | 0.815 ± 0.004 | ONNX int8 | 2.7 | 75.2 | 34 |
 | static | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `static` | 8 | 0.803 ± 0.001 | 0.801 ± 0.001 | 0.824 ± 0.001 | ONNX int8 | 0.1 | 5.1 | 8 |
@@ -88,7 +89,34 @@ some of the teacher's individual mistakes. The static student is about a point b
 trained as long, at a tenth of a millisecond per text and 8 MB. Ten epochs get most of the way (MiniLM-L6:
 0.808), so 10 is the default from 0.3.1. On the easier financial-tweets task, 20 epochs give the same accuracy
 as 5 ([`financial-tweets-7b-20-epochs.md`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/financial-tweets/financial-tweets-7b-20-epochs.md)).
-The other tables on this page were trained for 5 epochs, the default until 0.3.1.
+The other tables on this page were trained for 5 epochs, the default until 0.3.1. Choosing the epoch on 5%
+held-out training texts (`--val-share 0.05`, up to 20 epochs; the `best-of-20` row) kept epochs 9, 11 and 20
+for the three seeds and lands where 10 fixed epochs do: it finds a reasonable stopping point without gold
+labels, but here it does not beat simply training longer.
+
+### Compared with SetFit
+
+[SetFit](https://github.com/huggingface/setfit) is a strong few-shot method that needs no LLM: it fine-tunes a
+sentence encoder on pairs of labelled texts and fits a classifier head on top. Given the same 616 gold labels
+([`examples/banking77/setfit_baseline.py`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/banking77/setfit_baseline.py)):
+
+<!-- results: banking77/setfit.md -->
+| Method | Gold labels | Also uses | Accuracy | Macro-F1 |
+|---|---|---|---|---|
+| Qwen2.5-7B-Instruct, 8 examples per class in the prompt | 616 | | 0.783 | 0.779 |
+| SetFit, MiniLM-L6 | 616 | | 0.797 ± 0.001 | 0.793 ± 0.002 |
+| SetFit, mpnet-base | 616 | | 0.789 ± 0.005 | 0.788 ± 0.005 |
+| tinydistill, MiniLM-L6 student | 616 | the 7B teacher's soft labels on 10,003 texts | 0.813 ± 0.002 | 0.811 ± 0.003 |
+| tinydistill, static student | 616 | the same | 0.803 ± 0.001 | 0.801 ± 0.001 |
+| MiniLM-L6 trained on all gold labels (upper bound) | 10,003 | | 0.914 ± 0.005 | 0.914 ± 0.005 |
+
+Banking77, 3080 test texts; mean ± standard deviation over three seeds. Every method sees the same 616 gold-labelled texts (8 per class). SetFit: one epoch of contrastive training with 20 pair iterations, then a logistic-regression head (the library's defaults otherwise). The tinydistill students train for 20 epochs; the upper bound for 5.
+<!-- /results -->
+
+With the same encoder, distillation is about 1.6 points more accurate than SetFit. That margin comes from the
+7B teacher and 10,000 unlabelled texts, and it costs a GPU for labelling; SetFit trains in about a minute and
+is itself more accurate than the 7B teacher here. With few labels and no GPU, SetFit is a good choice; with
+unlabelled texts and an LLM that already does the task well, distillation gets more out of them.
 
 ## Financial tweets: an easier task
 

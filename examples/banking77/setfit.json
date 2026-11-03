@@ -1,0 +1,51 @@
+{
+  "n_labelled": 616,
+  "n_test": 3080,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "bodies": {
+    "MiniLM-L6": {
+      "model": "sentence-transformers/all-MiniLM-L6-v2",
+      "runs": [
+        {
+          "accuracy": 0.7983766233766234,
+          "macro_f1": 0.7953617339814036,
+          "train_seconds": 61.58361405499454
+        },
+        {
+          "accuracy": 0.797077922077922,
+          "macro_f1": 0.7930024660444959,
+          "train_seconds": 61.14993591199891
+        },
+        {
+          "accuracy": 0.7954545454545454,
+          "macro_f1": 0.7917782309941915,
+          "train_seconds": 58.763573609998275
+        }
+      ]
+    },
+    "mpnet-base": {
+      "model": "sentence-transformers/paraphrase-mpnet-base-v2",
+      "runs": [
+        {
+          "accuracy": 0.7938311688311688,
+          "macro_f1": 0.7931360963994333,
+          "train_seconds": 196.094453108999
+        },
+        {
+          "accuracy": 0.785064935064935,
+          "macro_f1": 0.7843203881197746,
+          "train_seconds": 196.1632793509998
+        },
+        {
+          "accuracy": 0.7866883116883117,
+          "macro_f1": 0.7861151489464843,
+          "train_seconds": 199.81597620200046
+        }
+      ]
+    }
+  }
+}
