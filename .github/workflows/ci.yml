@@ -92,9 +92,9 @@ jobs:
           pip install "torch==2.6.*" --index-url https://download.pytorch.org/whl/cpu
           # sentencepiece: transformers 4.x needs it to convert the tiny Mistral test model's tokenizer
           pip install "numpy==1.24.*" "transformers==4.56.*" "onnx==1.15.*" "onnxruntime==1.17.*" \
-            "pyyaml==6.0.*" "datasets==2.18.*" pytest sentencepiece protobuf
+            "pyyaml==6.0.*" "datasets==2.18.*" "matplotlib==3.7.*" pytest sentencepiece protobuf
           pip install --no-deps -e .
-          pip list | grep -iE "^(torch|numpy|transformers|onnx|onnxruntime|datasets) "
+          pip list | grep -iE "^(torch|numpy|transformers|onnx|onnxruntime|datasets|matplotlib) "
       - run: pytest -q
 
   package:
