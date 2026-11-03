@@ -1,7 +1,7 @@
 name: Release
 
-# Publishing a GitHub release (tag vX.Y.Z) builds the package and uploads it to PyPI through Trusted
-# Publishing: PyPI trusts this workflow file, so no token is stored anywhere.
+# Publishing a GitHub release (tag vX.Y.Z) runs the whole CI on the tagged commit, then builds the package and
+# uploads it to PyPI through Trusted Publishing: PyPI trusts this workflow file, so no token is stored anywhere.
 on:
   release:
     types: [published]
@@ -10,7 +10,11 @@ permissions:
   contents: read
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   build:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

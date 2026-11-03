@@ -90,23 +90,39 @@ class Progress:
             "pid": os.getpid(),
         }
         tmp = self.status.with_suffix(".tmp")
-        tmp.write_text(json.dumps(record))
+        tmp.write_text(json.dumps(record), encoding="utf-8")
         tmp.replace(self.status)  # atomic: `status` never reads a half-written file
+
+
+def _alive(pid: int) -> bool:
+    """Whether a process is still running, without signalling it."""
+    if os.name == "nt":  # os.kill(pid, 0) would send Ctrl+C on Windows
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+        kernel32.CloseHandle(handle)
+        return code.value == 259  # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)  # signal 0: only checks that the process exists
+    except ProcessLookupError:
+        return False
+    except PermissionError:  # exists, but belongs to another user
+        return True
+    return True
 
 
 def describe_status(path: Path) -> str:
     """A human-readable summary of RUN/status.json, including whether the process is still running."""
     if not path.exists():
         return "no status yet: nothing has run in this directory with tinydistill 0.3.0 or later"
-    s = json.loads(path.read_text())
+    s = json.loads(path.read_text(encoding="utf-8"))
     age = (datetime.now(UTC) - datetime.fromisoformat(s["updated"])).total_seconds()
-    try:
-        os.kill(s["pid"], 0)
-        alive = True
-    except (ProcessLookupError, PermissionError):
-        alive = False
-    except OSError:
-        alive = False
+    alive = _alive(s["pid"])
     total = f"/{s['total']}" if s.get("total") else ""
     pct = f" ({s['done'] / s['total']:.0%})" if s.get("total") else ""
     lines = [f"{s['stage']}: {s['done']}{total}{pct} {s['unit']}, {s['rate_per_s']}/s"]

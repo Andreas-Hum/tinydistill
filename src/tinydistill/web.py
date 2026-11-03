@@ -480,11 +480,15 @@ def build_site(
         if (onnx_dir / f).exists():
             shutil.copy(onnx_dir / f, model_dir / f)
 
-    config = json.loads((onnx_dir / "config.json").read_text())
+    config = json.loads((onnx_dir / "config.json").read_text(encoding="utf-8"))
     labels = json.loads((onnx_dir / "labels.json").read_text(encoding="utf-8"))
     multi = config.get("problem_type") == "multi_label_classification"
-    meta = json.loads((run / "meta.json").read_text()) if (run / "meta.json").exists() else {}
-    res = json.loads((run / "results.json").read_text()) if (run / "results.json").exists() else None
+    meta = json.loads((run / "meta.json").read_text(encoding="utf-8")) if (run / "meta.json").exists() else {}
+    res = (
+        json.loads((run / "results.json").read_text(encoding="utf-8"))
+        if (run / "results.json").exists()
+        else None
+    )
     rows = []
     if (run / "test.jsonl").exists():
         with (run / "test.jsonl").open(encoding="utf-8") as f:
@@ -504,7 +508,7 @@ def build_site(
         ],
         "cascade": (res or {}).get("cascade"),
     }
-    vocab = json.loads((onnx_dir / "tokenizer.json").read_text())["model"].get("vocab", {})
+    vocab = json.loads((onnx_dir / "tokenizer.json").read_text(encoding="utf-8"))["model"].get("vocab", {})
     teacher_row = next((m for m in (res or {}).get("models", []) if m["role"] == "teacher"), None)
     teacher = f"the teacher, {meta.get('teacher') or 'a large language model'}" + (
         f" ({teacher_row['name'].removeprefix('teacher, ')})" if teacher_row else ""

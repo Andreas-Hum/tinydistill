@@ -62,7 +62,9 @@ def build(run: Path, top: int = 15) -> tuple[str, str]:
     if task.multi_label:
         raise SystemExit("analyse is for single-label tasks; see results.md for multi-label runs")
     rows = [
-        r for r in map(json.loads, (run / "test.jsonl").read_text().splitlines()) if r.get("gold") is not None
+        r
+        for r in map(json.loads, (run / "test.jsonl").read_text(encoding="utf-8").splitlines())
+        if r.get("gold") is not None
     ]
     if not rows:
         raise SystemExit(f"{run}/test.jsonl has no gold labels to analyse")

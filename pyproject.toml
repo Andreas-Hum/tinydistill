@@ -18,7 +18,8 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-  "torch>=2.2",
+  "torch>=2.6",
+  "numpy>=1.24",
   "transformers>=4.56",
   "onnx>=1.15",
   "onnxruntime>=1.17",

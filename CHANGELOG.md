@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Fix: `tinydistill status` on Windows sent Ctrl+C to the process it checked; it now only queries it.
+- Fix: files are read and written as UTF-8 on every platform (Windows defaulted to its legacy code page).
+- `numpy` is a declared dependency, and the minimum torch is 2.6 (transformers needs it to load `.bin`
+  weights); CI now tests the oldest supported versions.
+
 ## 0.3.1 (2026-11-03)
 
 - Students train for 10 epochs by default (was 5). On Banking77, MiniLM-L6 goes from 0.729 to 0.808 test

@@ -11,8 +11,8 @@ def model_card(onnx_dir: Path, repo: str, license: str | None = None) -> str:
     and how to use it."""
     run = onnx_dir.parent
     labels = json.loads((onnx_dir / "labels.json").read_text(encoding="utf-8"))
-    meta = json.loads((run / "meta.json").read_text()) if (run / "meta.json").exists() else {}
-    results = (run / "results.md").read_text() if (run / "results.md").exists() else ""
+    meta = json.loads((run / "meta.json").read_text(encoding="utf-8")) if (run / "meta.json").exists() else {}
+    results = (run / "results.md").read_text(encoding="utf-8") if (run / "results.md").exists() else ""
     front = [
         "---",
         "library_name: onnx",

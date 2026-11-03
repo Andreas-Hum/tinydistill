@@ -154,7 +154,11 @@ class Predictor:
         self.session = ort.InferenceSession(str(file), opts, providers=["CPUExecutionProvider"])
         self.tok = AutoTokenizer.from_pretrained(path)
         self.labels: list[str] = json.loads((path / "labels.json").read_text(encoding="utf-8"))
-        config = json.loads((path / "config.json").read_text()) if (path / "config.json").exists() else {}
+        config = (
+            json.loads((path / "config.json").read_text(encoding="utf-8"))
+            if (path / "config.json").exists()
+            else {}
+        )
         self.multi_label = config.get("problem_type") == "multi_label_classification"
         self.max_length = max_length
         self.file = file

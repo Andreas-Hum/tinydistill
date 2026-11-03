@@ -13,8 +13,8 @@ def fill(m: re.Match) -> str:
     path = root / "examples" / m["path"]
     if not path.exists():
         return m.group(0)
-    return f"{m.group(1)}{path.read_text().strip()}\n{m.group(3)}"
+    return f"{m.group(1)}{path.read_text(encoding='utf-8').strip()}\n{m.group(3)}"
 
 
-readme.write_text(block.sub(fill, readme.read_text()))
+readme.write_text(block.sub(fill, readme.read_text(encoding="utf-8")), encoding="utf-8")
 print("README results updated")

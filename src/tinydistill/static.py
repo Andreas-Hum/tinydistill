@@ -101,4 +101,6 @@ def new_static(encoder: str, labels: list[str], multi_label: bool, dim: int = 25
 
 def is_static(model_dir: Path) -> bool:
     f = Path(model_dir) / "config.json"
-    return f.exists() and json.loads(f.read_text()).get("model_type") == StaticConfig.model_type
+    return (
+        f.exists() and json.loads(f.read_text(encoding="utf-8")).get("model_type") == StaticConfig.model_type
+    )

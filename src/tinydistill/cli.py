@@ -28,10 +28,10 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 def _meta(run: Path, update: dict | None = None) -> dict:
     path = run / "meta.json"
-    meta = json.loads(path.read_text()) if path.exists() else {}
+    meta = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     if update:
         meta.update(update)
-        path.write_text(json.dumps(meta, indent=2))
+        path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return meta
 
 
@@ -94,7 +94,7 @@ def cmd_label(a: argparse.Namespace) -> None:
     caches, fingerprints, device = [], [], "cpu"
     seconds, scored = 0.0, 0
     keys_file = cache_dir / "teacher-keys.json"  # quick key (tokenizer only) -> full fingerprint
-    keys = json.loads(keys_file.read_text()) if keys_file.exists() else {}
+    keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
     for name in _teachers(a.teacher):  # one teacher in memory at a time
         quick = None
         if not a.vllm_url:
@@ -127,10 +127,10 @@ def cmd_label(a: argparse.Namespace) -> None:
         fingerprints.append(scorer.fingerprint())
         device = str(scorer.device)
         if quick:
-            keys = json.loads(keys_file.read_text()) if keys_file.exists() else {}
+            keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
             keys[quick] = fingerprints[-1]
             tmp = keys_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(keys, indent=1))
+            tmp.write_text(json.dumps(keys, indent=1), encoding="utf-8")
             tmp.replace(keys_file)
         cache = ScoreCache(cache_dir / f"teacher-{fingerprints[-1]}.jsonl")
         if cache.scores:
@@ -563,10 +563,10 @@ def cmd_eval(a: argparse.Namespace) -> None:
         results["cascade"] = cascade_curve(
             probs.max(-1).tolist(), probs.argmax(-1).tolist(), teacher_pred, gold
         )
-    (run / "results.json").write_text(json.dumps(results, indent=2))
+    (run / "results.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     bar.finish()
     md = render(results)
-    (run / "results.md").write_text(md)
+    (run / "results.md").write_text(md, encoding="utf-8")
     print(md)
 
 
@@ -574,8 +574,8 @@ def cmd_report(a: argparse.Namespace) -> None:
     from .evaluate import render
 
     run = Path(a.run)
-    md = render(json.loads((run / "results.json").read_text()))
-    (run / "results.md").write_text(md)
+    md = render(json.loads((run / "results.json").read_text(encoding="utf-8")))
+    (run / "results.md").write_text(md, encoding="utf-8")
     print(md)
 
 
@@ -774,8 +774,10 @@ def cmd_tune(a: argparse.Namespace) -> None:
     cmd = f"tinydistill run {task_path} --teacher {best['teacher']}" + (
         f" --few-shot {best['few_shot']}" if best["few_shot"] else ""
     )
-    Path(a.out).with_suffix(".md").write_text(md + f"\nBest: `{cmd} --data ... --out ...`\n")
-    Path(a.out).with_suffix(".json").write_text(json.dumps(results, indent=2))
+    Path(a.out).with_suffix(".md").write_text(
+        md + f"\nBest: `{cmd} --data ... --out ...`\n", encoding="utf-8"
+    )
+    Path(a.out).with_suffix(".json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(md)
     log(f"best on the dev split: {cmd} --data {a.data} --out RUN")
 
@@ -826,7 +828,7 @@ def cmd_compare(a: argparse.Namespace) -> None:
     for r in a.runs:
         path = Path(r) / "results.json" if Path(r).is_dir() else Path(r)
         label = Path(r).name if Path(r).is_dir() else f"{path.parent.name}/{path.stem}"
-        runs.append((label, json.loads(path.read_text())))
+        runs.append((label, json.loads(path.read_text(encoding="utf-8"))))
     print(compare_table(runs), end="")
 
 
