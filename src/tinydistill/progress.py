@@ -97,7 +97,7 @@ class Progress:
 def describe_status(path: Path) -> str:
     """A human-readable summary of RUN/status.json, including whether the process is still running."""
     if not path.exists():
-        return "no status yet: nothing has run in this directory with tinydistill 0.4 or later"
+        return "no status yet: nothing has run in this directory with tinydistill 0.3.0 or later"
     s = json.loads(path.read_text())
     age = (datetime.now(UTC) - datetime.fromisoformat(s["updated"])).total_seconds()
     try:
