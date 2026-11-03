@@ -5,6 +5,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-2} MKL_NUM_THREADS=${MKL_NUM_THREADS:-2}
 data=hf:fancyzhx/ag_news
+# which task file works with this teacher: with and without label descriptions, on 200 training texts
+tinydistill tune examples/ag-news/task.yaml --prompt examples/ag-news/with-descriptions.yaml \
+  --prompt examples/ag-news/narrow-world.yaml --data "$data:train" --limit 3000 --dev-size 200 \
+  --teacher Qwen/Qwen2.5-1.5B-Instruct --device cuda --out examples/ag-news/tune-1.5b
 tinydistill run examples/ag-news/task.yaml --data "$data:train" --limit 10000 --test "$data:test" \
   --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --upper-bound \
   --val-share 0.05 --out runs/ag-news-1.5b --teacher-devices cuda

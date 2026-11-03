@@ -1,0 +1,28 @@
+# The AG News task with narrower descriptions for world and business, compared by `tinydistill tune`.
+name: ag-news
+text_field: text
+label_field: label
+prompt: 'Here is a news headline with the start of the article. What is it about?
+
+  Options:
+
+  {labels}
+
+
+  News: {text}
+
+
+  Reply with one option, exactly as written.'
+labels:
+  World:
+    name: world
+    description: international politics, wars, diplomacy and elections
+  Sports:
+    name: sports
+    description: games, athletes and competitions
+  Business:
+    name: business
+    description: companies, earnings, markets, jobs and the economy
+  Sci/Tech:
+    name: science and technology
+    description: research, computers, the internet and gadgets

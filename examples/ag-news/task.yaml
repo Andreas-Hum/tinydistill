@@ -1,6 +1,7 @@
 # AG News (Zhang et al., 2015): https://huggingface.co/datasets/fancyzhx/ag_news. News articles in four topics;
-# the ids are the dataset's own label names, and "name" is what the teacher answers with. The same task as the
-# "your own task" notebook.
+# the ids are the dataset's own label names, and the values are what the teacher answers with. The same task as
+# the "your own task" notebook. No descriptions: with them (with-descriptions.yaml), Qwen2.5-1.5B-Instruct
+# answered "world" for nearly every article; `tinydistill tune` found this (tune-1.5b.md).
 name: ag-news
 text_field: text
 label_field: label
@@ -13,15 +14,7 @@ prompt: |-
 
   Reply with one option, exactly as written.
 labels:
-  World:
-    name: world
-    description: politics, conflicts and events around the world
-  Sports:
-    name: sports
-    description: games, athletes and competitions
-  Business:
-    name: business
-    description: companies, markets and the economy
-  Sci/Tech:
-    name: science and technology
-    description: research, computers, the internet and gadgets
+  World: world
+  Sports: sports
+  Business: business
+  Sci/Tech: science and technology

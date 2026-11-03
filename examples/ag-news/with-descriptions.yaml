@@ -1,0 +1,28 @@
+# The AG News task with label descriptions, compared with task.yaml by `tinydistill tune` (tune-1.5b.md).
+# AG News (Zhang et al., 2015): https://huggingface.co/datasets/fancyzhx/ag_news. News articles in four topics;
+# the ids are the dataset's own label names, and "name" is what the teacher answers with. The same task as the
+# "your own task" notebook.
+name: ag-news
+text_field: text
+label_field: label
+prompt: |-
+  Here is a news headline with the start of the article. What is it about?
+  Options:
+  {labels}
+
+  News: {text}
+
+  Reply with one option, exactly as written.
+labels:
+  World:
+    name: world
+    description: politics, conflicts and events around the world
+  Sports:
+    name: sports
+    description: games, athletes and competitions
+  Business:
+    name: business
+    description: companies, markets and the economy
+  Sci/Tech:
+    name: science and technology
+    description: research, computers, the internet and gadgets

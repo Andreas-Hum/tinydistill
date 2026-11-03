@@ -1,0 +1,26 @@
+[
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.815,
+    "macro_f1": 0.818227015808233,
+    "seconds_per_text": 1.4740955150800072
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "narrow-world.yaml",
+    "few_shot": 0,
+    "accuracy": 0.315,
+    "macro_f1": 0.24554696574576546,
+    "seconds_per_text": 1.4616933072900065
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "with-descriptions.yaml",
+    "few_shot": 0,
+    "accuracy": 0.315,
+    "macro_f1": 0.24258076679803436,
+    "seconds_per_text": 1.416826134130024
+  }
+]
