@@ -127,6 +127,10 @@ def build_site(
     extra line for the footer, such as the dataset's licence."""
     if not (onnx_dir / "config.json").exists():
         raise SystemExit(f"{onnx_dir} has no config.json: export it again with `tinydistill export` (0.3.0+)")
+    from .static import is_static
+
+    if is_static(onnx_dir):
+        raise SystemExit("the browser page needs a transformer student; static students run with `serve`")
     int8 = (onnx_dir / "model.int8.onnx").exists()
     model_dir = out / "model"
     (model_dir / "onnx").mkdir(parents=True, exist_ok=True)

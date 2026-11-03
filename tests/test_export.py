@@ -32,3 +32,29 @@ def test_onnx_matches_pytorch(tmp_path):
     assert int8.logits(texts).shape == (3, 3)
     assert fp32.predict(texts)[0] in labels
     np.testing.assert_allclose(fp32.predict_proba(texts).sum(-1), 1.0, atol=1e-5)
+
+
+def test_static_student_trains_exports_and_predicts(tmp_path):
+    from tinydistill.static import token_vectors
+    from tinydistill.student import load_student, train_student
+
+    texts = ["good movie", "bad film", "great", "awful"] * 4
+    probs = torch.tensor([[0.9, 0.1], [0.1, 0.9]] * 8)
+    train_student(
+        texts,
+        probs,
+        ["pos", "neg"],
+        tmp_path / "s",
+        f"static:{TINY_ENCODER}",
+        epochs=5,
+        lr=1e-2,
+        batch_size=4,
+    )
+    model, tok = load_student(tmp_path / "s")
+    assert type(model).__name__ == "StaticForSequenceClassification"
+    v = token_vectors(TINY_ENCODER)
+    assert v.shape == (len(tok), model.config.dim) and torch.isfinite(v).all()
+    export_onnx(tmp_path / "s", tmp_path / "onnx", int8=True)
+    p = Predictor(tmp_path / "onnx", int8=False)
+    np.testing.assert_allclose(p.logits(texts[:4]), student_logits(model, tok, texts[:4]).numpy(), atol=1e-5)
+    assert p.predict(texts[:4]) == ["pos", "neg", "pos", "neg"]
