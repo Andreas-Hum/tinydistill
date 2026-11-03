@@ -85,3 +85,19 @@ def test_explain_export_matches_the_model(tmp_path):
     np.testing.assert_allclose(attention[0, :, : real[0]].sum(-1), 1, atol=1e-4)  # a distribution over tokens
     assert np.allclose(attention[0, :, real[0] :], 0, atol=1e-6)  # padding gets none
     assert export_explain(tmp_path / "student", tmp_path / "q", int8=True).name == "explain.int8.onnx"
+
+
+def test_int8_scores_do_not_depend_on_the_batch(tmp_path):
+    torch.manual_seed(0)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        TINY_ENCODER, num_labels=3, id2label={0: "a", 1: "b", 2: "c"}, ignore_mismatched_sizes=True
+    )
+    model.save_pretrained(tmp_path / "student")
+    AutoTokenizer.from_pretrained(TINY_ENCODER).save_pretrained(tmp_path / "student")
+    export_onnx(tmp_path / "student", tmp_path / "onnx", int8=True)
+    p = Predictor(tmp_path / "onnx")
+    assert p.int8
+    text = "the same text every time"
+    alone = p.logits([text])[0]
+    for others in (["short"], ["a much longer text with many more words in it than the first one", "x"]):
+        np.testing.assert_allclose(p.logits([text, *others])[0], alone, rtol=0, atol=1e-6)

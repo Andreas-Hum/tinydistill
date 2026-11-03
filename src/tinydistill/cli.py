@@ -530,7 +530,10 @@ def cmd_eval(a: argparse.Namespace) -> None:
             **quality(pred, z),
             "size_mb": dir_size_mb([f]),
         }
-        row.update(bench(lambda b, pr=pr: pr.logits(b), bench_texts, a.reps, max(3, a.reps // 5)))
+        # timed on real batches (batch 32 = one onnxruntime call with 32 texts)
+        row.update(
+            bench(lambda b, pr=pr: pr.logits(b, batch_size=len(b)), bench_texts, a.reps, max(3, a.reps // 5))
+        )
         models.append(row)
         bar.update()
 

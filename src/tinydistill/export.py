@@ -178,8 +178,13 @@ class Predictor:
         self.multi_label = config.get("problem_type") == "multi_label_classification"
         self.max_length = max_length
         self.file = file
+        self.int8 = int8
 
-    def logits(self, texts: list[str], batch_size: int = 32) -> np.ndarray:
+    def logits(self, texts: list[str], batch_size: int | None = None) -> np.ndarray:
+        """Label scores per text. The int8 model runs one text at a time by default: its dynamic quantisation
+        scales activations over the whole batch, so in a batch a text's scores would depend on the other texts
+        (on a CPU this costs little throughput). The fp32 model runs 32 texts at a time."""
+        batch_size = batch_size or (1 if self.int8 else 32)
         out = []
         for b in range(0, len(texts), batch_size):
             enc = self.tok(
@@ -196,7 +201,7 @@ class Predictor:
             out.append(self.session.run(["logits"], feed)[0])
         return np.concatenate(out) if out else np.zeros((0, len(self.labels)), dtype=np.float32)
 
-    def predict_proba(self, texts: list[str], batch_size: int = 32) -> np.ndarray:
+    def predict_proba(self, texts: list[str], batch_size: int | None = None) -> np.ndarray:
         """Label probabilities per text: a softmax, or for a multi-label model each label's sigmoid."""
         z = self.logits(texts, batch_size)
         if self.multi_label:
@@ -204,7 +209,7 @@ class Predictor:
         z = np.exp(z - z.max(-1, keepdims=True))
         return z / z.sum(-1, keepdims=True)
 
-    def predict(self, texts: list[str], batch_size: int = 32) -> list:
+    def predict(self, texts: list[str], batch_size: int | None = None) -> list:
         """The top label per text, or for a multi-label model the list of labels with probability >= 0.5."""
         z = self.logits(texts, batch_size)
         if self.multi_label:

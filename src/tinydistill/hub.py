@@ -25,6 +25,13 @@ def model_card(onnx_dir: Path, repo: str, license: str | None = None) -> str:
     ]
     if license:
         front.append(f"license: {license}")
+    student_id = str(meta.get("student", ""))
+    if "/" in student_id and not student_id.startswith("static"):  # links the card to the encoder's page
+        front.append(f"base_model: {student_id}")
+    data = [str(meta.get(k) or "") for k in ("data", "test")]
+    datasets = sorted({d.split(":")[1] for d in data if d.startswith("hf:") and len(d.split(":")) > 1})
+    if datasets:  # links the card to the datasets' pages
+        front += ["datasets:", *(f"- {d}" for d in datasets)]
     front.append("---")
     teacher, student = meta.get("teacher", "an LLM"), meta.get("student", "a small encoder")
     lines = [

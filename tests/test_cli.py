@@ -293,11 +293,14 @@ def test_push_writes_a_model_card_and_uploads(tmp_path, monkeypatch):
     onnx = tmp_path / "run" / "onnx"
     onnx.mkdir(parents=True)
     (onnx / "labels.json").write_text('["neg", "pos"]')
-    (tmp_path / "run" / "meta.json").write_text('{"teacher": "T", "student": "S"}')
+    (tmp_path / "run" / "meta.json").write_text(
+        '{"teacher": "T", "student": "org/S", "data": "hf:org/ds:train", "test": "hf:org/ds:test"}'
+    )
     (tmp_path / "run" / "results.md").write_text("| Model |\n|---|\n| x |\n")
     main(["push", str(onnx), "--repo", "me/clf", "--private", "--license", "apache-2.0"])
     card = (onnx / "README.md").read_text(encoding="utf-8")
     assert "license: apache-2.0" in card and "`T`" in card and "## Results" in card and '"hf:me/clf"' in card
+    assert "base_model: org/S" in card and "datasets:\n- org/ds\n---" in card
     assert calls == [("create", "me/clf", True), ("upload", str(onnx), "me/clf")]
 
 

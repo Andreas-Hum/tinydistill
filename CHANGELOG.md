@@ -8,6 +8,11 @@
 - Results report top-3 accuracy for tasks with more than five labels.
 - Two more notebooks: your own task, and deploying; the quickstart shows the charts.
 - The expected "newly initialized classifier" report from transformers is no longer printed.
+- Fix: the int8 model's scores for a text depended on the other texts in the same batch (dynamic
+  quantisation scales activations over the batch). `Predictor` now runs it one text at a time by default;
+  on a CPU that costs little throughput. Benchmarks still time real batches.
+- `push` adds `base_model` and `datasets` to the model card, so the Hub links them.
+- The Banking77 student is on the Hub: `Predictor("hf:Shroomy/tinydistill-banking77-minilm")`.
 
 ## 0.3.2 (2026-11-03)
 

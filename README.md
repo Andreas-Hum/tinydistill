@@ -59,6 +59,19 @@ inference are fine on a CPU. For a CPU-only PyTorch, install it first:
 
 ## Quickstart
 
+To try a distilled model before training your own, the Banking77 student from the [results](#results) is on
+the [Hugging Face Hub](https://huggingface.co/Shroomy/tinydistill-banking77-minilm):
+
+```python
+from tinydistill import Predictor  # pip install tinydistill
+
+clf = Predictor("hf:Shroomy/tinydistill-banking77-minilm")
+clf.describe(["I still haven't received my new card", "My card got stolen"])
+# [{'label': 'card_arrival', 'confidence': 0.4672}, {'label': 'lost_or_stolen_card', 'confidence': 0.9921}]
+```
+
+To distil your own:
+
 ```sh
 curl -LO https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/examples/banking77/task.yaml
 tinydistill run task.yaml --data hf:PolyAI/banking77:train --test hf:PolyAI/banking77:test \
