@@ -621,6 +621,15 @@ def cmd_push(a: argparse.Namespace) -> None:
     print(push(Path(a.model), a.repo, a.private, a.license))
 
 
+def cmd_analyse(a: argparse.Namespace) -> None:
+    from .analyse import build
+
+    page, summary = build(Path(a.run), a.top)
+    (Path(a.run) / "analysis.html").write_text(page, encoding="utf-8")
+    print(summary)
+    log(f"wrote {a.run}/analysis.html")
+
+
 def cmd_status(a: argparse.Namespace) -> None:
     from .progress import describe_status
 
@@ -831,6 +840,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "report", parents=[run_dir], help="rebuild RUN/results.md from RUN/results.json"
     ).set_defaults(fn=cmd_report)
+    ana = sub.add_parser(
+        "analyse", parents=[run_dir], help="where the teacher and student go wrong (RUN/analysis.html)"
+    )
+    ana.add_argument("--top", type=int, default=15, help="how many confusions and disagreements to list")
+    ana.set_defaults(fn=cmd_analyse)
     sub.add_parser(
         "status", parents=[run_dir], help="how far a run is, and whether it is still running"
     ).set_defaults(fn=cmd_status)

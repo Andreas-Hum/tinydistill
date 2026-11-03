@@ -81,6 +81,12 @@ def test_end_to_end(tmp_path, capsys):
     main(["status", str(run)])
     assert "eval:" in capsys.readouterr().out
 
+    main(["analyse", str(run)])
+    out = capsys.readouterr().out
+    assert out.startswith("Teacher accuracy") and (run / "analysis.html").read_text().startswith(
+        "<!doctype html>"
+    )
+
     # Labelling again resumes entirely from the cache.
     capsys.readouterr()
     main(
