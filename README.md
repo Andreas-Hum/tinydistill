@@ -11,14 +11,24 @@ It continues my bachelor's project on inference optimisation by distilling LLMs.
 
 ```mermaid
 flowchart LR
-    A["Task prompt +<br/>unlabelled texts"] --> B["LLM teacher<br/>(Qwen2.5)"]
-    B -- "soft labels" --> C["Small encoder<br/>student"]
+    A["Task prompt +<br/>unlabelled texts"] --> B["LLM teacher(s)<br/>Qwen · Mistral · Phi · ..."]
+    S["Synthetic texts<br/>(synth)"] -.-> B
+    V["vLLM server"] -.-> B
+    K["A few gold labels<br/>per class"] -.-> B
+    K -.-> C
+    B -- "soft labels<br/>(ensembled)" --> C["Small encoder<br/>student"]
     C --> D["ONNX / int8<br/>export"]
     D --> E["Fast CPU<br/>inference"]
+    D --> W["Browser · server ·<br/>Hugging Face Hub"]
+    E -.-> F["Cascade: unsure<br/>texts to the LLM"]
 ```
 
 Each step is one command: `tinydistill label` (teacher), `train` (student), `export` (ONNX / int8) and
-`predict` (inference), or `tinydistill run` for all of them.
+`predict` (inference), or `tinydistill run` for all of them. Dashed parts are optional: synthetic texts when
+there is no unlabelled data, a vLLM server as the teacher, a few gold labels for the teacher's prompt and the
+student's loss, and a cascade that hands the student's least confident texts to the LLM. The exported model
+runs on a CPU, in a [browser](#deploying-cascade-server-browser), behind `tinydistill serve`, or from the
+Hugging Face Hub.
 
 ## Results
 

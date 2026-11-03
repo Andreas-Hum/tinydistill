@@ -7,11 +7,16 @@ cd "$(dirname "$0")/.."
 mkdir -p runs
 model=Qwen/Qwen2.5-1.5B-Instruct
 data=hf:zeroshot/twitter-financial-news-sentiment:validation
-"${VLLM:-vllm}" serve "$model" --enable-prefix-caching --gpu-memory-utilization 0.3 --max-model-len 4096 \
-  --port 8000 > runs/vllm-server.log 2>&1 &
+# Without a CUDA toolkit (nvcc): no torch.compile or CUDA graphs (--enforce-eager), and the PyTorch sampler
+# instead of FlashInfer's, which is compiled on first use. Scoring only reads prompt log-probabilities.
+VLLM_USE_FLASHINFER_SAMPLER=0 "${VLLM:-vllm}" serve "$model" --enable-prefix-caching --gpu-memory-utilization 0.3 --max-model-len 4096 \
+  --enforce-eager --host 127.0.0.1 --port 8000 > runs/vllm-server.log 2>&1 &
 server=$!
-trap 'kill $server' EXIT
-until curl -sf http://127.0.0.1:8000/health > /dev/null; do sleep 5; done
+trap 'kill $server 2>/dev/null || true' EXIT
+until curl -sf --max-time 5 http://127.0.0.1:8000/health > /dev/null; do
+  kill -0 $server 2>/dev/null || { echo "vLLM server stopped; see runs/vllm-server.log" >&2; exit 1; }
+  sleep 5
+done
 
 for where in local vllm; do
   args=(examples/financial-tweets/task.yaml --data "$data" --limit 300 --teacher "$model" --device cuda

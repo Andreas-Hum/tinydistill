@@ -1,0 +1,209 @@
+{
+  "task": "financial-tweets",
+  "teacher": "Qwen/Qwen2.5-7B-Instruct,mistralai/Mistral-7B-Instruct-v0.3,microsoft/Phi-3.5-mini-instruct",
+  "student": "sentence-transformers/all-MiniLM-L6-v2",
+  "data": {
+    "train": "hf:zeroshot/twitter-financial-news-sentiment:train",
+    "test": "hf:zeroshot/twitter-financial-news-sentiment:validation",
+    "n_train": 9543,
+    "n_test": 2388
+  },
+  "training": {
+    "epochs": 5,
+    "lr": 0.0001,
+    "batch_size": 32,
+    "gold_per_class": 0,
+    "n_gold": 0,
+    "upper_bound": true,
+    "gold_only": false,
+    "seeds": 3,
+    "n_gold_upper_bound": 9543,
+    "label_texts_scored": 23862,
+    "few_shot": 0,
+    "n_examples": 0,
+    "ce_weight": 0.0,
+    "student_device": "cuda",
+    "train_seconds": 284.4,
+    "teacher_device": "cuda:0",
+    "label_seconds": 365.4,
+    "load_4bit": true
+  },
+  "environment": {
+    "cpu": "x86_64",
+    "cpu_threads": 2,
+    "torch": "2.15.0+cu132",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "omp_num_threads": "2"
+  },
+  "models": [
+    {
+      "role": "teacher",
+      "name": "teacher ensemble of 3, zero-shot, 4-bit",
+      "device": "cuda",
+      "accuracy": 0.8417085427135679,
+      "macro_f1": 0.8011309677976345,
+      "size_mb": 11676.7072,
+      "latency_ms_b1": 241.64167400067527,
+      "latency_ms_b32": 1926.893926000048,
+      "throughput_per_s": 16.6070376621236
+    },
+    {
+      "role": "teacher member",
+      "name": "teacher, zero-shot, 4-bit: Qwen2.5-7B-Instruct",
+      "device": "cuda",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "accuracy": 0.8320770519262981,
+      "macro_f1": 0.7875756953889134,
+      "size_mb": 5443.300864,
+      "params_m": 4352.972288,
+      "latency_ms_b1": 109.37442049998936,
+      "throughput_per_s": 41.34439817263312,
+      "latency_ms_b32": 773.9863540009537
+    },
+    {
+      "role": "teacher member",
+      "name": "teacher, zero-shot, 4-bit: Mistral-7B-Instruct-v0.3",
+      "device": "cuda",
+      "model": "mistralai/Mistral-7B-Instruct-v0.3",
+      "accuracy": 0.8320770519262981,
+      "macro_f1": 0.7814140202130955,
+      "size_mb": 4027.064832,
+      "params_m": 3758.362624,
+      "latency_ms_b1": 75.1024535002216,
+      "throughput_per_s": 53.36598139558041,
+      "latency_ms_b32": 599.6329339996009
+    },
+    {
+      "role": "teacher member",
+      "name": "teacher, zero-shot, 4-bit: Phi-3.5-mini-instruct",
+      "device": "cuda",
+      "model": "microsoft/Phi-3.5-mini-instruct",
+      "accuracy": 0.800251256281407,
+      "macro_f1": 0.7652153448713852,
+      "size_mb": 2206.341504,
+      "params_m": 2009.140224,
+      "latency_ms_b1": 57.16480000046431,
+      "throughput_per_s": 57.83746046213907,
+      "latency_ms_b32": 553.2746379994933
+    },
+    {
+      "role": "student",
+      "name": "student, PyTorch",
+      "device": "cpu",
+      "accuracy": 0.827610273590173,
+      "accuracy_std": 0.005867629692066882,
+      "accuracy_seeds": [
+        0.8257956448911222,
+        0.8341708542713567,
+        0.8228643216080402
+      ],
+      "macro_f1": 0.7781341799399484,
+      "macro_f1_std": 0.005022441591373683,
+      "macro_f1_seeds": [
+        0.7759990771798022,
+        0.783871412432418,
+        0.7745320502076251
+      ],
+      "agreement": 0.8838637632607482,
+      "agreement_std": 0.007135331054791791,
+      "agreement_seeds": [
+        0.8907035175879398,
+        0.8844221105527639,
+        0.876465661641541
+      ],
+      "params_m": 22.714371,
+      "size_mb": 90.869492,
+      "latency_ms_b1": 6.450933999985864,
+      "latency_ms_b32": 207.38504700057092,
+      "throughput_per_s": 154.30234948381744
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX fp32",
+      "device": "cpu",
+      "accuracy": 0.8257956448911222,
+      "macro_f1": 0.7759990771798022,
+      "agreement": 0.8907035175879398,
+      "size_mb": 90.990363,
+      "latency_ms_b1": 3.300743000181683,
+      "latency_ms_b32": 196.30471849995956,
+      "throughput_per_s": 163.0118738078453
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX int8",
+      "device": "cpu",
+      "accuracy": 0.8291457286432161,
+      "macro_f1": 0.780221352500391,
+      "agreement": 0.8785594639865997,
+      "size_mb": 23.043866,
+      "latency_ms_b1": 1.622982500521175,
+      "latency_ms_b32": 99.35628999937762,
+      "throughput_per_s": 322.073217510441
+    },
+    {
+      "role": "upper bound",
+      "name": "upper bound: student on all gold labels",
+      "device": "cpu",
+      "accuracy": 0.873534338358459,
+      "accuracy_std": 0.005443886097152428,
+      "accuracy_seeds": [
+        0.8672529313232831,
+        0.876465661641541,
+        0.8768844221105527
+      ],
+      "macro_f1": 0.8323293706785567,
+      "macro_f1_std": 0.007014598825768821,
+      "macro_f1_seeds": [
+        0.8243698301133122,
+        0.8376087109589659,
+        0.8350095709633919
+      ],
+      "agreement": 0.8146286990508096,
+      "agreement_std": 0.0016924002865692674,
+      "agreement_seeds": [
+        0.8136515912897823,
+        0.8136515912897823,
+        0.8165829145728644
+      ]
+    }
+  ],
+  "cascade": [
+    {
+      "share_to_teacher": 0.0,
+      "threshold": 0.3766130805015564,
+      "accuracy": 0.8291457286432161,
+      "macro_f1": 0.780221352500391
+    },
+    {
+      "share_to_teacher": 0.10008375209380234,
+      "threshold": 0.6463395357131958,
+      "accuracy": 0.8320770519262981,
+      "macro_f1": 0.7846551596551596
+    },
+    {
+      "share_to_teacher": 0.20016750418760468,
+      "threshold": 0.7720667719841003,
+      "accuracy": 0.833752093802345,
+      "macro_f1": 0.7876208070702497
+    },
+    {
+      "share_to_teacher": 0.2998324958123953,
+      "threshold": 0.8758347034454346,
+      "accuracy": 0.8387772194304858,
+      "macro_f1": 0.7958641577639546
+    },
+    {
+      "share_to_teacher": 0.5,
+      "threshold": 0.9772698879241943,
+      "accuracy": 0.842964824120603,
+      "macro_f1": 0.8015826964549295
+    },
+    {
+      "share_to_teacher": 1.0,
+      "threshold": 1.0,
+      "accuracy": 0.8417085427135679,
+      "macro_f1": 0.8011309677976345
+    }
+  ]
+}
