@@ -1,0 +1,43 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. Security problems go through the private process in SECURITY.md instead.
+  - type: input
+    id: version
+    attributes:
+      label: tinydistill version
+      description: Output of `pip show tinydistill`, or the commit if installed from Git.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The command you ran (or the Python code).
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: Task file
+      description: The task YAML, shortened if it is long.
+      render: yaml
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: Include the full error message or traceback.
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Python, torch and transformers versions; operating system; CPU or GPU.
+      placeholder: "Python 3.12, torch 2.x, transformers 4.x, Linux, CPU"
+    validations:
+      required: true
