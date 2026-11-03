@@ -94,7 +94,9 @@ The distilled student is far better than the same student trained on the few gol
 CPU in about a millisecond. Sending its least confident texts to the teacher closes most of the remaining gap
 to the teacher.
 
-Larger students, the same teacher and soft labels:
+Other students, the same teacher and soft labels. `static` is the static-embedding student
+(`--student static`: token vectors from MiniLM-L6, averaged, no attention), trained for 20 epochs at learning
+rate 1e-3 instead of 5 epochs at 1e-4:
 
 <!-- results: banking77/students.md -->
 | Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
@@ -103,12 +105,15 @@ Larger students, the same teacher and soft labels:
 | all-MiniLM-L12-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.743 ± 0.011 | 0.710 ± 0.016 | 0.815 ± 0.004 | ONNX int8 | 3.3 | 79.2 | 34 |
 | all-mpnet-base-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.814 ± 0.004 | 0.805 ± 0.007 | 0.863 ± 0.001 | ONNX int8 | 7.3 | 220.4 | 110 |
 | bge-small-en-v1.5 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `BAAI/bge-small-en-v1.5` | 33 | 0.739 ± 0.008 | 0.706 ± 0.011 | 0.815 ± 0.004 | ONNX int8 | 2.7 | 75.2 | 34 |
+| static | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `static` | 8 | 0.803 ± 0.001 | 0.801 ± 0.001 | 0.824 ± 0.001 | ONNX int8 | 0.1 | 5.1 | 8 |
 
 All latencies on the CPU with 2 threads.
 <!-- /results -->
 
-The 110M-parameter mpnet student is more accurate than its own teacher: averaging the teacher's soft labels
-over 10,000 texts smooths out some of its individual mistakes.
+Two students are more accurate than their own teacher: the 110M-parameter mpnet and the static student.
+Learning from the teacher's soft labels on 10,000 texts, plus the 616 gold labels, smooths out some of its
+individual mistakes. The static student does this at about a tenth of a millisecond per text and 8 MB. It
+also trained four times longer, so the gap to the small transformers is not only about architecture.
 
 ### Financial tweets: an easier task
 
@@ -170,6 +175,11 @@ teacher is good at them; use a larger teacher.
 labels 300 financial tweets with `Qwen/Qwen2.5-1.5B-Instruct` locally and through a vLLM server:
 
 <!-- results: vllm-smoke.md -->
+| Texts | Same top label | Largest difference in a label score | Mean difference |
+|---|---|---|---|
+| 300 | 100.0% | 0.611 | 0.0900 |
+
+Qwen2.5-1.5B-Instruct scoring 300 financial tweets locally (bf16, tinydistill) and through vLLM (prompt log-probabilities); label scores are log-probabilities, so small differences are numerical.
 <!-- /results -->
 
 ## Quickstart
