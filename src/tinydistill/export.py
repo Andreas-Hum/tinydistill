@@ -54,6 +54,85 @@ def export_onnx(student_dir: Path, out_dir: Path, int8: bool = False, opset: int
     return written
 
 
+def _classifier_head(model):
+    """The student's classification head as a function of one layer's hidden states (batch, tokens, dim), or
+    None when the model has no such head (the static student)."""
+    head, base = getattr(model, "classifier", None), getattr(model, "base_model", None)
+    if head is None or base is None or not hasattr(base, "encoder"):
+        return None
+    if isinstance(head, torch.nn.Linear):  # BERT style: the pooler reads the first token
+        pooler = getattr(base, "pooler", None)
+        return (lambda h: head(pooler(h))) if pooler is not None else (lambda h: head(h[:, 0]))
+    return head  # RoBERTa/MPNet style heads take the whole sequence and read its first token themselves
+
+
+class _Explain(torch.nn.Module):
+    """Logits, plus what the classifier would answer after each layer, and how much the first token (which
+    the classifier reads) attends to every token in each layer, averaged over heads."""
+
+    def __init__(self, model, head):
+        super().__init__()
+        self.model, self.head = model, head
+
+    def forward(self, input_ids, attention_mask):
+        out = self.model.base_model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+            output_attentions=True,
+        )
+        hs = torch.stack(out.hidden_states[1:], 1)  # (batch, layers, tokens, dim)
+        b, n, t, d = hs.shape
+        # the head runs once on all layers stacked as a batch (one set of weights in the graph)
+        layers = self.head(hs.reshape(b * n, t, d)).reshape(b, n, -1)  # (batch, layers, labels)
+        attention = torch.stack([a[:, :, 0, :].mean(1) for a in out.attentions], 1)  # (batch, layers, tokens)
+        return layers[:, -1], layers, attention
+
+
+def export_explain(student_dir: Path, out_dir: Path, int8: bool = False, opset: int = 17) -> Path | None:
+    """Export ``explain.onnx`` (and ``explain.int8.onnx``) with outputs ``logits``, ``layer_logits`` and
+    ``cls_attention``, for the teaching view of `tinydistill web`. None if the model has no layers to show."""
+    from transformers import AutoModelForSequenceClassification
+
+    from .static import is_static
+
+    if is_static(student_dir):
+        return None
+    model = AutoModelForSequenceClassification.from_pretrained(
+        student_dir, attn_implementation="eager"
+    ).eval()
+    head = _classifier_head(model)
+    if head is None:
+        return None
+    _, tok = load_student(student_dir)
+    enc = tok(["an example input", "another one"], padding=True, return_tensors="pt")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "explain.onnx"
+    torch.onnx.export(
+        _Explain(model, head),
+        (enc["input_ids"], enc["attention_mask"]),
+        str(path),
+        input_names=["input_ids", "attention_mask"],
+        output_names=["logits", "layer_logits", "cls_attention"],
+        dynamic_axes={
+            "input_ids": {0: "batch", 1: "seq"},
+            "attention_mask": {0: "batch", 1: "seq"},
+            "logits": {0: "batch"},
+            "layer_logits": {0: "batch"},
+            "cls_attention": {0: "batch", 2: "seq"},
+        },
+        opset_version=opset,
+        dynamo=False,
+    )
+    if not int8:
+        return path
+    from onnxruntime.quantization import QuantType, quantize_dynamic
+
+    q = out_dir / "explain.int8.onnx"
+    quantize_dynamic(str(path), str(q), weight_type=QuantType.QInt8)
+    return q
+
+
 class Predictor:
     """Run an exported model: ``Predictor("runs/x/onnx").predict(["text", ...])``."""
 

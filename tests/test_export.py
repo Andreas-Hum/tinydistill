@@ -58,3 +58,30 @@ def test_static_student_trains_exports_and_predicts(tmp_path):
     p = Predictor(tmp_path / "onnx", int8=False)
     np.testing.assert_allclose(p.logits(texts[:4]), student_logits(model, tok, texts[:4]).numpy(), atol=1e-5)
     assert p.predict(texts[:4]) == ["pos", "neg", "pos", "neg"]
+
+
+def test_explain_export_matches_the_model(tmp_path):
+    import onnxruntime as ort
+
+    from tinydistill.export import export_explain
+
+    torch.manual_seed(0)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        TINY_ENCODER, num_labels=3, id2label={0: "a", 1: "b", 2: "c"}, ignore_mismatched_sizes=True
+    ).eval()
+    tok = AutoTokenizer.from_pretrained(TINY_ENCODER)
+    model.save_pretrained(tmp_path / "student")
+    tok.save_pretrained(tmp_path / "student")
+    path = export_explain(tmp_path / "student", tmp_path / "onnx")
+    texts = ["a short one", "a much longer text than the first one"]
+    enc = tok(texts, padding=True, return_tensors="np")
+    feed = {k: enc[k].astype(np.int64) for k in ("input_ids", "attention_mask")}
+    logits, layers, attention = ort.InferenceSession(str(path)).run(None, feed)
+    np.testing.assert_allclose(logits, student_logits(model, tok, texts).numpy(), atol=1e-4)
+    n_layers = model.config.num_hidden_layers
+    assert layers.shape == (2, n_layers, 3) and np.allclose(layers[:, -1], logits)
+    assert attention.shape == (2, n_layers, enc["input_ids"].shape[1])
+    real = enc["attention_mask"].sum(1)
+    np.testing.assert_allclose(attention[0, :, : real[0]].sum(-1), 1, atol=1e-4)  # a distribution over tokens
+    assert np.allclose(attention[0, :, real[0] :], 0, atol=1e-6)  # padding gets none
+    assert export_explain(tmp_path / "student", tmp_path / "q", int8=True).name == "explain.int8.onnx"

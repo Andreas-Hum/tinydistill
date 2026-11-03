@@ -101,12 +101,15 @@ def test_web_page_layout(tmp_path):
         "1": "pos",
     }
     text = page.read_text()
-    assert (
-        "<title>Demo</title>" in text
-        and '"q8"' in text
-        and "&lt;b&gt;hi&lt;/b&gt;" in text
-        and "<b>hi" not in text
-    )
+    assert "<title>Demo</title>" in text and '"q8"' in text and "&lt;b&gt;hi&lt;/b&gt;" in text
+    assert "<b>hi</b>" not in text and "<b>hi<\\/b>" in text  # escaped in the HTML; "<\/" in the JSON data
+    import onnxruntime as ort
+
+    outputs = [
+        o.name
+        for o in ort.InferenceSession(str(tmp_path / "site/model/onnx/model_quantized.onnx")).get_outputs()
+    ]
+    assert outputs == ["logits", "layer_logits", "cls_attention"]  # the "Inside the model" view
     assert text.count('class="ghost sample"') == 2  # one per gold label, not the first rows
     assert "Test accuracy 0.500 on 6 held-out texts. Distilled from T (8-shot) into S." in text
     assert "Data: CC BY 4.0 &lt;x&gt;" in text
