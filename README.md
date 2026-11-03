@@ -7,6 +7,7 @@
 <a href="https://github.com/Andreas-Hum/tinydistill/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Andreas-Hum/tinydistill.svg" alt="MIT licence"></a>
 <a href="https://colab.research.google.com/github/Andreas-Hum/tinydistill/blob/main/notebooks/quickstart.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"></a>
 <a href="https://andreas-hum.github.io/tinydistill/"><img src="https://img.shields.io/badge/demo-live-2a78d6.svg" alt="Live demo"></a>
+<a href="https://huggingface.co/collections/Shroomy/tinydistill-6aea5b24819dbca9cb7eeb8d"><img src="https://img.shields.io/badge/Hugging%20Face-models-ffcc4d.svg" alt="Models on the Hugging Face Hub"></a>
 
 **Most of a large model's quality on one task, many times faster, on a CPU.**
 
@@ -60,7 +61,8 @@ inference are fine on a CPU. For a CPU-only PyTorch, install it first:
 ## Quickstart
 
 To try a distilled model before training your own, the Banking77 student from the [results](#results) is on
-the [Hugging Face Hub](https://huggingface.co/Shroomy/tinydistill-banking77-minilm):
+the [Hugging Face Hub](https://huggingface.co/Shroomy/tinydistill-banking77-minilm) (it also runs in your
+browser in a [Space](https://huggingface.co/spaces/Shroomy/tinydistill-banking77-demo)):
 
 ```python
 from tinydistill import Predictor  # pip install tinydistill
@@ -247,7 +249,15 @@ visitor's browser with no server at all. Below the answer, an "Inside the model"
 (tokens, the answer after each layer, attention, probabilities, which words matter, the teacher's soft labels
 for the examples and the cascade), so the page also explains distillation. Serve the folder with any static host (GitHub Pages works).
 
-**Hugging Face Hub.** `tinydistill push RUN/onnx --repo user/name` uploads the model with a model card. Anyone
+**Hugging Face Hub.** `tinydistill push RUN/onnx --repo user/name` uploads the model with a model card.
+These models from the results are published that way, in a [collection](https://huggingface.co/collections/Shroomy/tinydistill-6aea5b24819dbca9cb7eeb8d):
+
+| Model | Task | Size | Test accuracy |
+|---|---|---|---|
+| [`Shroomy/tinydistill-banking77-minilm`](https://huggingface.co/Shroomy/tinydistill-banking77-minilm) | Banking77, 77 intents | 23 MB | 0.814 |
+| [`Shroomy/tinydistill-banking77-static`](https://huggingface.co/Shroomy/tinydistill-banking77-static) | Banking77, static embeddings | 8 MB | 0.802 |
+| [`Shroomy/tinydistill-financial-tweets-minilm`](https://huggingface.co/Shroomy/tinydistill-financial-tweets-minilm) | financial tweet sentiment | 23 MB | 0.820 |
+ Anyone
 can then use it without the run directory: `Predictor("hf:user/name")` in Python, or
 `tinydistill predict hf:user/name "some text"`, `serve hf:user/name` and `web hf:user/name --out site` on the
 command line.
