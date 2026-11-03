@@ -787,6 +787,8 @@ def test_cascade_log_then_refresh(tmp_path, capsys):
     assert "plus 2 the teacher answered" in capsys.readouterr().err
     assert len((new / "train.jsonl").read_text().splitlines()) == 10 and (new / "results.json").exists()
     assert json.loads((new / "meta.json").read_text())["refresh_added"] == 2
+    status = json.loads((new / "status.json").read_text())
+    assert status["stage"] == "eval" and status["finished"] and status["done"] == status["total"]
 
 
 def test_shortlist_scores_k_labels_and_reports_recall(tmp_path):

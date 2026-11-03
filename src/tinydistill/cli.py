@@ -348,21 +348,19 @@ def cmd_eval(a: argparse.Namespace) -> None:
     models: list[dict] = []
     from .progress import Progress
 
-    n_teacher = 0 if a.skip_teacher_bench else len(meta.get("teachers") or [meta["teacher"]])
-    n_devices = 1 if meta.get("vllm_url") else len([d for d in (a.teacher_devices or "x").split(",") if d])
+    teachers = meta.get("teachers") or [meta["teacher"]]
+    devices = [d for d in (a.teacher_devices or meta.get("teacher_device", "cpu")).split(",") if d]
+    if meta.get("vllm_url"):
+        devices = ["vllm"]  # the teacher runs on the server
     n_students = sum(len(_seed_dirs(run, name)) for name, *_ in VARIANTS)
     n_onnx = sum((run / "onnx" / f).exists() for f in ("model.onnx", "model.int8.onnx"))
     bar = Progress(
-        "eval", n_teacher * n_devices + n_students + n_onnx, log, run / "status.json", "steps", every=0
+        "eval", len(teachers) * len(devices) + n_students + n_onnx, log, run / "status.json", "steps", every=0
     )
-    teachers = meta.get("teachers") or [meta["teacher"]]
     prompt = (f"{meta['few_shot']}-shot" if meta.get("few_shot") else "zero-shot") + (
         ", 4-bit" if meta.get("load_4bit") else ""
     )
     examples = [(r["text"], r["gold"]) for r in _read_jsonl(run / "examples.jsonl")] or None
-    devices = [d for d in (a.teacher_devices or meta.get("teacher_device", "cpu")).split(",") if d]
-    if meta.get("vllm_url"):
-        devices = ["vllm"]  # the teacher runs on the server
     members: list[dict] = []
     for ti, name in enumerate(teachers):
         own = [decide(r["teacher_scores"][ti]) for r in labelled] if len(teachers) > 1 else teacher_pred
