@@ -44,6 +44,12 @@ for run in banking77-1.5b banking77-1.5b-8shot banking77-7b banking77-7b-8shot; 
 done
 tinydistill compare runs/banking77-1.5b runs/banking77-1.5b-8shot runs/banking77-7b runs/banking77-7b-8shot \
   > examples/banking77/teachers.md
+# up to 20 epochs, keeping the epoch with the lowest loss on 5% held-out training texts
+tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --epochs 20 --val-share 0.05 \
+  --out runs/banking77-students/all-MiniLM-L6-v2-best-of-20 --skip-teacher-bench
+# SetFit on the same 8 gold labels per class, in its own environment (pip install setfit)
+"${SETFIT_PYTHON:-python}" examples/banking77/setfit.py
+
 mkdir -p examples/banking77/students
 for dir in runs/banking77-students/*/; do cp "$dir/results.json" "examples/banking77/students/$(basename "$dir").json"; done
 tinydistill compare runs/banking77-7b-8shot runs/banking77-students/* > examples/banking77/students.md

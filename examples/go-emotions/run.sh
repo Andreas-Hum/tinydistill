@@ -12,6 +12,14 @@ tinydistill run examples/go-emotions/task.yaml --data "$data:train" --limit 1000
   --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --upper-bound \
   --gold-per-class 8 --gold-only --epochs 5 --out runs/go-emotions-1.5b --teacher-devices cpu,cuda
 
+# the same with the 7B teacher in 4 bit (from 0.3.1: 10 epochs, best epoch on 5% held-out texts)
+tinydistill run examples/go-emotions/task.yaml --data "$data:train" --limit 10000 --test "$data:test" \
+  --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --upper-bound \
+  --gold-per-class 8 --gold-only --teacher Qwen/Qwen2.5-7B-Instruct --load-4bit --val-share 0.05 \
+  --out runs/go-emotions-7b --teacher-devices cuda
+
+cp runs/go-emotions-7b/results.json examples/go-emotions/go-emotions-7b.json
+cp runs/go-emotions-7b/results.md examples/go-emotions/go-emotions-7b.md
 cp runs/go-emotions-1.5b/results.json examples/go-emotions/go-emotions-1.5b.json
 cp runs/go-emotions-1.5b/results.md examples/go-emotions/go-emotions-1.5b.md
 python examples/update_readme.py

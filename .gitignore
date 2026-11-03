@@ -1,5 +1,6 @@
 .venv/
 .venv-gpu/
+.venv-setfit/
 runs/
 dist/
 __pycache__/
