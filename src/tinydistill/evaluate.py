@@ -219,8 +219,15 @@ def markdown_table(results: dict) -> str:
         )
     if tr.get("shortlist"):
         recall = tr.get("shortlist_recall")
-        trained += f" The teacher scores only the {tr['shortlist']} labels most similar to each text" + (
-            f"; the gold label was among them for {recall:.1%} of test texts." if recall is not None else "."
+        keep = tr.get("shortlist_keep")
+        trained += (
+            f" The teacher scores only the {tr['shortlist']} labels most similar to each text"
+            + (f" and always {', '.join(keep)}" if keep else "")
+            + (
+                f"; the gold label was among them for {recall:.1%} of test texts."
+                if recall is not None
+                else "."
+            )
         )
     if (tr.get("seeds") or 1) > 1:
         trained += (

@@ -380,3 +380,17 @@ def test_shortlist_picks_k_labels_per_text(task):
     picks = s(["good", "bad", "fine I guess"])
     assert all(len(p) == 2 and p == sorted(set(p)) and set(p) <= {0, 1, 2} for p in picks)
     assert Shortlist(task, 9, TINY_ENCODER)(["x"]) == [[0, 1, 2]]  # K above the label count: all labels
+
+
+def test_shortlist_keep_adds_catch_all_labels(task):
+    from tinydistill.shortlist import Shortlist
+
+    plain = Shortlist(task, 1, TINY_ENCODER)
+    kept = Shortlist(task, 1, TINY_ENCODER, keep=["neutral"])
+    texts = ["good", "bad", "fine I guess"]
+    n = task.labels.index("neutral")
+    for p, k in zip(plain(texts), kept(texts), strict=True):
+        assert k == sorted(set(p) | {n}) and n in k
+    assert kept.fingerprint() != plain.fingerprint() and "keep" not in plain.fingerprint()
+    with pytest.raises(SystemExit, match="unknown label ids"):
+        Shortlist(task, 1, TINY_ENCODER, keep=["nope"])

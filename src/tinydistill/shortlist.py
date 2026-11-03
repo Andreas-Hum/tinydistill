@@ -12,9 +12,24 @@ DEFAULT_SHORTLIST_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 class Shortlist:
-    def __init__(self, task: Task, k: int, model: str = DEFAULT_SHORTLIST_MODEL, device: str = "cpu"):
+    def __init__(
+        self,
+        task: Task,
+        k: int,
+        model: str = DEFAULT_SHORTLIST_MODEL,
+        device: str = "cpu",
+        keep: list[str] | None = None,
+    ):
+        """``keep``: label ids scored for every text besides its K most similar labels (catch-all labels such
+        as "other" or "out of scope", whose names resemble no particular text)."""
         from transformers import AutoModel, AutoTokenizer
 
+        unknown = sorted(set(keep or []) - set(task.labels))
+        if unknown:
+            raise SystemExit(
+                f"--shortlist-keep: unknown label ids {unknown}; the task's ids are its `labels`"
+            )
+        self.keep = sorted(task.labels.index(x) for x in keep or [])
         self.k, self.model_name, self.device = k, model, device
         self.tok = AutoTokenizer.from_pretrained(model)
         self.encoder = AutoModel.from_pretrained(model).to(device).eval()
@@ -41,7 +56,8 @@ class Shortlist:
         """The indices of the K labels most similar to each text."""
         sims = self.embed(texts) @ self.labels.T
         k = min(self.k, sims.shape[1])
-        return [sorted(row.tolist()) for row in sims.topk(k, dim=1).indices]
+        return [sorted(set(row.tolist()) | set(self.keep)) for row in sims.topk(k, dim=1).indices]
 
     def fingerprint(self) -> dict:
-        return {"k": self.k, "model": self.model_name}
+        key = {"k": self.k, "model": self.model_name}
+        return key | {"keep": self.keep} if self.keep else key

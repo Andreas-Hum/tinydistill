@@ -44,7 +44,9 @@ for short, body in BODIES.items():
     runs = []
     for seed in SEEDS:
         model = SetFitModel.from_pretrained(body)
-        args = TrainingArguments(batch_size=32, num_epochs=1, num_iterations=20, seed=seed)
+        args = TrainingArguments(
+            batch_size=32, num_epochs=1, num_iterations=20, seed=seed, output_dir="runs/setfit-checkpoints"
+        )
         trainer = Trainer(
             model=model, args=args, train_dataset=Dataset.from_dict({"text": texts, "label": labels})
         )

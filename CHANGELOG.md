@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `label --shortlist-keep IDS`: labels the teacher scores for every text besides the shortlist, for catch-all
+  labels such as "other" or "out of scope" (on CLINC150, "out of scope" was shortlisted for only 9% of its
+  test texts).
 - Fix: with many labels, teacher scoring used up GPU memory (a float32 log-softmax over the whole vocabulary
   for every kept row) and slowed to a crawl; it now takes only the target tokens' log-probabilities. CLINC150
   (151 labels) labels at about 30 texts per second instead of under 2, with 10 GB less memory.

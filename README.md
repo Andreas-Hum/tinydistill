@@ -222,7 +222,9 @@ server's prompt log-probabilities, so the soft labels are the same as with the l
 `label --shortlist K` first compares each text with the label names (and descriptions) using a small
 sentence-embedding model (`--shortlist-model`, MiniLM by default) and has the teacher score only the K most
 similar labels; the others get probability zero. `eval` reports the **shortlist recall**: how often the gold
-label was among the K. If it is low, raise K.
+label was among the K. If it is low, raise K. A catch-all label such as "other" or "out of scope" resembles no
+particular text, so it is rarely shortlisted: `--shortlist-keep oos` (comma-separated label ids) has the teacher
+score it for every text as well.
 
 **Tuning the setup.** `tinydistill tune TASK.yaml --data D --teacher a,b --few-shot 0,8 --prompt other.yaml`
 scores every combination of teacher, number of few-shot examples and prompt on a dev split of gold-labelled

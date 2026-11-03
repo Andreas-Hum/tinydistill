@@ -98,7 +98,9 @@ def cmd_label(a: argparse.Namespace) -> None:
     for name in _teachers(a.teacher):  # one teacher in memory at a time
         quick = None
         if not a.vllm_url:
-            quick = quick_key(name, task, a.device, a.load_4bit, examples, a.shortlist, a.shortlist_model)
+            quick = quick_key(
+                name, task, a.device, a.load_4bit, examples, a.shortlist, a.shortlist_model, a.shortlist_keep
+            )
             known = keys.get(quick)
             cache = ScoreCache(cache_dir / f"teacher-{known}.jsonl") if known else None
             if cache and all(
@@ -123,6 +125,7 @@ def cmd_label(a: argparse.Namespace) -> None:
             a.vllm_url,
             a.shortlist,
             a.shortlist_model,
+            a.shortlist_keep,
         )
         fingerprints.append(scorer.fingerprint())
         device = str(scorer.device)
@@ -182,6 +185,7 @@ def cmd_label(a: argparse.Namespace) -> None:
             "vllm_url": a.vllm_url,
             "shortlist": a.shortlist,
             "shortlist_model": a.shortlist_model,
+            "shortlist_keep": a.shortlist_keep,
         },
     )
 
@@ -448,6 +452,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
                     meta.get("vllm_url"),
                     meta.get("shortlist"),
                     meta.get("shortlist_model"),
+                    meta.get("shortlist_keep"),
                 )
                 if hasattr(scorer, "model"):  # a local model (not a vLLM server)
                     row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
@@ -577,6 +582,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "load_4bit",
                 "shortlist",
                 "shortlist_model",
+                "shortlist_keep",
             )
         },
         "environment": environment(threads),
@@ -640,6 +646,7 @@ def _run_teacher(run: Path, device: str):
             meta.get("vllm_url"),
             meta.get("shortlist"),
             meta.get("shortlist_model"),
+            meta.get("shortlist_keep"),
         )
         for t in meta.get("teachers") or [meta["teacher"]]
     ]
@@ -939,6 +946,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="score only the K labels most similar to each text (for tasks with very many labels)",
     )
     label.add_argument("--shortlist-model", help="sentence-embedding model for --shortlist (default: MiniLM)")
+    label.add_argument(
+        "--shortlist-keep",
+        type=lambda s: [x.strip() for x in s.split(",") if x.strip()],
+        metavar="IDS",
+        help="label ids the teacher always scores besides the shortlist, comma-separated: catch-all labels "
+        "such as other or out of scope, whose names resemble no particular text",
+    )
     label.add_argument(
         "--few-shot",
         type=int,

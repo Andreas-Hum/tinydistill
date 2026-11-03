@@ -851,6 +851,15 @@ def test_shortlist_scores_k_labels_and_reports_recall(tmp_path):
     want = sum(r["scores"][r["gold"]] > NOT_SCORED / 2 for r in test) / len(test)
     assert results["training"]["shortlist_recall"] == want
     assert "the 1 labels most similar to each text" in (run / "results.md").read_text(encoding="utf-8")
+    kept = tmp_path / "kept"
+    main(
+        ["label", str(tmp_path / "task.yaml"), "--data", str(tmp_path / "train.jsonl"), "--teacher", TINY_LM]
+        + ["--shortlist", "1", "--shortlist-model", TINY_ENCODER, "--shortlist-keep", "neg"]
+        + ["--device", "cpu", "--out", str(kept)]
+    )
+    rows = [json.loads(line) for line in (kept / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert all(r["scores"][1] > NOT_SCORED / 2 for r in rows)  # neg is always scored
+    assert json.loads((kept / "meta.json").read_text(encoding="utf-8"))["shortlist_keep"] == ["neg"]
 
 
 def test_label_skips_loading_the_teacher_when_everything_is_cached(tmp_path, monkeypatch, capsys):

@@ -534,6 +534,7 @@ def load_teacher(
     vllm_url: str | None = None,
     shortlist: int | None = None,
     shortlist_model: str | None = None,
+    shortlist_keep: list[str] | None = None,
 ) -> LabelScorer | VLLMScorer:
     """A local teacher, or with ``vllm_url`` the same model served by vLLM (then ``device`` is not used).
     ``shortlist`` K: score only the K labels most similar to each text (for tasks with very many labels)."""
@@ -562,7 +563,7 @@ def load_teacher(
     if shortlist:
         from .shortlist import DEFAULT_SHORTLIST_MODEL, Shortlist
 
-        short = Shortlist(task, shortlist, shortlist_model or DEFAULT_SHORTLIST_MODEL, device)
+        short = Shortlist(task, shortlist, shortlist_model or DEFAULT_SHORTLIST_MODEL, device, shortlist_keep)
     return LabelScorer(model, tok, task, max_tokens=max_tokens, examples=examples, shortlist=short)
 
 
@@ -574,6 +575,7 @@ def quick_key(
     examples: list[tuple[str, int]] | None = None,
     shortlist: int | None = None,
     shortlist_model: str | None = None,
+    shortlist_keep: list[str] | None = None,
 ) -> str:
     """What decides a local teacher's cache fingerprint, from the tokenizer alone (no model weights): the
     rendered prompt and continuations, and how the model would be loaded. `label` maps it to the full
@@ -589,7 +591,9 @@ def quick_key(
         "forms": p.forms,
         "form_label": p.form_label,
         "form_answer": p.form_answer,
-        "shortlist": [shortlist, shortlist_model] if shortlist else None,
+        "shortlist": ([shortlist, shortlist_model] + ([sorted(shortlist_keep)] if shortlist_keep else []))
+        if shortlist
+        else None,
     }
     return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
