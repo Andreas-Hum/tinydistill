@@ -87,7 +87,17 @@ def cmd_label(a: argparse.Namespace) -> None:
     seconds, scored = 0.0, 0
     for name in _teachers(a.teacher):  # one teacher in memory at a time
         log(f"loading teacher {name}")
-        scorer = load_teacher(name, task, a.device, a.load_4bit, a.teacher_tokens, examples, a.vllm_url)
+        scorer = load_teacher(
+            name,
+            task,
+            a.device,
+            a.load_4bit,
+            a.teacher_tokens,
+            examples,
+            a.vllm_url,
+            a.shortlist,
+            a.shortlist_model,
+        )
         fingerprints.append(scorer.fingerprint())
         device = str(scorer.device)
         cache = ScoreCache(cache_dir / f"teacher-{fingerprints[-1]}.jsonl")
@@ -138,6 +148,8 @@ def cmd_label(a: argparse.Namespace) -> None:
             "label_texts_scored": scored,
             "teacher_tokens": a.teacher_tokens,
             "vllm_url": a.vllm_url,
+            "shortlist": a.shortlist,
+            "shortlist_model": a.shortlist_model,
         },
     )
 
@@ -174,10 +186,24 @@ def cmd_train(a: argparse.Namespace) -> None:
     all_gold = [r["gold"] for r in rows]
     if (a.gold_per_class or a.upper_bound) and not any(g is not None for g in all_gold):
         raise SystemExit("--gold-per-class and --upper-bound need gold labels in the training data")
-    if a.gold_only and not a.gold_per_class:
-        raise SystemExit("--gold-only needs --gold-per-class K")
+    if a.gold_only and not (a.gold_per_class or a.gold_file):
+        raise SystemExit("--gold-only needs --gold-per-class K or --gold-file FILE")
     pick = few_gold_sets if task.multi_label else few_gold
     gold = pick(all_gold, a.gold_per_class, a.seed) if a.gold_per_class else None  # fixed by --seed
+    n_gold_file = 0
+    if a.gold_file:  # labels a person added, e.g. to the texts `tinydistill suggest` picked
+        from .data import read_examples
+
+        given = {e.text: e.gold for e in read_examples(a.gold_file, task) if e.gold not in (None, [])}
+        where = {t: i for i, t in enumerate(texts)}
+        gold = list(gold) if gold else [None] * len(texts)
+        for t, g in given.items():
+            if t in where:
+                gold[where[t]] = g
+                n_gold_file += 1
+        log(
+            f"--gold-file: {n_gold_file} of {len(given)} labelled texts are in the training data and are used"
+        )
     n_gold = sum(g is not None for g in gold) if gold else 0
     device = pick_device(a.device)
     scores = torch.tensor([r["scores"] for r in rows], dtype=torch.float64)
@@ -240,6 +266,8 @@ def cmd_train(a: argparse.Namespace) -> None:
             "lr": a.lr,
             "batch_size": a.batch_size,
             "gold_per_class": a.gold_per_class,
+            "gold_file": a.gold_file,
+            "n_gold_file": n_gold_file,
             "n_gold": n_gold,
             "ce_weight": a.ce_weight if n_gold else 0.0,
             "student_device": device,
@@ -360,6 +388,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                     meta.get("teacher_tokens", 2048),
                     examples,
                     meta.get("vllm_url"),
+                    meta.get("shortlist"),
+                    meta.get("shortlist_model"),
                 )
                 if hasattr(scorer, "model"):  # a local model (not a vLLM server)
                     row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
@@ -465,6 +495,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "lr",
                 "batch_size",
                 "gold_per_class",
+                "gold_file",
+                "n_gold_file",
                 "n_gold",
                 "upper_bound",
                 "gold_only",
@@ -479,11 +511,20 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "teacher_device",
                 "label_seconds",
                 "load_4bit",
+                "shortlist",
+                "shortlist_model",
             )
         },
         "environment": environment(threads),
         "models": models,
     }
+    if meta.get("shortlist") and labelled and not multi:
+        from .teacher import NOT_SCORED
+
+        # the share of test texts whose gold label was among the K the teacher scored
+        results["training"]["shortlist_recall"] = sum(
+            r["scores"][r["gold"]] > NOT_SCORED / 2 for r in labelled
+        ) / len(labelled)
     deployed = _deployed(run)
     if labelled and deployed is not None and not multi:  # the cascade is for single-label tasks
         from .evaluate import cascade_curve
@@ -533,6 +574,8 @@ def _run_teacher(run: Path, device: str):
             meta.get("teacher_tokens", 2048),
             examples,
             meta.get("vllm_url"),
+            meta.get("shortlist"),
+            meta.get("shortlist_model"),
         )
         for t in meta.get("teachers") or [meta["teacher"]]
     ]
@@ -555,7 +598,7 @@ def cmd_predict(a: argparse.Namespace) -> None:
     if a.cascade:
         from .export import Cascade
 
-        cascade = Cascade(pr, _run_teacher(Path(a.cascade), a.device), a.threshold)
+        cascade = Cascade(pr, _run_teacher(Path(a.cascade), a.device), a.threshold, a.log)
         for t, r in zip(texts, cascade.predict(texts), strict=True):
             r["confidence"] = round(r["confidence"], 4)
             print(json.dumps({"text": t, **r}, ensure_ascii=False))
@@ -570,7 +613,7 @@ def cmd_serve(a: argparse.Namespace) -> None:
 
     model = Predictor(a.model)
     if a.cascade:
-        model = Cascade(model, _run_teacher(Path(a.cascade), a.device), a.threshold)
+        model = Cascade(model, _run_teacher(Path(a.cascade), a.device), a.threshold, a.log)
     server = make_server(model, a.host, a.port)
     log(f"serving {a.model} on http://{a.host}:{server.server_port} (POST /predict, GET /health)")
     try:
@@ -628,6 +671,116 @@ def cmd_analyse(a: argparse.Namespace) -> None:
     (Path(a.run) / "analysis.html").write_text(page, encoding="utf-8")
     print(summary)
     log(f"wrote {a.run}/analysis.html")
+
+
+def cmd_suggest(a: argparse.Namespace) -> None:
+    import numpy as np
+
+    from .export import Predictor
+    from .suggest import pick, priority
+
+    run = Path(a.run)
+    task = load_task(run / "task.yaml")
+    rows = _read_jsonl(run / "train.jsonl")
+    used = {r["text"] for r in _read_jsonl(run / "examples.jsonl")}  # already shown to the teacher
+    rows = [r for r in rows if r["text"] not in used]
+    texts = [r["text"] for r in rows]
+    scores = np.array([r["scores"] for r in rows], dtype=np.float64)
+    if task.multi_label:
+        p = 1 / (1 + np.exp(-scores))
+    else:
+        p = np.exp(scores - scores.max(-1, keepdims=True))
+        p /= p.sum(-1, keepdims=True)
+    if not (run / "onnx").exists():
+        raise SystemExit(f"{run}/onnx is missing: run `tinydistill export` first")
+    q = Predictor(run / "onnx").predict_proba(texts)
+    chosen = pick(priority(p, q, task.multi_label), p.argmax(-1), a.n)
+    field = task.label_field or "label"
+    with Path(a.out).open("w", encoding="utf-8") as f:
+        for i in chosen:
+            row = {
+                task.text_field: texts[i],
+                field: "",
+                "teacher_label": task.labels[int(p[i].argmax())],
+                "student_label": task.labels[int(q[i].argmax())],
+                "teacher_confidence": round(float(p[i].max()), 3),
+            }
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    disagree = sum(int(p[i].argmax() != q[i].argmax()) for i in chosen)
+    log(
+        f"wrote {len(chosen)} texts to {a.out} ({disagree} where student and teacher disagree). Fill in "
+        f"'{field}' and train with --gold-file {a.out}"
+    )
+
+
+def cmd_tune(a: argparse.Namespace) -> None:
+    from .data import read_examples
+    from .teacher import pick_device
+    from .tune import table, tune
+
+    paths = [a.task, *a.prompt]
+    tasks = [(Path(p).name, load_task(p)) for p in paths]
+    if len({tuple(t.labels) for _, t in tasks}) > 1:
+        raise SystemExit("every --prompt file must have the same labels as the task")
+    rows = list(read_examples(a.data, tasks[0][1], a.limit))
+    texts, gold = [e.text for e in rows], [e.gold for e in rows]
+    shots = [int(x) for x in a.few_shot.split(",")]
+    results = tune(
+        tasks,
+        texts,
+        gold,
+        _teachers(a.teacher),
+        shots,
+        a.dev_size,
+        pick_device(a.device),
+        a.load_4bit,
+        a.seed,
+        log,
+    )
+    n_dev = min(a.dev_size, sum(g not in (None, []) for g in gold))
+    md = table(results, n_dev)
+    best = results[0]
+    task_path = next(p for p in paths if Path(p).name == best["prompt"])
+    cmd = f"tinydistill run {task_path} --teacher {best['teacher']}" + (
+        f" --few-shot {best['few_shot']}" if best["few_shot"] else ""
+    )
+    Path(a.out).with_suffix(".md").write_text(md + f"\nBest: `{cmd} --data ... --out ...`\n")
+    Path(a.out).with_suffix(".json").write_text(json.dumps(results, indent=2))
+    print(md)
+    log(f"best on the dev split: {cmd} --data {a.data} --out RUN")
+
+
+def cmd_refresh(a: argparse.Namespace) -> None:
+    import shutil
+
+    src, dst = Path(a.run), Path(a.out)
+    if dst.resolve() == src.resolve():
+        raise SystemExit("--out must be a new run directory")
+    logged = _read_jsonl(Path(a.log))
+    if not logged:
+        raise SystemExit(
+            f"{a.log} has no logged texts: run predict or serve with --cascade RUN --log {a.log}"
+        )
+    dst.mkdir(parents=True, exist_ok=True)
+    for name in ("task.yaml", "meta.json", "examples.jsonl", "test.jsonl"):
+        if (src / name).exists():
+            shutil.copy(src / name, dst / name)
+    rows = _read_jsonl(src / "train.jsonl")
+    seen = {r["text"] for r in rows}
+    added = [
+        {"text": r["text"], "gold": None, "scores": r["scores"]} for r in logged if r["text"] not in seen
+    ]
+    added = list({r["text"]: r for r in added}.values())  # each logged text once
+    with (dst / "train.jsonl").open("w", encoding="utf-8") as f:
+        for r in rows + added:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    _meta(dst, {"refreshed_from": str(src), "refresh_log": a.log, "refresh_added": len(added)})
+    log(f"{dst}: {len(rows)} training texts from {src} plus {len(added)} the teacher answered in the cascade")
+    a.run = str(dst)
+    cmd_train(a)
+    cmd_export(a)
+    cmd_eval(a)
+    log(f"compare them with: tinydistill compare {src} {dst}")
 
 
 def cmd_status(a: argparse.Namespace) -> None:
@@ -703,6 +856,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="score with this vLLM server (OpenAI API base, e.g. http://host:8000/v1), not a local model",
     )
     label.add_argument(
+        "--shortlist",
+        type=int,
+        metavar="K",
+        help="score only the K labels most similar to each text (for tasks with very many labels)",
+    )
+    label.add_argument("--shortlist-model", help="sentence-embedding model for --shortlist (default: MiniLM)")
+    label.add_argument(
         "--few-shot",
         type=int,
         default=0,
@@ -726,6 +886,11 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--batch-size", type=int, default=32)
     train.add_argument("--lr", type=float, default=1e-4)
     train.add_argument("--max-length", type=int, default=128)
+    train.add_argument(
+        "--gold-file",
+        help="gold labels for some training texts (same text and label fields as the task), e.g. the texts "
+        "`tinydistill suggest` picked, labelled by a person; used like --gold-per-class",
+    )
     train.add_argument(
         "--gold-per-class",
         type=int,
@@ -788,6 +953,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument(
         "--cascade", metavar="RUN", help="send texts the student is unsure about to RUN's teacher"
     )
+    pr.add_argument("--log", help="with --cascade: append the texts the teacher answered (for `refresh`)")
     pr.add_argument(
         "--threshold",
         type=float,
@@ -805,6 +971,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--cascade", metavar="RUN", help="send texts the student is unsure about to RUN's teacher"
     )
     srv.add_argument("--threshold", type=float, default=0.5, help="with --cascade: see `predict --help`")
+    srv.add_argument("--log", help="with --cascade: append the texts the teacher answered (for `refresh`)")
     srv.set_defaults(fn=cmd_serve)
     web = sub.add_parser("web", help="a static web page that runs the model in the browser")
     web.add_argument("model", help="directory written by `export` (run/onnx)")
@@ -840,6 +1007,29 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "report", parents=[run_dir], help="rebuild RUN/results.md from RUN/results.json"
     ).set_defaults(fn=cmd_report)
+    tun = sub.add_parser("tune", parents=[common], help="choose teacher, prompt and few-shot on a dev split")
+    tun.add_argument("task", help="task YAML file")
+    tun.add_argument("--data", required=True, help="training data with gold labels for some texts")
+    tun.add_argument("--teacher", default=DEFAULT_TEACHER, help="one or more teachers, comma-separated")
+    tun.add_argument("--few-shot", default="0,8", help="comma-separated values of K to try (0 = zero-shot)")
+    tun.add_argument("--prompt", action="append", default=[], help="another task file to try (same labels)")
+    tun.add_argument("--dev-size", type=int, default=200, help="gold-labelled training texts to score")
+    tun.add_argument("--limit", type=int, help="use only the first N training texts")
+    tun.add_argument("--load-4bit", action="store_true", help="load teachers in 4 bit (bitsandbytes, CUDA)")
+    tun.add_argument("--out", default="tune", help="writes OUT.md and OUT.json")
+    tun.set_defaults(fn=cmd_tune)
+    ref = sub.add_parser(
+        "refresh",
+        parents=[run_dir, train, export, ev, common],
+        help="retrain RUN with the texts its cascade sent to the teacher (a new run directory)",
+    )
+    ref.add_argument("--log", required=True, help="the log written by predict/serve --cascade RUN --log FILE")
+    ref.add_argument("--out", required=True, help="new run directory")
+    ref.set_defaults(fn=cmd_refresh)
+    sug = sub.add_parser("suggest", parents=[run_dir], help="which training texts a person should label next")
+    sug.add_argument("--n", type=int, default=100, help="how many texts")
+    sug.add_argument("--out", default="to_label.jsonl", help="JSONL to write, with an empty label to fill in")
+    sug.set_defaults(fn=cmd_suggest)
     ana = sub.add_parser(
         "analyse", parents=[run_dir], help="where the teacher and student go wrong (RUN/analysis.html)"
     )

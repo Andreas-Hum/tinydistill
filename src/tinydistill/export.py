@@ -135,10 +135,11 @@ class Cascade:
 
     ``teacher`` is a LabelScorer (see ``load_teacher``) for the same task and label order."""
 
-    def __init__(self, student: Predictor, teacher, threshold: float):
+    def __init__(self, student: Predictor, teacher, threshold: float, log: str | Path | None = None):
         if student.multi_label:
             raise ValueError("the cascade is for single-label models")
         self.student, self.teacher, self.threshold = student, teacher, threshold
+        self.log = Path(log) if log else None  # texts the teacher answered, for `tinydistill refresh`
 
     def predict(self, texts: list[str]) -> list[dict]:
         probs = self.student.predict_proba(texts)
@@ -148,7 +149,12 @@ class Cascade:
         ]
         unsure = [i for i, p in enumerate(probs) if p.max() < self.threshold]
         if unsure:
-            for i, scores in zip(unsure, self.teacher.score_many([texts[i] for i in unsure]), strict=True):
+            answered = self.teacher.score_many([texts[i] for i in unsure])
+            if self.log:
+                with self.log.open("a", encoding="utf-8") as f:
+                    for i, scores in zip(unsure, answered, strict=True):
+                        f.write(json.dumps({"text": texts[i], "scores": scores}, ensure_ascii=False) + "\n")
+            for i, scores in zip(unsure, answered, strict=True):
                 s = np.asarray(scores, dtype=np.float64)
                 p = np.exp(s - s.max())
                 p /= p.sum()

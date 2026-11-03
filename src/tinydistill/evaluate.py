@@ -171,11 +171,14 @@ def markdown_table(results: dict) -> str:
     ds = results["data"]
     tr = results.get("training") or {}
     k = tr.get("gold_per_class") or 0
+    sources = [f"{k} per class"] if k else []
+    if tr.get("n_gold_file"):
+        sources.append(f"{tr['n_gold_file']} from {tr.get('gold_file')}")
     trained = (
         f"The student learns from the teacher's soft labels on all {ds['n_train']} training texts, "
-        f"plus cross-entropy on {k} gold labels per class "
-        f"({tr.get('n_gold')} texts, weight {tr.get('ce_weight')})."
-        if k
+        f"plus cross-entropy on {tr.get('n_gold')} gold-labelled texts "
+        f"({', '.join(sources)}; weight {tr.get('ce_weight')})."
+        if sources
         else f"The student learns only from the teacher's soft labels on {ds['n_train']} "
         "unlabelled training texts."
     )
@@ -194,6 +197,11 @@ def markdown_table(results: dict) -> str:
             " The upper bound is the same student trained with cross-entropy on all "
             f"{tr.get('n_gold_upper_bound')} gold training labels and no teacher; "
             "its speed equals the student's."
+        )
+    if tr.get("shortlist"):
+        recall = tr.get("shortlist_recall")
+        trained += f" The teacher scores only the {tr['shortlist']} labels most similar to each text" + (
+            f"; the gold label was among them for {recall:.1%} of test texts." if recall is not None else "."
         )
     if (tr.get("seeds") or 1) > 1:
         trained += (
