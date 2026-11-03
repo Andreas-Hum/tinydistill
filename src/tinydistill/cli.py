@@ -53,7 +53,15 @@ def cmd_label(a: argparse.Namespace) -> None:
 
     from .data import count_rows, read_examples
     from .progress import Progress
-    from .teacher import ScoreCache, combine_scores, iter_unique, load_teacher
+    from .teacher import (
+        ScoreCache,
+        combine_scores,
+        iter_unique,
+        load_teacher,
+        pick_device,
+        quick_key,
+        text_hash,
+    )
 
     task = load_task(a.task)
     run = Path(a.out)
@@ -85,7 +93,25 @@ def cmd_label(a: argparse.Namespace) -> None:
 
     caches, fingerprints, device = [], [], "cpu"
     seconds, scored = 0.0, 0
+    keys_file = cache_dir / "teacher-keys.json"  # quick key (tokenizer only) -> full fingerprint
+    keys = json.loads(keys_file.read_text()) if keys_file.exists() else {}
     for name in _teachers(a.teacher):  # one teacher in memory at a time
+        quick = None
+        if not a.vllm_url:
+            quick = quick_key(name, task, a.device, a.load_4bit, examples, a.shortlist, a.shortlist_model)
+            known = keys.get(quick)
+            cache = ScoreCache(cache_dir / f"teacher-{known}.jsonl") if known else None
+            if cache and all(
+                text_hash(e.text) in cache.scores
+                for _, spec, limit in splits
+                for e in read_examples(spec, task, limit, with_gold=False)
+            ):
+                log(f"{name}: every text is in the cache, so the teacher is not loaded")
+                fingerprints.append(known)
+                caches.append(cache)
+                device = pick_device(a.device)
+                device = "cuda:0" if device == "cuda" else device  # as a loaded model reports it
+                continue
         log(f"loading teacher {name}")
         scorer = load_teacher(
             name,
@@ -100,6 +126,12 @@ def cmd_label(a: argparse.Namespace) -> None:
         )
         fingerprints.append(scorer.fingerprint())
         device = str(scorer.device)
+        if quick:
+            keys = json.loads(keys_file.read_text()) if keys_file.exists() else {}
+            keys[quick] = fingerprints[-1]
+            tmp = keys_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(keys, indent=1))
+            tmp.replace(keys_file)
         cache = ScoreCache(cache_dir / f"teacher-{fingerprints[-1]}.jsonl")
         if cache.scores:
             log(f"resuming: {len(cache.scores)} texts already scored")

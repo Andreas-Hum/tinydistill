@@ -557,6 +557,34 @@ def load_teacher(
     return LabelScorer(model, tok, task, max_tokens=max_tokens, examples=examples, shortlist=short)
 
 
+def quick_key(
+    name: str,
+    task: Task,
+    device: str,
+    load_4bit: bool,
+    examples: list[tuple[str, int]] | None = None,
+    shortlist: int | None = None,
+    shortlist_model: str | None = None,
+) -> str:
+    """What decides a local teacher's cache fingerprint, from the tokenizer alone (no model weights): the
+    rendered prompt and continuations, and how the model would be loaded. `label` maps it to the full
+    fingerprint, so a run whose texts are all cached never loads the teacher."""
+    p = _Prompt()
+    p._prepare(AutoTokenizer.from_pretrained(name), task, True, True, examples, None)
+    key = {
+        "model": name,
+        "device": pick_device(device),
+        "load_4bit": load_4bit,
+        "prefix": p.prefix_ids,
+        "suffix": p.suffix,
+        "forms": p.forms,
+        "form_label": p.form_label,
+        "form_answer": p.form_answer,
+        "shortlist": [shortlist, shortlist_model] if shortlist else None,
+    }
+    return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
+
+
 class ScoreCache:
     """Append-only JSONL of {"h": text hash, "s": label scores}; reopening it resumes where it stopped."""
 

@@ -103,7 +103,7 @@ def test_end_to_end(tmp_path, capsys):
             "cpu",
         ]
     )
-    assert "train: 0 texts scored now" in capsys.readouterr().err
+    assert "the teacher is not loaded" in capsys.readouterr().err  # resumed: everything is cached
 
     main(["predict", str(run / "onnx"), "what a great day", "--fp32"])
     out = json.loads(capsys.readouterr().out.strip())
@@ -160,7 +160,7 @@ def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
         ]
     )
     err = capsys.readouterr().err
-    assert "train: 0 texts scored now" in err  # the second run labels nothing: shared cache
+    assert "every text is in the cache, so the teacher is not loaded" in err  # shared cache
 
     results = json.loads((tmp_path / "b" / "results.json").read_text())
     assert results["training"]["gold_per_class"] == 2
@@ -839,3 +839,30 @@ def test_shortlist_scores_k_labels_and_reports_recall(tmp_path):
     want = sum(r["scores"][r["gold"]] > NOT_SCORED / 2 for r in test) / len(test)
     assert results["training"]["shortlist_recall"] == want
     assert "the 1 labels most similar to each text" in (run / "results.md").read_text()
+
+
+def test_label_skips_loading_the_teacher_when_everything_is_cached(tmp_path, monkeypatch, capsys):
+    import tinydistill.teacher
+
+    (tmp_path / "task.yaml").write_text(TASK)
+    rows = [
+        {"review": f"it was {w}", "sentiment": s} for w, s in [("good", "pos"), ("bad", "neg"), ("ok", "pos")]
+    ]
+    write_jsonl(tmp_path / "d.jsonl", rows)
+    args = ["label", str(tmp_path / "task.yaml"), "--data", str(tmp_path / "d.jsonl"), "--teacher", TINY_LM]
+    args += ["--device", "cpu", "--cache-dir", str(tmp_path / "cache")]
+    main([*args, "--limit", "2", "--out", str(tmp_path / "a")])
+    real = tinydistill.teacher.load_teacher
+
+    def no_loading(*_, **__):
+        raise AssertionError("the teacher was loaded")
+
+    monkeypatch.setattr(tinydistill.teacher, "load_teacher", no_loading)
+    main([*args, "--limit", "2", "--out", str(tmp_path / "b")])
+    assert (tmp_path / "a" / "train.jsonl").read_text() == (tmp_path / "b" / "train.jsonl").read_text()
+    assert "not loaded" in capsys.readouterr().err
+    with pytest.raises(AssertionError, match="was loaded"):  # a new text needs the teacher
+        main([*args, "--out", str(tmp_path / "c")])
+    monkeypatch.setattr(tinydistill.teacher, "load_teacher", real)
+    main([*args, "--out", str(tmp_path / "c")])
+    assert "1 texts scored now" in capsys.readouterr().err
