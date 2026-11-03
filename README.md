@@ -40,7 +40,8 @@ results files in [`examples/`](https://github.com/Andreas-Hum/tinydistill/tree/m
 quotes them.
 
 **Try it:** the [live demo](https://andreas-hum.github.io/tinydistill/) runs the Banking77 student (7B 8-shot
-teacher, int8, 23 MB) in your browser.
+teacher, int8, 23 MB) in your browser and shows what happens inside it: the word pieces, what each layer would
+answer, where the classifier looks, which words matter, and the teacher's soft labels next to the student's.
 
 ### Banking77: the hard case
 
@@ -278,7 +279,9 @@ using only the standard library. It listens on 127.0.0.1 unless you pass `--host
 
 **Browser.** `tinydistill web RUN/onnx --out site` writes a static page plus the model in the layout
 [transformers.js](https://github.com/huggingface/transformers.js) expects; the int8 model then runs in the
-visitor's browser with no server at all. Serve the folder with any static host (GitHub Pages works).
+visitor's browser with no server at all. Below the answer, an "Inside the model" view shows each step of the inference
+(tokens, the answer after each layer, attention, probabilities, which words matter, the teacher's soft labels
+for the examples and the cascade), so the page also explains distillation. Serve the folder with any static host (GitHub Pages works).
 
 ### A few gold labels
 

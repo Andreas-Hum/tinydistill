@@ -4,6 +4,9 @@
 
 - `label` does not load the teacher when every text is already in the cache, so training new students on
   cached labels needs neither the time nor the GPU for the teacher.
+- `web`: an "Inside the model" view: tokens, the answer after each layer, attention, all label
+  probabilities, which words matter, the teacher's soft labels for the examples, the cascade, and a slow-motion
+  mode.
 
 ## 0.3.0 (2026-11-03)
 
