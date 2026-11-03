@@ -76,6 +76,11 @@ def test_end_to_end(tmp_path, capsys):
     md = (run / "results.md").read_text()
     assert md.startswith("| Model | Device |") and "student, ONNX int8" in md
 
+    assert json.loads((run / "status.json").read_text())["finished"]
+    capsys.readouterr()
+    main(["status", str(run)])
+    assert "eval:" in capsys.readouterr().out
+
     # Labelling again resumes entirely from the cache.
     capsys.readouterr()
     main(

@@ -102,6 +102,7 @@ def train_student(
     seed: int = 0,
     log: Callable[[str], None] = print,
     multi_label: bool = False,
+    on_step: Callable[[], None] | None = None,
 ) -> None:
     torch.manual_seed(seed)
     rng = random.Random(seed)
@@ -168,6 +169,8 @@ def train_student(
             sched.step()
             opt.zero_grad(set_to_none=True)
             total += loss.item() * len(idx)
+            if on_step:
+                on_step()
         log(f"epoch {epoch + 1}/{epochs}: loss {total / len(texts):.4f} ({time.perf_counter() - t0:.0f}s)")
     out_dir.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(out_dir)

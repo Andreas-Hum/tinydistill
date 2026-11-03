@@ -51,7 +51,8 @@ def cmd_label(a: argparse.Namespace) -> None:
 
     import torch
 
-    from .data import read_examples
+    from .data import count_rows, read_examples
+    from .progress import Progress
     from .teacher import ScoreCache, combine_scores, iter_unique, load_teacher
 
     task = load_task(a.task)
@@ -94,13 +95,12 @@ def cmd_label(a: argparse.Namespace) -> None:
             log(f"resuming: {len(cache.scores)} texts already scored")
         for split, spec, limit in splits:
             t0 = time.perf_counter()
-
-            def progress(n: int, split=split, t0=t0) -> None:
-                if n % 100 == 0:
-                    log(f"{split}: scored {n} new texts ({n / (time.perf_counter() - t0):.1f}/s)")
-
+            bar = Progress(
+                f"label {split} ({name.split('/')[-1]})", count_rows(spec, limit), log, run / "status.json"
+            )
             texts = iter_unique(e.text for e in read_examples(spec, task, limit, with_gold=False))
-            n = cache.fill(scorer, texts, progress)
+            n = cache.fill(scorer, texts, on_read=bar.update)
+            bar.finish()
             seconds += time.perf_counter() - t0
             scored += n
             log(f"{split}: {n} texts scored now by {name}, the rest from the cache")
@@ -188,13 +188,23 @@ def cmd_train(a: argparse.Namespace) -> None:
         shutil.rmtree(run / name, ignore_errors=True)
     shutil.rmtree(run / "seeds", ignore_errors=True)
 
+    from .progress import Progress
+
+    def batches(n: int) -> int:
+        return a.epochs * -(-n // a.batch_size)
+
+    per_seed = batches(len(texts)) + (batches(len(kgold)) if a.gold_only else 0)
+    per_seed += batches(len(upper)) if a.upper_bound else 0
+    bar = Progress("train", a.seeds * per_seed, log, run / "status.json", unit="batches")
     t0 = time.perf_counter()
     for i in range(a.seeds):
         seed = a.seed + i
         out = run if i == 0 else run / "seeds" / str(seed)
         hp = (a.epochs, a.batch_size, a.lr, a.max_length, device, seed, log, task.multi_label)
         log(f"seed {seed}: distilling {a.student} on {len(rows)} texts, {n_gold} with gold labels ({device})")
-        train_student(texts, probs, task.labels, out / "student", a.student, gold, a.ce_weight, *hp)
+        train_student(
+            texts, probs, task.labels, out / "student", a.student, gold, a.ce_weight, *hp, on_step=bar.update
+        )
         if a.gold_only:
             log(f"seed {seed}: baseline, {a.student} on the {len(kgold)} gold labels only, no teacher")
             train_student(
@@ -206,6 +216,7 @@ def cmd_train(a: argparse.Namespace) -> None:
                 [gold[j] for j in kgold],
                 0.0,
                 *hp,
+                on_step=bar.update,
             )
         if a.upper_bound:
             log(f"seed {seed}: upper bound, {a.student} on all {len(upper)} gold training labels, no teacher")
@@ -218,7 +229,9 @@ def cmd_train(a: argparse.Namespace) -> None:
                 [all_gold[j] for j in upper],
                 0.0,
                 *hp,
+                on_step=bar.update,
             )
+    bar.finish()
     _meta(
         run,
         {
@@ -305,6 +318,15 @@ def cmd_eval(a: argparse.Namespace) -> None:
         }
 
     models: list[dict] = []
+    from .progress import Progress
+
+    n_teacher = 0 if a.skip_teacher_bench else len(meta.get("teachers") or [meta["teacher"]])
+    n_devices = 1 if meta.get("vllm_url") else len([d for d in (a.teacher_devices or "x").split(",") if d])
+    n_students = sum(len(_seed_dirs(run, name)) for name, *_ in VARIANTS)
+    n_onnx = sum((run / "onnx" / f).exists() for f in ("model.onnx", "model.int8.onnx"))
+    bar = Progress(
+        "eval", n_teacher * n_devices + n_students + n_onnx, log, run / "status.json", "steps", every=0
+    )
     teachers = meta.get("teachers") or [meta["teacher"]]
     prompt = (f"{meta['few_shot']}-shot" if meta.get("few_shot") else "zero-shot") + (
         ", 4-bit" if meta.get("load_4bit") else ""
@@ -353,6 +375,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 if dev.startswith("cuda"):
                     torch.cuda.empty_cache()
             members.append(row)
+            bar.update()
     if len(teachers) == 1:
         models.extend(members)
     else:  # the ensemble is the actual teacher: it runs every member, so its latency is their sum
@@ -390,6 +413,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
             per_seed.append(
                 quality([decide(z) for z in student_logits(model, tok, texts).tolist()] if texts else [])
             )
+            bar.update()
         row = {"role": role, "name": row_name, "device": "cpu", **aggregate(per_seed)}
         if role == "student":  # timings and size of the shipped (first-seed) model
             model, tok = load_student(dirs[0], "cpu")
@@ -420,6 +444,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
         }
         row.update(bench(lambda b, pr=pr: pr.logits(b), bench_texts, a.reps, max(3, a.reps // 5)))
         models.append(row)
+        bar.update()
 
     order = {"teacher": 0, "teacher member": 1, "student": 2, "baseline": 3, "upper bound": 4}
     models.sort(key=lambda m: order[m["role"]])  # deployable rows first, reference rows last
@@ -468,6 +493,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
             probs.max(-1).tolist(), probs.argmax(-1).tolist(), teacher_pred, gold
         )
     (run / "results.json").write_text(json.dumps(results, indent=2))
+    bar.finish()
     md = render(results)
     (run / "results.md").write_text(md)
     print(md)
@@ -595,6 +621,12 @@ def cmd_push(a: argparse.Namespace) -> None:
     print(push(Path(a.model), a.repo, a.private, a.license))
 
 
+def cmd_status(a: argparse.Namespace) -> None:
+    from .progress import describe_status
+
+    print(describe_status(Path(a.run) / "status.json"))
+
+
 def cmd_compare(a: argparse.Namespace) -> None:
     from .evaluate import compare_table
 
@@ -619,6 +651,13 @@ def cmd_run(a: argparse.Namespace) -> None:
     cmd_train(a)
     cmd_export(a)
     cmd_eval(a)
+    out = a.out
+    log(
+        f"\nDone. The model is in {out}/onnx and the results in {out}/results.md. Next:\n"
+        f'  tinydistill predict {out}/onnx "some text"     classify texts\n'
+        f"  tinydistill serve {out}/onnx                   a JSON endpoint on http://127.0.0.1:8000\n"
+        f"  tinydistill web {out}/onnx --out site          a page that runs it in the browser"
+    )
 
 
 # ---------- parser ----------
@@ -792,6 +831,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "report", parents=[run_dir], help="rebuild RUN/results.md from RUN/results.json"
     ).set_defaults(fn=cmd_report)
+    sub.add_parser(
+        "status", parents=[run_dir], help="how far a run is, and whether it is still running"
+    ).set_defaults(fn=cmd_status)
     cmp = sub.add_parser("compare", help="one markdown table comparing several runs (e.g. student sizes)")
     cmp.add_argument("runs", nargs="+", help="run directories or results.json files")
     cmp.set_defaults(fn=cmd_compare)

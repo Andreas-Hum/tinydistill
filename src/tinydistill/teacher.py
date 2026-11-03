@@ -504,7 +504,9 @@ class ScoreCache:
                         continue
                     self.scores[row["h"]] = row["s"]
 
-    def fill(self, scorer: LabelScorer, texts: Iterable[str], progress=None, batch: int = 64) -> int:
+    def fill(
+        self, scorer: LabelScorer, texts: Iterable[str], progress=None, batch: int = 64, on_read=None
+    ) -> int:
         """Score every text not in the cache yet, ``batch`` texts at a time (the scorer packs them into
         forward passes). Returns how many were scored now."""
         n = 0
@@ -524,6 +526,8 @@ class ScoreCache:
                 pending.clear()
 
             for text in texts:
+                if on_read:
+                    on_read()  # every text read, cached or not (for progress and time left)
                 if text_hash(text) not in self.scores and text not in pending:
                     pending.append(text)
                     if len(pending) == batch:
