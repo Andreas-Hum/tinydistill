@@ -414,11 +414,20 @@ class LabelScorer(_Prompt):
             extra = self._prefix_cache.get_seq_length() - P
             if extra:
                 self._prefix_cache.crop(-extra)  # back to the prompt prefix
-        lp = torch.cat([torch.log_softmax(logits.float(), -1), self._prefix_last[None]])  # last row: prompt
+        # log p(target) = logit(target) - logsumexp(logits): only the targets' logits are needed, so the
+        # vocabulary-sized softmax is never materialised for all rows at once (with many labels a pass keeps
+        # thousands of rows, and full float32 log-softmaxes fragment GPU memory until it spills to system RAM)
+        lse = torch.cat(
+            [torch.logsumexp(logits[i : i + 256].float(), -1) for i in range(0, len(logits), 256)]
+        )
+        n = len(logits)  # row n stands for the prompt's last position
         results = []
         for (_, view), f, start in zip(pack, first, node_start, strict=True):
-            rows = torch.where(view.rows < 0, f if f >= 0 else len(lp) - 1, start + view.rows)
-            results.append(self._totals(lp[rows, view.targets], view))
+            rows = torch.where(view.rows < 0, f if f >= 0 else n, start + view.rows)
+            at = rows.clamp(max=n - 1)
+            lp = logits[at, view.targets].float() - lse[at]
+            lp = torch.where(rows == n, self._prefix_last[view.targets], lp)
+            results.append(self._totals(lp, view))
         return torch.stack(results)
 
 
