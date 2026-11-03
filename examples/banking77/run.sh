@@ -48,7 +48,7 @@ tinydistill compare runs/banking77-1.5b runs/banking77-1.5b-8shot runs/banking77
 tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --epochs 20 --val-share 0.05 \
   --out runs/banking77-students/all-MiniLM-L6-v2-best-of-20 --skip-teacher-bench
 # SetFit on the same 8 gold labels per class, in its own environment (pip install setfit)
-"${SETFIT_PYTHON:-python}" examples/banking77/setfit.py
+"${SETFIT_PYTHON:-python}" examples/banking77/setfit_baseline.py
 
 mkdir -p examples/banking77/students
 for dir in runs/banking77-students/*/; do cp "$dir/results.json" "examples/banking77/students/$(basename "$dir").json"; done
