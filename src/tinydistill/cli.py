@@ -558,7 +558,7 @@ def cmd_serve(a: argparse.Namespace) -> None:
 def cmd_web(a: argparse.Namespace) -> None:
     from .web import build_site
 
-    page = build_site(Path(a.model), Path(a.out), a.title)
+    page = build_site(Path(a.model), Path(a.out), a.title, note=a.note)
     log(f"wrote {page}; serve the folder over HTTP, e.g. python -m http.server -d {a.out}")
 
 
@@ -762,6 +762,7 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument("model", help="directory written by `export` (run/onnx)")
     web.add_argument("--out", default="site", help="folder to write the page and model into")
     web.add_argument("--title", help="page title (default: from the task name)")
+    web.add_argument("--note", help="an extra footer line, e.g. the dataset's licence and source")
     web.set_defaults(fn=cmd_web)
     syn = sub.add_parser("synth", parents=[common], help="have the teacher write unlabelled example texts")
     syn.add_argument("task", help="task YAML file")

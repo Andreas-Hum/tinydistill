@@ -47,7 +47,7 @@ PAGE = """<!doctype html>
 <main>
   <h1>__TITLE__</h1>
   <p class="sub">A __SIZE__ MB model distilled from an LLM with tinydistill. It runs in your browser; nothing you type
-    leaves this page.</p>
+    leaves this page. __SUMMARY__</p>
   <label for="text">Text</label>
   <textarea id="text" placeholder="Type a message">__FIRST__</textarea>
   <div class="row">
@@ -57,7 +57,7 @@ PAGE = """<!doctype html>
   </div>
   <ol id="out" aria-label="Top labels"></ol>
   <footer>Made with <a href="https://github.com/Andreas-Hum/tinydistill">tinydistill</a> and
-    <a href="https://github.com/huggingface/transformers.js">transformers.js</a>.</footer>
+    <a href="https://github.com/huggingface/transformers.js">transformers.js</a>. __NOTE__</footer>
 </main>
 <script type="module">
   import { pipeline, env } from "__TRANSFORMERS_JS__";
@@ -75,7 +75,7 @@ PAGE = """<!doctype html>
     out.replaceChildren(...top.map(({ label, score }) => {
       const li = document.createElement("li");
       li.innerHTML = `<div class="fill" style="width:${(score * 100).toFixed(1)}%"></div>`;
-      const name = document.createElement("span"); name.textContent = label;
+      const name = document.createElement("span"); name.textContent = label.replaceAll("_", " ");
       const p = document.createElement("span"); p.className = "p"; p.textContent = score.toFixed(3);
       li.append(name, p); return li;
     }));
@@ -90,8 +90,41 @@ PAGE = """<!doctype html>
 """
 
 
-def build_site(onnx_dir: Path, out: Path, title: str | None = None, samples: int = 3) -> Path:
-    """Write ``out/index.html`` and ``out/model/`` (config, tokenizer, ONNX) for transformers.js."""
+def _samples(rows: list[dict], n: int) -> list[str]:
+    """Up to n test texts with different gold labels, taken from across the file (test files are often
+    sorted by label, so the first rows would all show the same one)."""
+    picked, labels = [], set()
+    step = max(1, len(rows) // (4 * n or 1))
+    for r in rows[::step] + rows:
+        key = json.dumps(r.get("gold"))
+        if key not in labels and len(picked) < n:
+            labels.add(key)
+            picked.append(r["text"])
+    return picked
+
+
+def _summary(run: Path, deployed: str) -> str:
+    """One sentence on quality, from the run's results.json (never typed by hand)."""
+    if not (run / "results.json").exists():
+        return ""
+    res = json.loads((run / "results.json").read_text())
+    row = next((m for m in res["models"] if m["role"] == "student" and deployed in m["name"]), None)
+    teacher = next((m for m in res["models"] if m["role"] == "teacher"), None)
+    if not row or row.get("accuracy") is None:
+        return ""
+    return (
+        f"Test accuracy {row['accuracy']:.3f} on {res['data']['n_test']} held-out texts. "
+        f"Distilled from {res.get('teacher')}"
+        + (f" ({teacher['name'].removeprefix('teacher, ')})" if teacher else "")
+        + f" into {res.get('student')}."
+    )
+
+
+def build_site(
+    onnx_dir: Path, out: Path, title: str | None = None, samples: int = 4, note: str | None = None
+) -> Path:
+    """Write ``out/index.html`` and ``out/model/`` (config, tokenizer, ONNX) for transformers.js. ``note`` is an
+    extra line for the footer, such as the dataset's licence."""
     if not (onnx_dir / "config.json").exists():
         raise SystemExit(f"{onnx_dir} has no config.json: export it again with `tinydistill export` (0.3.0+)")
     int8 = (onnx_dir / "model.int8.onnx").exists()
@@ -114,7 +147,7 @@ def build_site(onnx_dir: Path, out: Path, title: str | None = None, samples: int
     texts = []
     if (run / "test.jsonl").exists():
         with (run / "test.jsonl").open(encoding="utf-8") as f:
-            texts = [json.loads(line)["text"] for _, line in zip(range(samples), f, strict=False)]
+            texts = _samples([json.loads(line) for line in f if line.strip()], samples)
     name = title or (task or run.name).replace("-", " ").replace("_", " ").title()
     buttons = "\n    ".join(
         f'<button class="ghost sample" data-text="{html.escape(t)}">Example {i + 1}</button>'
@@ -127,6 +160,8 @@ def build_site(onnx_dir: Path, out: Path, title: str | None = None, samples: int
         .replace("__SAMPLES__", buttons)
         .replace("__DTYPE__", "q8" if int8 else "fp32")
         .replace("__TRANSFORMERS_JS__", TRANSFORMERS_JS)
+        .replace("__SUMMARY__", html.escape(_summary(run, "int8" if int8 else "fp32")))
+        .replace("__NOTE__", html.escape(note or ""))
     )
     (out / "index.html").write_text(page, encoding="utf-8")
     return out / "index.html"

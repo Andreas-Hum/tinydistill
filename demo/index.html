@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banking77 intent classifier</title>
+<style>
+  :root { --bg: #fbfbfa; --fg: #1d1d1b; --muted: #5f5e5a; --line: #dcdbd6; --accent: #2a78d6; --bar: #cde2fb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --fg: #efeee9; --muted: #b3b2aa; --line: #393935; --accent: #5598e7; --bar: #1c3a63; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 32px 16px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 24px; }
+  label { font-weight: 600; display: block; margin-bottom: 6px; }
+  textarea { width: 100%; min-height: 96px; padding: 10px; font: inherit; color: inherit; background: transparent;
+             border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 24px; align-items: center; }
+  button { font: inherit; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--accent); cursor: pointer;
+           background: var(--accent); color: #fff; }
+  button.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+  button:disabled { opacity: .5; cursor: progress; }
+  ol { list-style: none; padding: 0; margin: 0; }
+  li { position: relative; padding: 8px 12px; margin-bottom: 6px; border-radius: 6px; overflow: hidden; }
+  li .fill { position: absolute; inset: 0 auto 0 0; background: var(--bar); z-index: 0; }
+  li span { position: relative; z-index: 1; }
+  li .p { float: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  #status { color: var(--muted); }
+  footer { margin-top: 40px; color: var(--muted); font-size: .9rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Banking77 intent classifier</h1>
+  <p class="sub">A 23 MB model distilled from an LLM with tinydistill. It runs in your browser; nothing you type
+    leaves this page. Test accuracy 0.726 on 3080 held-out texts. Distilled from Qwen/Qwen2.5-7B-Instruct (8-shot, 4-bit) into sentence-transformers/all-MiniLM-L6-v2.</p>
+  <label for="text">Text</label>
+  <textarea id="text" placeholder="Type a message">How do I locate my card?</textarea>
+  <div class="row">
+    <button id="go" disabled>Classify</button>
+    <button class="ghost sample" data-text="How do I locate my card?">Example 1</button>
+    <button class="ghost sample" data-text="Can you help me with a weird charge?  It&#x27;s a pound charge that never goes away from the statement view on the app I&#x27;m using.  It&#x27;s not described as anything but &quot;Pending&quot;, and that status has never changed during the last two days.">Example 2</button>
+    <button class="ghost sample" data-text="My card is broke, what do I do?">Example 3</button>
+    <button class="ghost sample" data-text="Fix my contactless">Example 4</button>
+    <span id="status" aria-live="polite">Loading the model...</span>
+  </div>
+  <ol id="out" aria-label="Top labels"></ol>
+  <footer>Made with <a href="https://github.com/Andreas-Hum/tinydistill">tinydistill</a> and
+    <a href="https://github.com/huggingface/transformers.js">transformers.js</a>. Trained on the Banking77 dataset (PolyAI, CC BY 4.0), labelled by Qwen2.5-7B-Instruct with 8 examples per intent.</footer>
+</main>
+<script type="module">
+  import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
+  env.allowLocalModels = true;  // the model files sit next to this page
+  env.allowRemoteModels = false;
+  env.localModelPath = "./";
+  const text = document.getElementById("text"), go = document.getElementById("go");
+  const out = document.getElementById("out"), status = document.getElementById("status");
+  const clf = await pipeline("text-classification", "model", { dtype: "q8" });
+  async function run() {
+    if (!text.value.trim()) return;
+    const t0 = performance.now();
+    const top = await clf(text.value, { top_k: 5 });
+    status.textContent = `${(performance.now() - t0).toFixed(0)} ms`;
+    out.replaceChildren(...top.map(({ label, score }) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<div class="fill" style="width:${(score * 100).toFixed(1)}%"></div>`;
+      const name = document.createElement("span"); name.textContent = label.replaceAll("_", " ");
+      const p = document.createElement("span"); p.className = "p"; p.textContent = score.toFixed(3);
+      li.append(name, p); return li;
+    }));
+  }
+  go.onclick = run;
+  for (const b of document.querySelectorAll("button.sample")) b.onclick = () => { text.value = b.dataset.text; run(); };
+  go.disabled = false; status.textContent = "Ready";
+  run();
+</script>
+</body>
+</html>
