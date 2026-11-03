@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-11-03)
 
 - Few labels: `label --few-shot K` puts K gold examples per class in the teacher's prompt (`{examples}`);
   `train --gold-only` adds a baseline student trained on those labels alone; `train --seeds N` reports the mean
