@@ -4,7 +4,7 @@
 #   - four teachers: Qwen2.5 1.5B and 7B (4-bit), each zero-shot and with 8 gold examples per class in the
 #     prompt; the 8-shot runs also use those labels in the student's loss and train a gold-only baseline
 #   - every run: 3 training seeds and an upper bound (the student on all gold labels)
-#   - student sizes, trained on the 7B 8-shot teacher's labels
+#   - student sizes, trained on the 7B 8-shot teacher's labels, and a static-embedding student
 # The 1.5B zero-shot teacher is also timed on the CPU; the others only on the GPU (4-bit loading needs CUDA,
 # and the 8-shot prompts are long).
 set -euo pipefail
@@ -25,6 +25,9 @@ for student in sentence-transformers/all-MiniLM-L12-v2 BAAI/bge-small-en-v1.5 \
   tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student "$student" \
     --out "runs/banking77-students/${student##*/}" --skip-teacher-bench
 done
+# a static-embedding student (no attention), which wants a higher learning rate and more epochs
+tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student static --lr 1e-3 --epochs 20 \
+  --out runs/banking77-students/static --skip-teacher-bench
 
 for run in banking77-1.5b banking77-1.5b-8shot banking77-7b banking77-7b-8shot; do
   cp "runs/$run/results.json" "examples/banking77/$run.json"

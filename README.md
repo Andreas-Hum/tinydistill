@@ -32,103 +32,144 @@ Hugging Face Hub.
 
 ## Results
 
-Two tasks with `Qwen/Qwen2.5-1.5B-Instruct` as the zero-shot teacher, and Banking77 also with
-`Qwen/Qwen2.5-7B-Instruct`; the student is always `sentence-transformers/all-MiniLM-L6-v2`. Quality is measured on gold-labelled test texts that
-neither model trains on. Every table is written by the task's `run.sh` from its saved `results*.json` file in
-[`examples/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples); no number is typed by hand. The teacher's latency includes scoring every surface form
-of every label, which costs most on Banking77 with its many labels, so there the GPU teacher row is the fairer
-reference for speed.
+Teachers are `Qwen/Qwen2.5-1.5B-Instruct` and `Qwen/Qwen2.5-7B-Instruct` (4 bit), zero-shot or with 8 gold
+examples per class in the prompt; the student is `sentence-transformers/all-MiniLM-L6-v2` unless a table says
+otherwise. Quality is measured on gold-labelled test texts that no model trains on, and students are trained
+with 3 seeds (mean ± standard deviation). Every table below is filled by the task's `run.sh` from its saved
+results files in [`examples/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples); the text only
+quotes them.
 
-The tables below come from version 0.2.0 runs (zero-shot teachers, all surface forms, one training seed). The
-0.3.0 demo scripts add few-shot teachers, gold-only baselines, several seeds, a student-size comparison and the
-cascade; their results will replace these tables.
+**Try it:** the [live demo](https://andreas-hum.github.io/tinydistill/) runs the Banking77 student (7B 8-shot
+teacher, int8, 23 MB) in your browser.
 
 ### Banking77: the hard case
 
 Intent detection with 77 fine-grained classes ([Banking77](https://huggingface.co/datasets/PolyAI/banking77),
 CC BY 4.0), reproduced by [`examples/banking77/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/banking77/run.sh).
+One row per teacher; the student columns are the deployed int8 model:
 
-Teacher only, no gold labels:
+<!-- results: banking77/teachers.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| banking77-1.5b | zero-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.404 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.386 ± 0.004 | 0.313 ± 0.005 | 0.766 ± 0.004 | ONNX int8 | 1.2 | 37.3 | 23 |
+| banking77-1.5b-8shot | 8-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.513 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.485 ± 0.009 | 0.406 ± 0.007 | 0.706 ± 0.002 | ONNX int8 | 1.1 | 36.4 | 23 |
+| banking77-7b | zero-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.629 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.618 ± 0.003 | 0.579 ± 0.005 | 0.817 ± 0.007 | ONNX int8 | 1.4 | 39.2 | 23 |
+| banking77-7b-8shot | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.729 ± 0.011 | 0.697 ± 0.015 | 0.800 ± 0.003 | ONNX int8 | 1.4 | 40.2 | 23 |
 
-
-<!-- results: banking77/results.md -->
-| Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
-|---|---|---|---|---|---|---|---|---|---|
-| teacher, zero-shot | cpu | 0.406 | 0.367 | n/a | 19955.9 | n/a | 0.1 | 6175 | 1.0x |
-| teacher, zero-shot | cuda | 0.406 | 0.367 | n/a | 60.3 | n/a | 16.6 | 3087 | 331.1x |
-| student, PyTorch | cpu | 0.386 | 0.315 | 0.772 | 3.9 | 78.3 | 408.9 | 91 | 5124.6x |
-| student, ONNX fp32 | cpu | 0.386 | 0.315 | 0.772 | 2.6 | 82.4 | 388.4 | 91 | 7606.9x |
-| student, ONNX int8 | cpu | 0.383 | 0.311 | 0.761 | 1.0 | 34.4 | 931.1 | 23 | 20502.9x |
-
-Task `banking77`, 3080 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-1.5B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The student learns only from the teacher's soft labels on 10003 unlabelled training texts.
-CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher scores one text at a time, so it is timed at batch 1 and its throughput is 1 / latency. Speed-up is relative to the teacher, zero-shot on cpu.
+All latencies on the CPU with 2 threads.
 <!-- /results -->
 
-With 8 gold labels per class, and the student trained on all gold labels as an upper bound:
+The student follows its teacher, so the teacher sets the ceiling: a bigger model and 8 examples per class
+each help a lot. The full table for the best teacher, with the student trained on the same 616 gold labels
+alone (baseline) and on all 10,003 gold labels (upper bound), and the cascade:
 
-<!-- results: banking77/results-k8.md -->
+<!-- results: banking77/banking77-7b-8shot.md -->
 | Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
 |---|---|---|---|---|---|---|---|---|---|
-| teacher, zero-shot | cpu | 0.406 | 0.367 | n/a | 19699.4 | n/a | 0.1 | 6175 | 1.0x |
-| teacher, zero-shot | cuda | 0.406 | 0.367 | n/a | 58.3 | n/a | 17.2 | 3087 | 338.1x |
-| student, PyTorch | cpu | 0.404 | 0.324 | 0.699 | 3.9 | 76.7 | 417.4 | 91 | 5056.3x |
-| upper bound: student on all gold labels | cpu | 0.911 | 0.909 | 0.412 | n/a | n/a | n/a | n/a | n/a |
-| student, ONNX fp32 | cpu | 0.404 | 0.324 | 0.699 | 2.7 | 72.1 | 443.6 | 91 | 7306.9x |
-| student, ONNX int8 | cpu | 0.398 | 0.318 | 0.697 | 1.0 | 36.7 | 872.1 | 23 | 18792.2x |
+| teacher, 8-shot, 4-bit | cuda | 0.783 | 0.779 | n/a | 264.0 | 7434.4 | 4.3 | 5443 | 1.0x |
+| student, PyTorch | cpu | 0.729 ± 0.011 | 0.697 ± 0.015 | 0.800 ± 0.003 | 4.4 | 89.3 | 358.5 | 91 | 60.3x |
+| student, ONNX fp32 | cpu | 0.727 | 0.696 | 0.801 | 3.4 | 90.9 | 352.2 | 91 | 77.6x |
+| student, ONNX int8 | cpu | 0.726 | 0.694 | 0.797 | 1.4 | 40.2 | 795.7 | 23 | 186.3x |
+| baseline: student on 8 gold labels per class, no teacher | cpu | 0.490 ± 0.014 | 0.449 ± 0.018 | 0.473 ± 0.015 | n/a | n/a | n/a | n/a | n/a |
+| upper bound: student on all gold labels | cpu | 0.914 ± 0.005 | 0.914 ± 0.005 | 0.775 ± 0.001 | n/a | n/a | n/a | n/a | n/a |
 
-Task `banking77`, 3080 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-1.5B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The student learns from the teacher's soft labels on all 10003 training texts, plus cross-entropy on 8 gold labels per class (616 texts, weight 1.0). The upper bound is the same student trained with cross-entropy on all 10003 gold training labels and no teacher; its speed equals the student's.
-CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher scores one text at a time, so it is timed at batch 1 and its throughput is 1 / latency. Speed-up is relative to the teacher, zero-shot on cpu.
+Task `banking77`, 3080 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-7B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The teacher's prompt shows 8 gold training examples per class (616 texts). The student learns from the teacher's soft labels on all 10003 training texts, plus cross-entropy on 8 gold labels per class (616 texts, weight 1.0). The baseline is the same student trained with cross-entropy on those 616 gold labels only, without the teacher. The upper bound is the same student trained with cross-entropy on all 10003 gold training labels and no teacher; its speed equals the student's. Values with ± are the mean and standard deviation over 3 training seeds; the ONNX rows are the exported first-seed model.
+CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher packs several texts into one forward pass; it is timed at batch 32 only when that takes under three minutes, otherwise its throughput is 1 / batch-1 latency. Speed-up is relative to the teacher, 8-shot, 4-bit on cuda.
+
+### Cascade: student first, unsure texts to the teacher
+
+| Share sent to the teacher | Student confidence threshold | Accuracy | Macro-F1 | Mean latency per text (ms) |
+|---|---|---|---|---|
+| 0% | 0.080 | 0.726 | 0.694 | 1.4 |
+| 10% | 0.231 | 0.744 | 0.718 | 27.8 |
+| 20% | 0.302 | 0.750 | 0.730 | 54.2 |
+| 30% | 0.355 | 0.764 | 0.748 | 80.6 |
+| 50% | 0.440 | 0.778 | 0.769 | 133.4 |
+| 100% | 1.000 | 0.783 | 0.779 | 265.4 |
+
+The student answers every text and passes its least confident ones to the teacher. Thresholds are set on the test texts to hit each share; in deployment, set them on a validation split. Latency is the student's batch-1 latency plus the share times the batch-1 latency of the teacher, 8-shot, 4-bit on cuda.
 <!-- /results -->
 
-With a stronger teacher, `Qwen/Qwen2.5-7B-Instruct` loaded in 4 bit (timed on the GPU only: 4-bit loading needs
-CUDA), teacher only:
+The distilled student is far better than the same student trained on the few gold labels alone, and runs on a
+CPU in about a millisecond. Sending its least confident texts to the teacher closes most of the remaining gap
+to the teacher.
 
-<!-- results: banking77/results-7b.md -->
-| Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
-|---|---|---|---|---|---|---|---|---|---|
-| teacher, zero-shot, 4-bit | cuda | 0.630 | 0.607 | n/a | 272.2 | n/a | 3.7 | 5443 | 1.0x |
-| student, PyTorch | cpu | 0.623 | 0.587 | 0.827 | 5.5 | 93.0 | 344.2 | 91 | 49.4x |
-| student, ONNX fp32 | cpu | 0.623 | 0.587 | 0.827 | 3.4 | 86.8 | 368.7 | 91 | 80.8x |
-| student, ONNX int8 | cpu | 0.622 | 0.586 | 0.822 | 1.6 | 43.8 | 730.0 | 23 | 171.2x |
+Larger students, the same teacher and soft labels:
 
-Task `banking77`, 3080 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-7B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The student learns only from the teacher's soft labels on 10003 unlabelled training texts.
-CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher scores one text at a time, so it is timed at batch 1 and its throughput is 1 / latency. Speed-up is relative to the teacher, zero-shot, 4-bit on cuda.
+<!-- results: banking77/students.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| banking77-7b-8shot | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.729 ± 0.011 | 0.697 ± 0.015 | 0.800 ± 0.003 | ONNX int8 | 1.4 | 40.2 | 23 |
+| all-MiniLM-L12-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.743 ± 0.011 | 0.710 ± 0.016 | 0.815 ± 0.004 | ONNX int8 | 3.3 | 79.2 | 34 |
+| all-mpnet-base-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.814 ± 0.004 | 0.805 ± 0.007 | 0.863 ± 0.001 | ONNX int8 | 7.3 | 220.4 | 110 |
+| bge-small-en-v1.5 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `BAAI/bge-small-en-v1.5` | 33 | 0.739 ± 0.008 | 0.706 ± 0.011 | 0.815 ± 0.004 | ONNX int8 | 2.7 | 75.2 | 34 |
+
+All latencies on the CPU with 2 threads.
 <!-- /results -->
 
-The same teacher with 8 gold labels per class and the upper bound:
-
-<!-- results: banking77/results-k8-7b.md -->
-| Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
-|---|---|---|---|---|---|---|---|---|---|
-| teacher, zero-shot, 4-bit | cuda | 0.630 | 0.607 | n/a | 295.4 | n/a | 3.4 | 5443 | 1.0x |
-| student, PyTorch | cpu | 0.627 | 0.583 | 0.765 | 4.5 | 93.6 | 341.9 | 91 | 65.5x |
-| upper bound: student on all gold labels | cpu | 0.911 | 0.909 | 0.631 | n/a | n/a | n/a | n/a | n/a |
-| student, ONNX fp32 | cpu | 0.627 | 0.583 | 0.765 | 3.2 | 80.9 | 395.7 | 91 | 92.5x |
-| student, ONNX int8 | cpu | 0.622 | 0.576 | 0.762 | 1.1 | 40.7 | 786.4 | 23 | 262.6x |
-
-Task `banking77`, 3080 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-7B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The student learns from the teacher's soft labels on all 10003 training texts, plus cross-entropy on 8 gold labels per class (616 texts, weight 1.0). The upper bound is the same student trained with cross-entropy on all 10003 gold training labels and no teacher; its speed equals the student's.
-CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher scores one text at a time, so it is timed at batch 1 and its throughput is 1 / latency. Speed-up is relative to the teacher, zero-shot, 4-bit on cuda.
-<!-- /results -->
+The 110M-parameter mpnet student is more accurate than its own teacher: averaging the teacher's soft labels
+over 10,000 texts smooths out some of its individual mistakes.
 
 ### Financial tweets: an easier task
 
 Sentiment of financial news tweets, 3 classes
 ([Twitter Financial News Sentiment](https://huggingface.co/datasets/zeroshot/twitter-financial-news-sentiment),
 MIT licence per the dataset card), reproduced by
-[`examples/financial-tweets/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/financial-tweets/run.sh). The validation split is the test set.
+[`examples/financial-tweets/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/financial-tweets/run.sh).
+The validation split is the test set. The rows include an ensemble of three model families (Qwen2.5-7B,
+Mistral-7B and Phi-3.5-mini, all 4 bit) and a student trained only on texts the teacher wrote itself
+(`tinydistill synth`, no real training texts):
 
-<!-- results: financial-tweets/results.md -->
-| Model | Device | Accuracy | Macro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
-|---|---|---|---|---|---|---|---|---|---|
-| teacher, zero-shot | cpu | 0.535 | 0.557 | n/a | 976.3 | n/a | 1.0 | 6175 | 1.0x |
-| teacher, zero-shot | cuda | 0.535 | 0.557 | n/a | 33.7 | n/a | 29.6 | 3087 | 28.9x |
-| student, PyTorch | cpu | 0.517 | 0.542 | 0.815 | 4.5 | 145.4 | 220.1 | 91 | 219.3x |
-| upper bound: student on all gold labels | cpu | 0.867 | 0.824 | 0.531 | n/a | n/a | n/a | n/a | n/a |
-| student, ONNX fp32 | cpu | 0.517 | 0.542 | 0.815 | 3.2 | 148.5 | 215.4 | 91 | 303.9x |
-| student, ONNX int8 | cpu | 0.513 | 0.538 | 0.810 | 1.3 | 71.5 | 447.7 | 23 | 754.7x |
+<!-- results: financial-tweets/teachers.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| financial-tweets-1.5b | zero-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.537 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.514 ± 0.004 | 0.538 ± 0.004 | 0.810 ± 0.004 | ONNX int8 | 1.6 | 85.1 | 23 |
+| financial-tweets-1.5b-8shot | 8-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.314 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.295 ± 0.003 | 0.276 ± 0.003 | 0.870 ± 0.006 | ONNX int8 | 1.8 | 77.2 | 23 |
+| financial-tweets-7b | zero-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.832 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.825 ± 0.007 | 0.768 ± 0.009 | 0.870 ± 0.005 | ONNX int8 | 2.5 | 105.7 | 23 |
+| financial-tweets-ensemble | teacher ensemble of 3, zero-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct,mistralai/Mistral-7B-Instruct-v0.3,microsoft/Phi-3.5-mini-instruct` | 0.842 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.828 ± 0.006 | 0.778 ± 0.005 | 0.884 ± 0.007 | ONNX int8 | 1.6 | 99.4 | 23 |
+| financial-tweets-synthetic | zero-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.832 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.346 ± 0.049 | 0.324 ± 0.081 | 0.350 ± 0.043 | ONNX int8 | 1.3 | 102.3 | 23 |
 
-Task `financial-tweets`, 2388 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-1.5B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The student learns only from the teacher's soft labels on 9543 unlabelled training texts. The upper bound is the same student trained with cross-entropy on all 9543 gold training labels and no teacher; its speed equals the student's.
-CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher scores one text at a time, so it is timed at batch 1 and its throughput is 1 / latency. Speed-up is relative to the teacher, zero-shot on cpu.
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+Here the 7B teacher is close to the student trained on all gold labels, and the student is close to the
+teacher. The ensemble adds a little. Few-shot examples hurt on this skewed task (see
+[Limitations](#limitations)). Full tables per run are in
+[`examples/financial-tweets/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples/financial-tweets).
+
+### GoEmotions: multi-label
+
+Reddit comments with any of 27 emotions or neutral
+([GoEmotions](https://huggingface.co/datasets/google-research-datasets/go_emotions), Apache 2.0), reproduced
+by [`examples/go-emotions/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/go-emotions/run.sh).
+The teacher answers one yes/no question per label; accuracy is the share of texts with exactly the right set
+of labels.
+
+<!-- results: go-emotions/go-emotions-1.5b.md -->
+| Model | Device | Accuracy | Macro-F1 | Micro-F1 | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| teacher, zero-shot | cpu | 0.004 | 0.191 | 0.186 | n/a | 9990.9 | n/a | 0.1 | 6175 | 1.0x |
+| teacher, zero-shot | cuda | 0.004 | 0.191 | 0.186 | n/a | 74.3 | 2131.6 | 15.0 | 3087 | 134.5x |
+| student, PyTorch | cpu | 0.002 ± 0.001 | 0.111 ± 0.004 | 0.141 ± 0.002 | 0.015 ± 0.002 | 5.4 | 116.3 | 275.2 | 91 | 1857.3x |
+| student, ONNX fp32 | cpu | 0.002 | 0.106 | 0.141 | 0.016 | 4.8 | 115.7 | 276.6 | 91 | 2072.9x |
+| student, ONNX int8 | cpu | 0.002 | 0.108 | 0.141 | 0.016 | 2.0 | 66.3 | 482.8 | 23 | 5026.0x |
+| baseline: student on 8 gold labels per class, no teacher | cpu | 0.000 ± 0.000 | 0.000 ± 0.000 | 0.000 ± 0.000 | 0.007 ± 0.000 | n/a | n/a | n/a | n/a | n/a |
+| upper bound: student on all gold labels | cpu | 0.225 ± 0.021 | 0.034 ± 0.019 | 0.320 ± 0.034 | 0.007 ± 0.000 | n/a | n/a | n/a | n/a | n/a |
+
+Task `go-emotions`, 5427 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-1.5B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The student learns from the teacher's soft labels on all 10000 training texts, plus cross-entropy on 8 gold labels per class (223 texts, weight 1.0). The baseline is the same student trained with cross-entropy on those 223 gold labels only, without the teacher. The upper bound is the same student trained with cross-entropy on all 10000 gold training labels and no teacher; its speed equals the student's. Values with ± are the mean and standard deviation over 3 training seeds; the ONNX rows are the exported first-seed model.
+CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher packs several texts into one forward pass; it is timed at batch 32 only when that takes under three minutes, otherwise its throughput is 1 / batch-1 latency. Speed-up is relative to the teacher, zero-shot on cpu.
+<!-- /results -->
+
+This is a hard setting for a 1.5B teacher: it answers yes far too often, so exact-set accuracy is near zero,
+and the student inherits that. The run shows that multi-label tasks work end to end, not that a small
+teacher is good at them; use a larger teacher.
+
+### A vLLM teacher agrees with the local one
+
+[`examples/vllm-smoke.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/vllm-smoke.sh)
+labels 300 financial tweets with `Qwen/Qwen2.5-1.5B-Instruct` locally and through a vLLM server:
+
+<!-- results: vllm-smoke.md -->
 <!-- /results -->
 
 ## Quickstart
