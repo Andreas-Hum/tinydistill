@@ -11,9 +11,12 @@ base=(examples/clinc150/task.yaml --data "$data:train" --test "$data:test" --cac
       --val-share 0.05 --teacher-devices cuda)
 tinydistill run "${base[@]}" --shortlist 20 --out runs/clinc150-7b-shortlist20
 tinydistill run "${base[@]}" --upper-bound --out runs/clinc150-7b-full
-for run in clinc150-7b-shortlist20 clinc150-7b-full; do
+# the catch-all label "out of scope" resembles no particular request, so it is scored for every text as well
+tinydistill run "${base[@]}" --shortlist 20 --shortlist-keep oos --out runs/clinc150-7b-shortlist20-keep-oos
+for run in clinc150-7b-shortlist20 clinc150-7b-full clinc150-7b-shortlist20-keep-oos; do
   cp "runs/$run/results.json" "examples/clinc150/$run.json"
   cp "runs/$run/results.md" "examples/clinc150/$run.md"
 done
-tinydistill compare runs/clinc150-7b-full runs/clinc150-7b-shortlist20 > examples/clinc150/teachers.md
+tinydistill compare runs/clinc150-7b-full runs/clinc150-7b-shortlist20 runs/clinc150-7b-shortlist20-keep-oos \
+  > examples/clinc150/teachers.md
 python examples/update_readme.py
