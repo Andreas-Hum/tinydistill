@@ -915,7 +915,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Hugging Face encoder, or `static` / `static:<encoder>` for a static-embedding student "
         "(no attention: much smaller and faster; try --epochs 20 --lr 1e-3)",
     )
-    train.add_argument("--epochs", type=int, default=5)
+    train.add_argument("--epochs", type=int, default=10, help="passes over the training texts (default 10)")
     train.add_argument("--batch-size", type=int, default=32)
     train.add_argument("--lr", type=float, default=1e-4)
     train.add_argument("--max-length", type=int, default=128)

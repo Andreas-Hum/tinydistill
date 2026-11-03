@@ -95,7 +95,7 @@ The distilled student is far better than the same student trained on the few gol
 CPU in about a millisecond. Sending its least confident texts to the teacher closes most of the remaining gap
 to the teacher.
 
-Other students, the same teacher and soft labels. Students train for 5 epochs unless the name says 20.
+Other students, the same teacher and soft labels. Students train for 5 epochs unless the name says otherwise.
 `static` is the static-embedding student (`--student static`: token vectors from MiniLM-L6, averaged, no
 attention), trained for 20 epochs at learning rate 1e-3:
 
@@ -105,6 +105,7 @@ attention), trained for 20 epochs at learning rate 1e-3:
 | banking77-7b-8shot | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.729 ± 0.011 | 0.697 ± 0.015 | 0.800 ± 0.003 | ONNX int8 | 1.4 | 40.2 | 23 |
 | all-MiniLM-L12-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.743 ± 0.011 | 0.710 ± 0.016 | 0.815 ± 0.004 | ONNX int8 | 3.3 | 79.2 | 34 |
 | all-MiniLM-L12-v2-20-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.817 ± 0.001 | 0.814 ± 0.001 | 0.875 ± 0.002 | ONNX int8 | 3.2 | 82.0 | 34 |
+| all-MiniLM-L6-v2-10-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.808 ± 0.003 | 0.801 ± 0.002 | 0.860 ± 0.004 | ONNX int8 | 1.1 | 38.1 | 23 |
 | all-MiniLM-L6-v2-20-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.813 ± 0.002 | 0.811 ± 0.003 | 0.868 ± 0.003 | ONNX int8 | 1.2 | 36.3 | 23 |
 | all-mpnet-base-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.814 ± 0.004 | 0.805 ± 0.007 | 0.863 ± 0.001 | ONNX int8 | 7.3 | 220.4 | 110 |
 | bge-small-en-v1.5 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `BAAI/bge-small-en-v1.5` | 33 | 0.739 ± 0.008 | 0.706 ± 0.011 | 0.815 ± 0.004 | ONNX int8 | 2.7 | 75.2 | 34 |
@@ -117,7 +118,10 @@ Training longer matters more than a bigger student: with 20 epochs instead of 5,
 student is as accurate as the 110M-parameter mpnet, at a sixth of its latency, and more accurate than its own
 7B teacher. Learning from the teacher's soft labels on 10,000 texts, plus the 616 gold labels, smooths out
 some of the teacher's individual mistakes. The static student is about a point behind the MiniLM students
-trained as long, at a tenth of a millisecond per text and 8 MB.
+trained as long, at a tenth of a millisecond per text and 8 MB. Ten epochs get most of the way (MiniLM-L6:
+0.808), so 10 is the default from 0.3.1. On the easier financial-tweets task, 20 epochs give the same accuracy
+as 5 ([`financial-tweets-7b-20-epochs.md`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/financial-tweets/financial-tweets-7b-20-epochs.md)).
+The other tables on this page were trained for 5 epochs, the default until 0.3.1.
 
 ### Financial tweets: an easier task
 

@@ -22,6 +22,9 @@ tinydistill run "${base[@]}" "${real[@]}" --few-shot 8 --gold-per-class 8 --gold
   --out runs/financial-tweets-1.5b-8shot --teacher-devices cpu,cuda
 tinydistill run "${base[@]}" "${real[@]}" --teacher "$q7" --load-4bit --out runs/financial-tweets-7b \
   --teacher-devices cuda
+# the same student trained for 20 epochs: does training longer help on this task too?
+tinydistill run "${base[@]}" --data "$data:train" --teacher "$q7" --load-4bit --epochs 20 \
+  --out runs/financial-tweets-7b-20-epochs --skip-teacher-bench
 tinydistill run "${base[@]}" "${real[@]}" --load-4bit --teacher-devices cuda \
   --teacher "$q7,mistralai/Mistral-7B-Instruct-v0.3,microsoft/Phi-3.5-mini-instruct" \
   --out runs/financial-tweets-ensemble
@@ -30,8 +33,8 @@ tinydistill synth "$task" --per-label 500 --teacher "$q7" --load-4bit --device c
 tinydistill run "${base[@]}" --data runs/financial-tweets-synth.jsonl --teacher "$q7" --load-4bit \
   --out runs/financial-tweets-synthetic --skip-teacher-bench
 
-for run in financial-tweets-1.5b financial-tweets-1.5b-8shot financial-tweets-7b financial-tweets-ensemble \
-           financial-tweets-synthetic; do
+for run in financial-tweets-1.5b financial-tweets-1.5b-8shot financial-tweets-7b financial-tweets-7b-20-epochs \
+           financial-tweets-ensemble financial-tweets-synthetic; do
   cp "runs/$run/results.json" "examples/financial-tweets/$run.json"
   cp "runs/$run/results.md" "examples/financial-tweets/$run.md"
 done

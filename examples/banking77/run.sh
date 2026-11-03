@@ -29,7 +29,10 @@ done
 # a static-embedding student (no attention), which wants a higher learning rate and more epochs
 tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student static --lr 1e-3 --epochs 20 \
   --out runs/banking77-students/static --skip-teacher-bench
-# the two smallest transformer students trained as long as the static one, for a like-for-like comparison
+# MiniLM-L6 at 10 epochs (the default from 0.3.1), and the two smallest transformer students trained as long
+# as the static one, for a like-for-like comparison
+tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --epochs 10 \
+  --out runs/banking77-students/all-MiniLM-L6-v2-10-epochs --skip-teacher-bench
 for student in sentence-transformers/all-MiniLM-L6-v2 sentence-transformers/all-MiniLM-L12-v2; do
   tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student "$student" --epochs 20 \
     --out "runs/banking77-students/${student##*/}-20-epochs" --skip-teacher-bench

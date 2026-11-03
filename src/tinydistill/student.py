@@ -96,7 +96,7 @@ def train_student(
     model_name: str = DEFAULT_STUDENT,
     gold: list[int | None] | None = None,
     ce_weight: float = 0.0,
-    epochs: int = 5,
+    epochs: int = 10,
     batch_size: int = 32,
     lr: float = 1e-4,
     max_length: int = 128,
