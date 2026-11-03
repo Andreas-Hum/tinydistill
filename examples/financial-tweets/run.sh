@@ -12,7 +12,7 @@ export OMP_NUM_THREADS=${OMP_NUM_THREADS:-2} MKL_NUM_THREADS=${MKL_NUM_THREADS:-
 data=hf:zeroshot/twitter-financial-news-sentiment
 task=examples/financial-tweets/task.yaml
 base=("$task" --test "$data:validation" --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS"
-      --int8 --seeds 3)
+      --int8 --seeds 3 --epochs 5)  # 5 epochs: the default before 0.3.1
 q7=Qwen/Qwen2.5-7B-Instruct
 
 real=(--data "$data:train" --upper-bound)  # the synthetic run has no gold labels, so no upper bound there

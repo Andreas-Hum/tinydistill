@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -86,17 +87,20 @@ def test_web_page_layout(tmp_path):
             }
         )
     )
+    (tmp_path / "site" / "model" / "onnx").mkdir(parents=True)  # an older build's folder is replaced
     page = build_site(run / "onnx", tmp_path / "site", title="Demo", note="Data: CC BY 4.0 <x>")
+    (folder,) = [p.name for p in (tmp_path / "site").iterdir() if p.is_dir()]
+    assert re.fullmatch(r"model-[0-9a-f]{10}", folder)  # named after the model, so browsers never mix copies
     files = {
         p.relative_to(tmp_path / "site").as_posix() for p in (tmp_path / "site").rglob("*") if p.is_file()
     }
     assert {
         "index.html",
-        "model/config.json",
-        "model/tokenizer.json",
-        "model/onnx/model_quantized.onnx",
+        f"{folder}/config.json",
+        f"{folder}/tokenizer.json",
+        f"{folder}/onnx/model_quantized.onnx",
     } <= files
-    assert json.loads((tmp_path / "site/model/config.json").read_text())["id2label"] == {
+    assert json.loads((tmp_path / "site" / folder / "config.json").read_text())["id2label"] == {
         "0": "neg",
         "1": "pos",
     }
@@ -107,9 +111,12 @@ def test_web_page_layout(tmp_path):
 
     outputs = [
         o.name
-        for o in ort.InferenceSession(str(tmp_path / "site/model/onnx/model_quantized.onnx")).get_outputs()
+        for o in ort.InferenceSession(
+            str(tmp_path / "site" / folder / "onnx/model_quantized.onnx")
+        ).get_outputs()
     ]
     assert outputs == ["logits", "layer_logits", "cls_attention"]  # the "Inside the model" view
+    assert f'"model": "{folder}"' in text
     assert text.count('class="ghost sample"') == 2  # one per gold label, not the first rows
     assert "Test accuracy 0.500 on 6 held-out texts. Distilled from T (8-shot) into S." in text
     assert "Data: CC BY 4.0 &lt;x&gt;" in text

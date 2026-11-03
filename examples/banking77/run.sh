@@ -11,7 +11,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-2} MKL_NUM_THREADS=${MKL_NUM_THREADS:-2}
 base=(examples/banking77/task.yaml --data hf:PolyAI/banking77:train --test hf:PolyAI/banking77:test
-      --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3)
+      --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3
+      --epochs 5)  # the default before 0.3.1; the lines that pass --epochs 20 override it
 few=(--few-shot 8 --gold-per-class 8 --gold-only)
 big=(--teacher Qwen/Qwen2.5-7B-Instruct --load-4bit)
 

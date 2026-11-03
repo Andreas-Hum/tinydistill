@@ -4,9 +4,11 @@ probabilities over every label, which words matter, the teacher's soft labels an
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import math
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -194,8 +196,8 @@ PAGE = """<!doctype html>
   const pct = (x) => (100 * x).toFixed(x >= 0.995 || x < 0.001 ? 0 : 1) + "%";
 
   // ---- core: the model and what it computes (no page elements here) ----
-  const tok = await AutoTokenizer.from_pretrained("model");
-  const model = await AutoModel.from_pretrained("model", { dtype: D.dtype });
+  const tok = await AutoTokenizer.from_pretrained(D.model);
+  const model = await AutoModel.from_pretrained(D.model, { dtype: D.dtype });
   const softmax = (z) => { const m = Math.max(...z), e = z.map((x) => Math.exp(x - m)), s = e.reduce((a, b) => a + b);
                            return e.map((x) => x / s); };
   const toProbs = (z) => D.multi ? z.map((x) => 1 / (1 + Math.exp(-x))) : softmax(z);
@@ -255,7 +257,7 @@ PAGE = """<!doctype html>
 
   function showLayers(r) {
     const table = $("layers");
-    if (!r.layers) { table.replaceChildren(el("tr", {}, el("td", { textContent: "This export has no layer outputs." }))); return; }
+    if (!r.layers) { table.replaceChildren(el("tr", {}, el("td", { textContent: "No layer outputs: this model was exported without them, or the browser kept an older copy (reload)." }))); return; }
     const head = el("tr", {}, el("td", { className: "n" }), el("td", { className: "note", textContent: "would answer" }),
       el("td", { className: "note", textContent: `chance of "${name(r.top)}"` }));
     table.replaceChildren(head, ...r.layers.map((lp, l) => {
@@ -273,7 +275,7 @@ PAGE = """<!doctype html>
 
   function showAttention(r) {
     const box = $("att-layers");
-    if (!r.attention) { box.replaceChildren(); $("attention").textContent = "This export has no attention outputs."; return; }
+    if (!r.attention) { box.replaceChildren(); $("attention").textContent = "No attention outputs: this model was exported without them, or the browser kept an older copy (reload)."; return; }
     const L = r.attention.length;
     if (attLayer === null || attLayer >= L) attLayer = L - 1;
     box.replaceChildren(...r.attention.map((_, l) => {
@@ -438,7 +440,7 @@ def _summary(res: dict | None, deployed: str) -> str:
 def build_site(
     onnx_dir: Path, out: Path, title: str | None = None, samples: int = 6, note: str | None = None
 ) -> Path:
-    """Write ``out/index.html`` and ``out/model/`` (config, tokenizer, ONNX) for transformers.js. When the run's
+    """Write ``out/index.html`` and ``out/model-<hash>/`` (config, tokenizer, ONNX) for transformers.js. When the run's
     PyTorch student is next to the export, the page's model also returns each layer's answer and the
     attention of the first token, for the "Inside the model" view. ``note`` is an extra line for the footer,
     such as the dataset's licence."""
@@ -450,8 +452,24 @@ def build_site(
     if is_static(onnx_dir):
         raise SystemExit("the browser page needs a transformer student; static students run with `serve`")
     int8 = (onnx_dir / "model.int8.onnx").exists()
-    model_dir = out / "model"
-    (model_dir / "onnx").mkdir(parents=True, exist_ok=True)
+    run = onnx_dir.parent
+    with tempfile.TemporaryDirectory() as tmp:
+        onnx_file = (
+            export_explain(run / "student", Path(tmp), int8)
+            if (run / "student" / "config.json").exists()
+            else None
+        )
+        onnx_file = onnx_file or onnx_dir / ("model.int8.onnx" if int8 else "model.onnx")
+        # Browsers cache model files by URL, so the folder is named after the model's contents: a new model
+        # gets a new URL and no visitor keeps an old copy.
+        digest = hashlib.sha256(onnx_file.read_bytes()).hexdigest()[:10]
+        model_dir = out / f"model-{digest}"
+        for old in out.glob("model*"):  # this function's earlier output
+            if old.is_dir() and re.fullmatch(r"model(-[0-9a-f]{10})?", old.name):
+                shutil.rmtree(old)
+        (model_dir / "onnx").mkdir(parents=True)
+        target = model_dir / "onnx" / ("model_quantized.onnx" if int8 else "model.onnx")
+        shutil.copy(onnx_file, target)
     for f in (
         "config.json",
         "tokenizer.json",
@@ -461,16 +479,6 @@ def build_site(
     ):
         if (onnx_dir / f).exists():
             shutil.copy(onnx_dir / f, model_dir / f)
-    target = model_dir / "onnx" / ("model_quantized.onnx" if int8 else "model.onnx")
-    run = onnx_dir.parent
-    explained = None
-    if (run / "student" / "config.json").exists():
-        with tempfile.TemporaryDirectory() as tmp:
-            explained = export_explain(run / "student", Path(tmp), int8)
-            if explained:
-                shutil.copy(explained, target)
-    if not explained:
-        shutil.copy(onnx_dir / ("model.int8.onnx" if int8 else "model.onnx"), target)
 
     config = json.loads((onnx_dir / "config.json").read_text())
     labels = json.loads((onnx_dir / "labels.json").read_text(encoding="utf-8"))
@@ -485,6 +493,7 @@ def build_site(
         "labels": labels,
         "multi": multi,
         "dtype": "q8" if int8 else "fp32",
+        "model": model_dir.name,
         "samples": [
             {
                 "text": r["text"],

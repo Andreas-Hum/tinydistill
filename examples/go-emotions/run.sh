@@ -10,7 +10,7 @@ data=hf:google-research-datasets/go_emotions:simplified
 
 tinydistill run examples/go-emotions/task.yaml --data "$data:train" --limit 10000 --test "$data:test" \
   --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --upper-bound \
-  --gold-per-class 8 --gold-only --out runs/go-emotions-1.5b --teacher-devices cpu,cuda
+  --gold-per-class 8 --gold-only --epochs 5 --out runs/go-emotions-1.5b --teacher-devices cpu,cuda
 
 cp runs/go-emotions-1.5b/results.json examples/go-emotions/go-emotions-1.5b.json
 cp runs/go-emotions-1.5b/results.md examples/go-emotions/go-emotions-1.5b.md
