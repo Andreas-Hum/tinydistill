@@ -133,6 +133,121 @@ def export_explain(student_dir: Path, out_dir: Path, int8: bool = False, opset: 
     return q
 
 
+EXPLORER_OUTPUTS = [
+    "logits",  # (batch, labels)
+    "layer_logits",  # (batch, layers, labels): what the classifier would answer after each layer
+    "attentions",  # (batch, layers, heads, tokens, tokens): every head's attention weights
+    "hidden_states",  # (batch, layers + 1, tokens, dim): after the embeddings and after each layer
+    "attention_states",  # (batch, layers, tokens, dim): after each layer's attention, residual and LayerNorm
+    "token_embeddings",  # (batch, tokens, dim): the token embedding of each token
+    "position_embeddings",  # (batch, tokens, dim): what the embeddings add to it before their LayerNorm
+    "head_input",  # (batch, dim): the vector h the classifier's last linear layer reads
+    "head_terms",  # (batch, labels, dim): W * h, which summed over dim plus the bias gives the logits
+    "head_bias",  # (batch, labels): that layer's bias b
+]
+
+
+class _Explore(torch.nn.Module):
+    """Everything the explainer page draws for one text (see EXPLORER_OUTPUTS). Forward hooks read what the
+    model's own outputs do not include: the input of the embeddings' LayerNorm, each layer's attention block
+    and the input of the classifier's last linear layer."""
+
+    def __init__(self, model, head, last):
+        super().__init__()
+        self.model, self.head, self.last = model, head, last
+
+    def forward(self, input_ids, attention_mask):
+        base, seen = self.model.base_model, {}
+        hooks = [
+            base.embeddings.LayerNorm.register_forward_hook(lambda m, i, o: seen.update(summed=i[0])),
+            self.last.register_forward_pre_hook(lambda m, i: seen.update(head_input=i[0])),
+        ] + [
+            layer.attention.register_forward_hook(
+                lambda m, i, o, k=k: seen.update({k: o[0] if isinstance(o, tuple) else o})
+            )
+            for k, layer in enumerate(base.encoder.layer)
+        ]
+        try:
+            out = base(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_hidden_states=True,
+                output_attentions=True,
+            )
+            hs = torch.stack(out.hidden_states, 1)  # (batch, layers + 1, tokens, dim)
+            b, n, t, d = hs.shape
+            layers = self.head(hs[:, 1:].reshape(b * (n - 1), t, d)).reshape(b, n - 1, -1)
+        finally:
+            for hook in hooks:
+                hook.remove()
+        h = seen["head_input"].reshape(b, n - 1, -1)[:, -1]  # the head ran on all layers; the last one's
+        token = base.embeddings.word_embeddings(input_ids)
+        return (
+            layers[:, -1],
+            layers,
+            torch.stack(out.attentions, 1),
+            hs,
+            torch.stack([seen[k] for k in range(n - 1)], 1),
+            token,
+            seen["summed"] - token,
+            h,
+            h[:, None, :] * self.last.weight,
+            self.last.bias.expand(b, -1),
+        )
+
+
+def export_explorer(student_dir: Path, out_dir: Path, int8: bool = False, opset: int = 17) -> Path | None:
+    """Export ``explorer.onnx`` (and ``explorer.int8.onnx``) with the outputs in EXPLORER_OUTPUTS, for the
+    explainer page of `tinydistill web`. None if the model has no such view (static and ModernBERT-type
+    students): it needs a BERT-, RoBERTa- or MPNet-style encoder and head."""
+    from transformers import AutoModelForSequenceClassification
+
+    from .static import is_static
+
+    if is_static(student_dir):
+        return None
+    model = AutoModelForSequenceClassification.from_pretrained(
+        student_dir, attn_implementation="eager"
+    ).eval()
+    head = _classifier_head(model)
+    if head is None:
+        return None
+    last = model.classifier
+    last = last if isinstance(last, torch.nn.Linear) else getattr(last, "out_proj", None)
+    emb = getattr(model.base_model, "embeddings", None)
+    if (
+        not isinstance(last, torch.nn.Linear)
+        or not hasattr(model.base_model.encoder, "layer")
+        or getattr(emb, "LayerNorm", None) is None
+        or emb.word_embeddings.embedding_dim != model.config.hidden_size  # ELECTRA's projected embeddings
+    ):
+        return None
+    _, tok = load_student(student_dir)
+    enc = tok(["an example input", "another one"], padding=True, return_tensors="pt")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "explorer.onnx"
+    seq = {"input_ids": {0: "batch", 1: "seq"}, "attention_mask": {0: "batch", 1: "seq"}}
+    axes = {"attentions": {3: "seq", 4: "seq"}, "hidden_states": {2: "seq"}, "attention_states": {2: "seq"}}
+    axes |= {"token_embeddings": {1: "seq"}, "position_embeddings": {1: "seq"}}
+    torch.onnx.export(
+        _Explore(model, head, last),
+        (enc["input_ids"], enc["attention_mask"]),
+        str(path),
+        input_names=["input_ids", "attention_mask"],
+        output_names=EXPLORER_OUTPUTS,
+        dynamic_axes=seq | {k: {0: "batch"} | axes.get(k, {}) for k in EXPLORER_OUTPUTS},
+        opset_version=opset,
+        dynamo=False,
+    )
+    if not int8:
+        return path
+    from onnxruntime.quantization import QuantType, quantize_dynamic
+
+    q = out_dir / "explorer.int8.onnx"
+    quantize_dynamic(str(path), str(q), weight_type=QuantType.QInt8)
+    return q
+
+
 def model_path(path: str | Path) -> Path:
     """An exported model's folder: a local path, or ``hf:user/name`` for a model on the Hugging Face Hub (as
     uploaded by `tinydistill push`), downloaded once and then read from the local Hub cache."""

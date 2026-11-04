@@ -45,6 +45,8 @@ modules.
 
 ::: tinydistill.export.export_explain
 
+::: tinydistill.export.export_explorer
+
 ## Evaluation and charts
 
 ::: tinydistill.evaluate.accuracy
@@ -60,5 +62,7 @@ modules.
 ## Deploying
 
 ::: tinydistill.web.build_site
+
+::: tinydistill.explainer.build_explainer
 
 ::: tinydistill.hub.push

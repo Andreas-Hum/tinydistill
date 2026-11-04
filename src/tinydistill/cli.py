@@ -950,6 +950,13 @@ def cmd_web(a: argparse.Namespace) -> None:
         )
     page = build_site(folder, Path(a.out), a.title, note=a.note)
     log(f"wrote {page}; serve the folder over HTTP, e.g. python -m http.server -d {a.out}")
+    from .explainer import build_explainer
+
+    try:
+        explainer = build_explainer(folder, Path(a.out) / "explainer", a.title, note=a.note)
+        log(f"wrote {explainer}, a walk through the model's layers and heads")
+    except ValueError as e:
+        log(f"no explainer page: {e}")
 
 
 def cmd_synth(a: argparse.Namespace) -> None:

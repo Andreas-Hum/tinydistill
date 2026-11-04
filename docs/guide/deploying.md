@@ -41,6 +41,21 @@ The model folder is named after a hash of its contents, so browsers never mix a 
 page. The layer-by-layer view works for BERT-, RoBERTa- and MPNet-style students; for others, such as
 ModernBERT, the page shows the answer, the probabilities and which words matter without it.
 
+The same command writes a second page, `site/explainer/`: a guided walk through the model as it reads the
+visitor's text. An overview draws every stage from the current run (text, tokens, embeddings, each layer, the
+`[CLS]` vector, the classifier, the probabilities and, for the bundled examples, the teacher's soft labels);
+selecting a stage zooms into it. The steps show each token's embedding vector, every attention head of every
+layer as a heat map (one head in full, with lines from a token to the tokens it attends to), what the classifier
+would answer after each layer, a map of the token vectors per layer (PCA, computed in the page), the terms of the
+classifier's score, the probabilities, and the training loss with this run's cross-entropy weight. Each step has
+a "the math" panel with its formula and the current numbers, rendered with [KaTeX](https://katex.org).
+
+The explainer runs `explorer.onnx`, exported from the run's PyTorch student (`RUN/student`) with every head's
+attention and the hidden states as extra outputs, so it reads at most 128 tokens. It needs a BERT-, RoBERTa- or
+MPNet-style student; for a static or ModernBERT student, or a model from the Hub without its run folder,
+`tinydistill web` writes only the main page and says why. The Python function is
+`tinydistill.explainer.build_explainer`.
+
 ## Hugging Face Hub
 
 `tinydistill push RUN/onnx --repo user/name` uploads the model with a model card (results, usage, and links to
