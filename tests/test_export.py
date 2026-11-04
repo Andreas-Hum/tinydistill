@@ -101,3 +101,22 @@ def test_int8_scores_do_not_depend_on_the_batch(tmp_path):
     alone = p.logits([text])[0]
     for others in (["short"], ["a much longer text with many more words in it than the first one", "x"]):
         np.testing.assert_allclose(p.logits([text, *others])[0], alone, rtol=0, atol=1e-6)
+
+
+def test_the_trained_input_length_travels_with_the_model(tmp_path):
+    from tinydistill.student import load_student, train_student
+
+    texts = ["word " * 50, "short"] * 4
+    probs = torch.tensor([[0.7, 0.3], [0.3, 0.7]] * 4)
+    train_student(texts, probs, ["a", "b"], tmp_path / "s", TINY_ENCODER, epochs=1, max_length=20)
+    model, tok = load_student(tmp_path / "s")
+    assert model.config.tinydistill_max_length == 20
+    export_onnx(tmp_path / "s", tmp_path / "onnx")
+    p = Predictor(tmp_path / "onnx")
+    assert p.max_length == 20 and Predictor(tmp_path / "onnx", max_length=64).max_length == 64
+    # the default cut is the trained one, so ONNX and PyTorch agree on long texts too
+    np.testing.assert_allclose(p.logits(texts[:2]), student_logits(model, tok, texts[:2]).numpy(), atol=1e-5)
+    assert not np.allclose(
+        student_logits(model, tok, texts[:1]).numpy(),
+        student_logits(model, tok, texts[:1], max_length=64).numpy(),
+    )

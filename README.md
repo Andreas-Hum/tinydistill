@@ -164,7 +164,7 @@ time:
   against 0.797 with the same encoder. Distillation needs a GPU for the teacher; SetFit trains in a minute
   ([comparison](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#compared-with-setfit)).
 
-[RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md) has every run: four teachers, five student models trained for 5 to 20 epochs, the gold-only baseline,
+[RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md) has every run: four teachers, six student models trained for 5 to 20 epochs, the gold-only baseline,
 the upper bound, the cascade and SetFit on Banking77, 151 labels with and without a shortlist on CLINC150,
 task-file checks on AG News, a teacher ensemble and synthetic texts on financial tweets, multi-label
 GoEmotions, and a vLLM check. Every number comes from a saved results file written by the

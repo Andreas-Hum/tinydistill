@@ -77,6 +77,7 @@ attention), trained for 20 epochs at learning rate 1e-3:
 | all-MiniLM-L6-v2-best-of-20 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.807 ± 0.009 | 0.802 ± 0.010 | 0.862 ± 0.006 | ONNX int8 | 1.2 | 38.0 | 23 |
 | all-mpnet-base-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.814 ± 0.004 | 0.805 ± 0.007 | 0.863 ± 0.001 | ONNX int8 | 7.3 | 220.4 | 110 |
 | bge-small-en-v1.5 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `BAAI/bge-small-en-v1.5` | 33 | 0.739 ± 0.008 | 0.706 ± 0.011 | 0.815 ± 0.004 | ONNX int8 | 2.7 | 75.2 | 34 |
+| ModernBERT-base-20-epochs | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `answerdotai/ModernBERT-base` | 150 | 0.815 ± 0.002 | 0.812 ± 0.002 | 0.881 ± 0.001 | ONNX int8 | 9.7 | 262.8 | 151 |
 | static | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.783 | `static` | 8 | 0.803 ± 0.001 | 0.801 ± 0.001 | 0.824 ± 0.001 | ONNX int8 | 0.1 | 5.1 | 8 |
 
 All latencies on the CPU with 2 threads.
@@ -86,7 +87,9 @@ Training longer matters more than a bigger student: with 20 epochs instead of 5,
 student is as accurate as the 110M-parameter mpnet, at a sixth of its latency, and more accurate than its own
 7B teacher. Learning from the teacher's soft labels on 10,000 texts, plus the 616 gold labels, smooths out
 some of the teacher's individual mistakes. The static student is about a point behind the MiniLM students
-trained as long, at a tenth of a millisecond per text and 8 MB. Ten epochs get most of the way (MiniLM-L6:
+trained as long, at a tenth of a millisecond per text and 8 MB. ModernBERT-base (150M parameters) reached
+0.815, the same as MiniLM-L6 at about eight times its latency: its strength, inputs of up to 8,192 tokens, does
+not matter for Banking77's short messages. Ten epochs get most of the way (MiniLM-L6:
 0.808), so 10 is the default from 0.3.1. On the easier financial-tweets task, 20 epochs give the same accuracy
 as 5 ([`financial-tweets-7b-20-epochs.md`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/financial-tweets/financial-tweets-7b-20-epochs.md)).
 The other tables on this page were trained for 5 epochs, the default until 0.3.1. Choosing the epoch on 5%

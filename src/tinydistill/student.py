@@ -216,6 +216,9 @@ def train_student(
         model.load_state_dict(best_state)
         log(f"keeping epoch {best_epoch} (lowest held-out loss, on {len(val)} texts)")
     out_dir.mkdir(parents=True, exist_ok=True)
+    model.config.tinydistill_max_length = (
+        max_length  # read back by student_logits, Predictor and the web page
+    )
     model.save_pretrained(out_dir)
     tok.save_pretrained(out_dir)
     kept = best_epoch if best_state is not None else len(history)
@@ -233,7 +236,12 @@ def load_student(path: Path, device: str = "cpu"):
 
 
 @torch.no_grad()
-def student_logits(model, tok, texts: list[str], batch_size: int = 64, max_length: int = 128) -> torch.Tensor:
+def student_logits(
+    model, tok, texts: list[str], batch_size: int = 64, max_length: int | None = None
+) -> torch.Tensor:
+    """Logits per text. Inputs are cut to ``max_length`` tokens, by default the length the student was trained
+    with (128 for students trained before it was recorded)."""
+    max_length = max_length or getattr(model.config, "tinydistill_max_length", None) or 128
     dev = next(model.parameters()).device
     out = []
     for b in range(0, len(texts), batch_size):

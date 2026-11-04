@@ -205,7 +205,7 @@ PAGE = """<!doctype html>
                           return Array.from({ length: n }, (_, i) => Array.from(t.data.slice(i * k, (i + 1) * k))); };
   const split = (row, k) => Array.from({ length: row.length / k }, (_, i) => row.slice(i * k, (i + 1) * k));
   const argmax = (xs) => xs.reduce((b, x, i) => (x > xs[b] ? i : b), 0);
-  const encode = (texts) => tok(texts, { padding: true, truncation: true, max_length: 128 });
+  const encode = (texts) => tok(texts, { padding: true, truncation: true, max_length: D.max_length });
 
   async function analyse(text) {
     const t0 = performance.now();
@@ -499,6 +499,7 @@ def build_site(
         "multi": multi,
         "dtype": "q8" if int8 else "fp32",
         "model": model_dir.name,
+        "max_length": config.get("tinydistill_max_length") or 128,
         "samples": [
             {
                 "text": r["text"],

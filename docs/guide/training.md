@@ -17,7 +17,22 @@ tinydistill train run --student sentence-transformers/all-MiniLM-L6-v2 --epochs 
 | `sentence-transformers/all-MiniLM-L6-v2` (default) | 23 MB | about 1 ms |
 | `sentence-transformers/all-MiniLM-L12-v2` | 34 MB | about 3 ms |
 | `sentence-transformers/all-mpnet-base-v2` | 110 MB | about 7 ms |
+| `answerdotai/ModernBERT-base` | 151 MB | about 10 ms |
 | `static` (below) | 8 MB | about 0.1 ms |
+
+On Banking77, MiniLM-L6 and ModernBERT trained for 20 epochs and mpnet trained for 5 reached about the same
+accuracy (0.813, 0.815 and 0.814; [Benchmarks](../results.md#banking77-the-hard-case)), so the smallest is the
+one to deploy there.
+
+## Long texts
+
+Inputs are cut to `--max-length` tokens (default 128), which suits short messages. For longer texts raise it, and
+consider ModernBERT, which reads up to 8,192 tokens; BERT-style students read at most 512. The length is stored
+with the model, so `predict`, `serve` and the web page cut inputs the same way.
+
+```sh
+tinydistill train run --student answerdotai/ModernBERT-base --max-length 1024
+```
 
 ## How long to train
 

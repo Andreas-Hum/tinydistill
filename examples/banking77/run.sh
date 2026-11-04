@@ -47,6 +47,9 @@ tinydistill compare runs/banking77-1.5b runs/banking77-1.5b-8shot runs/banking77
 # up to 20 epochs, keeping the epoch with the lowest loss on 5% held-out training texts
 tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --epochs 20 --val-share 0.05 \
   --out runs/banking77-students/all-MiniLM-L6-v2-best-of-20 --skip-teacher-bench
+# a ModernBERT student (it reads up to 8,192 tokens; Banking77's texts are short)
+tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student answerdotai/ModernBERT-base \
+  --epochs 20 --out runs/banking77-students/ModernBERT-base-20-epochs --skip-teacher-bench
 # SetFit on the same 8 gold labels per class, in its own environment (pip install setfit)
 "${SETFIT_PYTHON:-python}" examples/banking77/setfit_baseline.py
 

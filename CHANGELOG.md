@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- ModernBERT students are tested (training, ONNX and int8 export). On Banking77, ModernBERT-base reached the
+  accuracy of MiniLM-L6 at about eight times the latency.
+- Fix: the input length a student was trained with (`--max-length`) is stored with the model, and `Predictor`,
+  `eval` and the web page use it; before, they always cut inputs at 128 tokens.
 - The package ships type information (`py.typed`) and is checked with mypy in CI.
 - `Distiller`: the pipeline as a scikit-learn style estimator, `Distiller("task.yaml").fit(texts)` then
   `predict`, `predict_proba`, `describe`, `score`, `save` and `Distiller.load`, with `get_params` and

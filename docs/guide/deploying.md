@@ -38,7 +38,8 @@ the classifier looks, all label probabilities, which words matter, the teacher's
 and the cascade. The [live demo](https://andreas-hum.github.io/tinydistill/demo/) is such a page.
 
 The model folder is named after a hash of its contents, so browsers never mix a cached older model with a new
-page.
+page. The layer-by-layer view works for BERT-, RoBERTa- and MPNet-style students; for others, such as
+ModernBERT, the page shows the answer, the probabilities and which words matter without it.
 
 ## Hugging Face Hub
 

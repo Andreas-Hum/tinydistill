@@ -153,8 +153,14 @@ class Predictor:
     Hub: ``Predictor("hf:user/name")``."""
 
     def __init__(
-        self, path: str | Path, int8: bool | None = None, threads: int | None = None, max_length: int = 128
+        self,
+        path: str | Path,
+        int8: bool | None = None,
+        threads: int | None = None,
+        max_length: int | None = None,
     ):
+        """``max_length``: tokens per input; by default the length the student was trained with (128 for
+        models exported before it was recorded)."""
         import onnxruntime as ort
         from transformers import AutoTokenizer
 
@@ -176,7 +182,7 @@ class Predictor:
             else {}
         )
         self.multi_label = config.get("problem_type") == "multi_label_classification"
-        self.max_length = max_length
+        self.max_length: int = max_length or config.get("tinydistill_max_length") or 128
         self.file = file
         self.int8 = int8
 
