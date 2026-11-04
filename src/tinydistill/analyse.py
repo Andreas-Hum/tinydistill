@@ -121,6 +121,22 @@ def build(run: Path, top: int = 15) -> tuple[str, str]:
         f"<td>{e(names[teacher[i]])}</td><td>{e(names[student[i]])}</td></tr>"
         for i in disagree[:top]
     )
+    reasons = run / "reasoning.jsonl"  # label --reason: the (first) teacher's reasoning per text
+    lines = reasons.read_text(encoding="utf-8").splitlines() if reasons.exists() else []
+    why = {r["text"]: r["reasoning"][0] for r in map(json.loads, lines) if r["split"] == "test"}
+    wrong = [i for i in range(len(texts)) if teacher[i] != gold[i] and texts[i] in why][:top]
+    reasoning = (
+        "<h2>The teacher's reasoning on its mistakes</h2>\n<div class='scroll'><table><tr><th>Text</th>"
+        "<th>Gold</th><th>Teacher</th><th>Reasoning</th></tr>"
+        + "".join(
+            f"<tr><td class='ex'>&ldquo;{e(texts[i][:160])}&rdquo;</td><td>{e(names[gold[i]])}</td>"
+            f"<td>{e(names[teacher[i]])}</td><td class='ex'>{e(why[texts[i]])}</td></tr>"
+            for i in wrong
+        )
+        + "</table></div>\n"
+        if wrong
+        else ""
+    )
     head = "<tr><th>Gold</th><th>Predicted</th><th>Texts</th><th>Examples</th></tr>"
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -148,7 +164,7 @@ on the student side.</p>
 
 <h2>Texts where the student and the teacher disagree</h2>
 <div class="scroll"><table><tr><th>Text</th><th>Gold</th><th>Teacher</th><th>Student</th></tr>{dis}</table></div>
-</main></body></html>
+{reasoning}</main></body></html>
 """
     worst = [names[c] for c in order[:5]]
     pairs = Counter({(names[g], names[p]): n for g, p, n, _ in confusions(teacher, gold, 5)})

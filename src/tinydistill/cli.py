@@ -87,6 +87,7 @@ def _run_members(run: Path, meta: dict, task: Task, name: str, device: str, exam
         meta.get("api_temperature", 0.7),
         meta.get("few_shot_similar", 0),
         meta.get("few_shot_model"),
+        meta.get("reason_tokens", 0) if meta.get("reason") else 0,
     )
     return prompt_members(scorer, [load_task(run / f) for f in meta.get("prompts") or []])
 
@@ -114,6 +115,9 @@ def cmd_label(a: argparse.Namespace) -> None:
     variants = _variants(task, sources)
     if variants and (a.vllm_url or a.api_url):
         raise SystemExit("--prompts needs a local teacher, not --vllm-url or --api-url")
+    reason = a.reason_tokens if a.reason else 0
+    if a.reason and a.reason_tokens < 1:
+        raise SystemExit("--reason-tokens must be positive")
     run = Path(a.out)
     run.mkdir(parents=True, exist_ok=True)
     _write_task(run / "task.yaml", task)
@@ -179,6 +183,7 @@ def cmd_label(a: argparse.Namespace) -> None:
                     a.shortlist_keep,
                     a.few_shot_similar,
                     a.few_shot_model,
+                    reason,
                 )
                 for t in (task, *variants)
             ]
@@ -214,7 +219,13 @@ def cmd_label(a: argparse.Namespace) -> None:
             a.api_temperature,
             a.few_shot_similar,
             a.few_shot_model,
+            reason,
         )
+        if reason:
+            log(
+                f"the teacher reasons in up to {reason} tokens per text before it answers; the reasoning "
+                "cannot reuse the cached prompt, so labelling is much slower"
+            )
         device = str(scorer.device)
         members = prompt_members(scorer, variants)
         for pi, (member, q) in enumerate(zip(members, quick, strict=True)):
@@ -264,6 +275,13 @@ def cmd_label(a: argparse.Namespace) -> None:
                     f.write(json.dumps(row) + "\n")
                     n_rows += 1
         log(f"{split}: {n_rows} {'windows' if chunk and split == 'train' else 'texts'}")
+    (run / "reasoning.jsonl").unlink(missing_ok=True)
+    if reason:  # each scored text's reasoning, one entry per member (for analyse)
+        with (run / "reasoning.jsonl").open("w", encoding="utf-8") as f:
+            for split, spec, limit in splits:
+                for w in iter_unique(texts_of(spec, limit)):
+                    why = [c.reasoning.get(text_hash(w)) for c in caches]
+                    f.write(json.dumps({"split": split, "text": w, "reasoning": why}) + "\n")
     _meta(
         run,
         {
@@ -293,6 +311,8 @@ def cmd_label(a: argparse.Namespace) -> None:
             "shortlist": a.shortlist,
             "shortlist_model": a.shortlist_model,
             "shortlist_keep": a.shortlist_keep,
+            "reason": a.reason,
+            "reason_tokens": a.reason_tokens,
             **({"chunk_tokens": None, "chunk_stride": None, "chunk_tokenizer": None} | chunk),
         },
     )
@@ -574,6 +594,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
         (f"{meta['few_shot']}-shot" if meta.get("few_shot") else "zero-shot")
         + (f", {n_prompts} prompts" if n_prompts > 1 else "")
         + (", 4-bit" if meta.get("load_4bit") else "")
+        + (", reasoning" if meta.get("reason") else "")
     )
     if meta.get("few_shot_similar"):
         prompt = f"{meta['few_shot_similar']} similar examples" + prompt.partition("-shot")[2]
@@ -1203,6 +1224,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     label.add_argument(
         "--few-shot-model", help="sentence-embedding model for --few-shot-similar (default: MiniLM)"
+    )
+    label.add_argument(
+        "--reason",
+        action="store_true",
+        help="the teacher thinks briefly before it answers (greedy, up to --reason-tokens), and the labels "
+        "are scored after its reasoning; single-label tasks, local or vLLM teachers; much slower",
+    )
+    label.add_argument(
+        "--reason-tokens",
+        type=int,
+        default=256,
+        metavar="K",
+        help="with --reason: the most tokens the teacher writes before its answer (default 256)",
     )
     label.add_argument(
         "--teacher-tokens",

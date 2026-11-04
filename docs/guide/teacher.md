@@ -49,6 +49,34 @@ Combining the answers of several prompts follows Ask Me Anything ([Arora et al.,
 2022](https://arxiv.org/abs/2210.02441)), which combines them with weak supervision; here the probabilities are
 averaged.
 
+## Reasoning before answering
+
+`label --reason` has the teacher think briefly before it answers. Reasoning first mainly decides which label
+comes out on top, while the shape of the distribution still comes from the model (Chen et al. 2026,
+[arXiv 2601.03154](https://arxiv.org/abs/2601.03154)): so the reasoning is for accuracy, and the soft labels are
+still read from the label log-probabilities after it.
+
+```sh
+tinydistill label task.yaml --data train.csv --teacher Qwen/Qwen2.5-7B-Instruct --reason --out run
+```
+
+For each text:
+
+- the prompt ends with an instruction to think it through briefly and then write `Answer:` followed by the
+  answer (a trailing `Answer:` in the task's prompt is replaced by it);
+- the teacher writes up to `--reason-tokens` tokens (default 256), greedily;
+- the reasoning is cut at the first `Answer:`, or, if the model never wrote it, `Answer:` is appended;
+- every label is scored as the continuation of prompt + reasoning + `Answer:`, with the usual scoring (all
+  surface forms, multi-token labels, `--shortlist`). The scores are the teacher's own log-probabilities.
+
+It is much slower than scoring alone: the reasoning is generated (batched, with left padding) and cannot reuse
+the cached part of the prompt. The reasoning of every text is stored with its scores in the cache and written
+to `reasoning.jsonl` in the run (one entry per member); `analyse` shows it for the teacher's mistakes.
+`--reason` and `--reason-tokens` are part of the cache fingerprint and of `meta.json`, so `eval` and the cascade
+use the same teacher. With `--prompts`, every member reasons. It works with local and vLLM teachers (the server
+writes the reasoning through its completions endpoint), for single-label tasks; hosted APIs return no
+log-probabilities of the answer after the reasoning, so `--api-url` refuses it.
+
 ## A vLLM server
 
 A vLLM server can be the teacher instead of a local model, so a large model on a GPU cluster does the

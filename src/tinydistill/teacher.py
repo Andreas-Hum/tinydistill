@@ -4,7 +4,7 @@ For a text x and a continuation c_1..c_m (a way of writing a label, followed by 
 log p(c | prompt(x)) = sum_j log p(c_j | prompt(x), c_<j). A label can be written in several surface forms
 (lowercase, Capitalised, UPPERCASE, as written; each with and without a leading space), and its score is the
 log of the summed probability of its distinct forms. A softmax over the label scores gives the teacher's soft
-targets. There is no free-form generation.
+targets. There is no free-form generation, except for a teacher that reasons first (ReasoningScorer).
 
 Speed: the prompt is split around the text into a constant prefix and a per-text suffix. The prefix's KV
 cache is computed once. A text and all its continuations form one segment: the text's tokens, then a prefix
@@ -561,6 +561,119 @@ class VLLMScorer(_Prompt):
         return torch.tensor(rows, dtype=torch.float64).reshape(len(texts), len(self.forms))
 
 
+REASON_MARKER = "Answer:"  # a reasoning teacher writes its answer after this
+REASON_INSTRUCTION = (
+    f'\n\nThink it through briefly first. Then write "{REASON_MARKER}" followed by the answer.'
+)
+
+
+def reasoning_task(task: Task) -> Task:
+    """The task with an instruction to reason before answering, in place of a trailing "Answer:"."""
+    if task.multi_label:
+        raise SystemExit("--reason is for single-label tasks")
+    prompt = task.prompt.rstrip().removesuffix(REASON_MARKER).rstrip()
+    return replace(task, prompt=prompt + REASON_INSTRUCTION)
+
+
+def cut_reasoning(generated: str) -> tuple[str, str]:
+    """(the reasoning, what the labels are scored after): the generation up to and including the first
+    marker, or, if the model never wrote it, all of the generation with the marker appended."""
+    at = generated.find(REASON_MARKER)
+    if at >= 0:
+        return generated[:at].strip(), generated[: at + len(REASON_MARKER)]
+    reasoning = generated.strip()
+    return reasoning, (generated.rstrip() + "\n" if reasoning else "") + REASON_MARKER
+
+
+class _Reasoning(_Prompt):
+    """A teacher that reasons before it answers: for each text it writes up to ``reason_tokens`` tokens
+    greedily, cut by ``cut_reasoning``, and every label's continuations are then scored after prompt +
+    reasoning + marker by the scorer's own code. ``reasoning`` holds the last texts' reasoning."""
+
+    reason_tokens: int
+    reasoning: dict[str, str]
+    _after: dict[str, list[int]]  # text -> token ids of its reasoning and the marker
+
+    def text_ids(self, text: str, head: str = "") -> list[int]:
+        return super().text_ids(text, head) + self._after.get(text, [])
+
+    def form_scores_many(self, texts: list[str]) -> torch.Tensor:
+        self._after, self.reasoning = {}, {}
+        prompts = [
+            self.prefix_ids + self.text_ids(t, h) for t, h in zip(texts, self.heads(texts), strict=True)
+        ]
+        for text, out in zip(texts, self._generate(prompts) if texts else [], strict=True):
+            self.reasoning[text], tail = cut_reasoning(out)
+            self._after[text] = self.tok(tail, add_special_tokens=False)["input_ids"]
+        return super().form_scores_many(texts)
+
+    def _generate(self, prompts: list[list[int]]) -> list[str]:
+        raise NotImplementedError
+
+    def fingerprint(self) -> str:
+        base = super().fingerprint()  # type: ignore[misc]  # the scorer after this mixin has it
+        key = [base, "reason-v1", self.reason_tokens]
+        return hashlib.sha256(json.dumps(key).encode()).hexdigest()[:16]
+
+
+class ReasoningScorer(_Reasoning, LabelScorer):
+    """``LabelScorer`` with reasoning first. The generation is batched with left padding but cannot reuse
+    the cached prompt prefix, so this is much slower than scoring alone."""
+
+    def __init__(self, model, tokenizer, task: Task, reason_tokens: int = 256, **kwargs):
+        self.reason_tokens, self.reasoning, self._after = reason_tokens, {}, {}
+        super().__init__(model, tokenizer, reasoning_task(task), **kwargs)
+
+    @torch.no_grad()
+    def _generate(self, prompts: list[list[int]]) -> list[str]:
+        # ponytail: one generate call per score_many batch, the prompt is not shared across the batch;
+        # reuse the prefix cache (replicated per row) if long few-shot prompts run out of memory
+        tok, m = self.tok, max(map(len, prompts))
+        pad = tok.pad_token_id if tok.pad_token_id is not None else (tok.eos_token_id or 0)
+        ids = torch.tensor([[pad] * (m - len(p)) + p for p in prompts], device=self.device)
+        mask = torch.tensor([[0] * (m - len(p)) + [1] * len(p) for p in prompts], device=self.device)
+        stops = [t for t in dict.fromkeys([tok.eos_token_id, *end_of_turn(tok, self.chat)]) if t is not None]
+        out = self.model.generate(
+            ids,
+            attention_mask=mask,
+            max_new_tokens=self.reason_tokens,
+            do_sample=False,
+            eos_token_id=stops,
+            pad_token_id=pad,
+            stop_strings=[REASON_MARKER],
+            tokenizer=tok,
+        )
+        return tok.batch_decode(out[:, m:], skip_special_tokens=True)
+
+
+class VLLMReasoningScorer(_Reasoning, VLLMScorer):
+    """``VLLMScorer`` with reasoning first: the server writes it (completions endpoint, greedy, stopping
+    at the marker), then the labels are scored with ``prompt_logprobs`` as without reasoning."""
+
+    def __init__(self, url: str, model: str, tokenizer, task: Task, reason_tokens: int = 256, **kwargs):
+        self.reason_tokens, self.reasoning, self._after = reason_tokens, {}, {}
+        super().__init__(url, model, tokenizer, reasoning_task(task), **kwargs)
+
+    def _generate(self, prompts: list[list[int]]) -> list[str]:
+        import urllib.request
+
+        body = {
+            "model": self.model_name,
+            "prompt": prompts,
+            "max_tokens": self.reason_tokens,
+            "temperature": 0,
+            "stop": [REASON_MARKER],
+            "include_stop_str_in_output": True,
+        }
+        req = urllib.request.Request(
+            f"{self.url}/completions",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            return [c["text"] for c in sorted(json.loads(r.read())["choices"], key=lambda c: c["index"])]
+
+
 API_LABELS = 20  # hosted APIs return the top 20 log-probabilities of the first answer token
 API_ATTEMPTS = 5  # tries per request on rate limits (HTTP 429), server errors (5xx) and timeouts
 API_WAIT = 1.0  # seconds before the first retry; doubled after each
@@ -805,13 +918,15 @@ def load_teacher(
     api_temperature: float = 0.7,
     similar: int = 0,
     similar_model: str | None = None,
+    reason_tokens: int = 0,
 ) -> LabelScorer | VLLMScorer | ApiScorer:
     """A local teacher, or with ``vllm_url`` the same model served by vLLM, or with ``api_url`` the model
     ``name`` at a hosted OpenAI-compatible chat API (key in the environment variable ``api_key_env``); then
     ``device`` is not used. ``shortlist`` K: score only the K labels most similar to each text (for tasks with
     very many labels). ``api_samples`` N: the API teacher samples N answers at ``api_temperature`` instead of
     reading log-probabilities. ``similar`` M: ``examples`` is a pool of gold examples, and each text's prompt
-    shows the M most similar to it (embedded with ``similar_model``)."""
+    shows the M most similar to it (embedded with ``similar_model``). ``reason_tokens`` K: the teacher
+    reasons in up to K tokens before it answers (``ReasoningScorer``, ``VLLMReasoningScorer``)."""
     if api_samples and not api_url:
         raise SystemExit("--api-samples works with --api-url")
     retriever = None
@@ -826,6 +941,11 @@ def load_teacher(
             raise SystemExit("use either --vllm-url or --api-url, not both")
         if shortlist:
             raise SystemExit("--shortlist works with a local teacher, not --api-url")
+        if reason_tokens:
+            raise SystemExit(
+                "--reason needs a local or vLLM teacher: a hosted API returns no log-probabilities "
+                "of the answer after the reasoning"
+            )
         return ApiScorer(
             api_url,
             name,
@@ -840,6 +960,10 @@ def load_teacher(
     if vllm_url:
         if shortlist:
             raise SystemExit("--shortlist works with a local teacher, not --vllm-url")
+        if reason_tokens:
+            return VLLMReasoningScorer(
+                vllm_url, name, tok, task, reason_tokens, examples=examples, similar=retriever
+            )
         return VLLMScorer(vllm_url, name, tok, task, examples, similar=retriever)
     device = pick_device(device)
     kwargs: dict = {}
@@ -862,6 +986,17 @@ def load_teacher(
         from .shortlist import DEFAULT_SHORTLIST_MODEL, Shortlist
 
         short = Shortlist(task, shortlist, shortlist_model or DEFAULT_SHORTLIST_MODEL, device, shortlist_keep)
+    if reason_tokens:
+        return ReasoningScorer(
+            model,
+            tok,
+            task,
+            reason_tokens,
+            max_tokens=max_tokens,
+            examples=examples,
+            shortlist=short,
+            similar=retriever,
+        )
     return LabelScorer(
         model, tok, task, max_tokens=max_tokens, examples=examples, shortlist=short, similar=retriever
     )
@@ -870,15 +1005,17 @@ def load_teacher(
 def prompt_members(scorer: Scorer, variants: list[Task]) -> list[Scorer]:
     """A prompt ensemble on one loaded model: ``scorer`` (the task's own prompt), then a scorer for each
     variant task file (same labels, another prompt), sharing the model, few-shot examples (or the retriever
-    of similar ones) and shortlist."""
+    of similar ones), shortlist and reasoning setting."""
     if not variants:
         return [scorer]
     if not isinstance(scorer, LabelScorer):
         raise SystemExit("prompt ensembles (--prompts) need a local teacher, not --vllm-url or --api-url")
+    make: Any = type(scorer)  # a ReasoningScorer's members reason too
+    extra = {"reason_tokens": scorer.reason_tokens} if isinstance(scorer, ReasoningScorer) else {}
     return [
         scorer,
         *(
-            LabelScorer(
+            make(
                 scorer.model,
                 scorer.tok,
                 t,
@@ -886,6 +1023,7 @@ def prompt_members(scorer: Scorer, variants: list[Task]) -> list[Scorer]:
                 examples=scorer.examples,
                 shortlist=scorer.shortlist,
                 similar=scorer.similar,
+                **extra,
             )
             for t in variants
         ),
@@ -903,12 +1041,14 @@ def quick_key(
     shortlist_keep: list[str] | None = None,
     similar: int = 0,
     similar_model: str | None = None,
+    reason_tokens: int = 0,
 ) -> str:
     """What decides a local teacher's cache fingerprint, from the tokenizer alone (no model weights): the
     rendered prompt and continuations, and how the model would be loaded. `label` maps it to the full
     fingerprint, so a run whose texts are all cached never loads the teacher."""
     p = _Prompt()
-    p._prepare(AutoTokenizer.from_pretrained(name), task, True, True, None if similar else examples, None)
+    tok, prompted = AutoTokenizer.from_pretrained(name), reasoning_task(task) if reason_tokens else task
+    p._prepare(tok, prompted, True, True, None if similar else examples, None)
     key = {
         "model": name,
         "device": pick_device(device),
@@ -926,15 +1066,19 @@ def quick_key(
         from .shortlist import DEFAULT_SHORTLIST_MODEL, retrieval_key
 
         key["similar"] = retrieval_key(examples or [], similar, similar_model or DEFAULT_SHORTLIST_MODEL)
+    if reason_tokens:
+        key["reason"] = ["reason-v1", reason_tokens]
     return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
 
 class ScoreCache:
-    """Append-only JSONL of {"h": text hash, "s": label scores}; reopening it resumes where it stopped."""
+    """Append-only JSONL of {"h": text hash, "s": label scores} (and "r": the reasoning, for a teacher that
+    reasons); reopening it resumes where it stopped."""
 
     def __init__(self, path: Path):
         self.path = path
         self.scores: dict[str, list[float]] = {}
+        self.reasoning: dict[str, str] = {}
         if path.exists():
             with path.open(encoding="utf-8") as f:
                 for line in f:
@@ -943,6 +1087,8 @@ class ScoreCache:
                     except json.JSONDecodeError:  # a line cut off by an interrupted run
                         continue
                     self.scores[row["h"]] = row["s"]
+                    if "r" in row:
+                        self.reasoning[row["h"]] = row["r"]
 
     def fill(self, scorer: Scorer, texts: Iterable[str], progress=None, batch: int = 64, on_read=None) -> int:
         """Score every text not in the cache yet, ``batch`` texts at a time (the scorer packs them into
@@ -953,10 +1099,15 @@ class ScoreCache:
 
             def flush() -> None:
                 nonlocal n
-                for text, s in zip(pending, scorer.score_many(pending), strict=True):
+                scores = scorer.score_many(pending)
+                why = getattr(scorer, "reasoning", {})  # a reasoning teacher's text before its answer
+                for text, s in zip(pending, scores, strict=True):
                     h = text_hash(text)
                     self.scores[h] = s
-                    f.write(json.dumps({"h": h, "s": s}) + "\n")
+                    row: dict[str, Any] = {"h": h, "s": s}
+                    if text in why:
+                        row["r"] = self.reasoning[h] = why[text]
+                    f.write(json.dumps(row) + "\n")
                     n += 1
                     if progress:
                         progress(n)

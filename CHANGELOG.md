@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `label --reason [--reason-tokens K]`: the teacher thinks briefly before it answers (greedy, up to K tokens,
+  default 256), and every label is scored as the continuation of prompt + reasoning + `Answer:` with the usual
+  scoring. The reasoning is cached with the scores and written to `reasoning.jsonl`; `analyse` shows it for the
+  teacher's mistakes. The setting is part of the cache fingerprint and of `meta.json`. Local and vLLM teachers,
+  single-label tasks; much slower than scoring alone. Without the flag nothing changes.
 - `label --api-url URL --api-samples N [--api-temperature T]`: for hosted APIs without log-probabilities, the
   teacher samples N answers per text (default temperature 0.7) and each label's soft label is its share of the
   answers whose first word is an option letter. N and T are part of the cache fingerprint and of `meta.json`.
