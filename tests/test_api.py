@@ -215,3 +215,17 @@ def test_cli_run_with_an_api_teacher(api, tmp_path, monkeypatch, capsys):
         if f.is_file():
             assert SECRET.encode() not in f.read_bytes(), f
     capsys.readouterr()
+
+
+def test_a_warning_when_the_model_does_not_answer_with_a_letter(api, task):
+    url, state = api
+    scorer = ApiScorer(url, "chatty-model", task, api_key_env=KEY_ENV, workers=1)
+    state["queue"].append((200, top(("The", -0.1), ("Sure", -1.0))))
+    with pytest.warns(UserWarning, match="1 of 1 texts: chatty-model's first answer token was not an option"):
+        assert scorer.score("nice") == [-1.0, -1.0, -1.0]
+    state["queue"].append((200, top(("C", -0.5))))  # one letter, also the smallest value: no warning
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert scorer.score("nice") == [-0.5, -0.5, -0.5]

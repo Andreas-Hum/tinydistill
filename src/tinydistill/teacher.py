@@ -548,6 +548,7 @@ class ApiScorer:
         self.api_key_env, self.workers, self.timeout = api_key_env, workers, timeout
         self.device = "api"
         self.letters = LETTERS[: len(task.labels)]
+        self._blind: list[str] = []
         parts = urlsplit(self.url)
         self.host = f"{parts.hostname}:{parts.port}" if parts.port else str(parts.hostname)
 
@@ -621,13 +622,26 @@ class ApiScorer:
         # A letter outside the returned top tokens is at most as likely as the least likely returned one:
         # it gets that log-probability, an upper bound.
         floor = min(lp for _, lp in lps)
+        if not any(c in best for c in self.letters):
+            self._blind.append(text)  # list.append is thread-safe; score_many reports these
         return [best.get(c, floor) for c in self.letters]
 
     def score_many(self, texts: list[str]) -> list[list[float]]:
+        import warnings
         from concurrent.futures import ThreadPoolExecutor
 
+        self._blind: list[str] = []
         with ThreadPoolExecutor(self.workers) as pool:
-            return list(pool.map(self._one, texts))
+            rows = list(pool.map(self._one, texts))
+        blind = len(self._blind)  # texts with no option letter among the returned tokens
+        if blind:
+            warnings.warn(
+                f"{blind} of {len(texts)} texts: {self.model_name}'s first answer token was not an option "
+                "letter, so every label got the same score; make the prompt ask for the letter only (see the "
+                "docs on hosted APIs)",
+                stacklevel=2,
+            )
+        return rows
 
     def score(self, text: str) -> list[float]:
         return self.score_many([text])[0]
