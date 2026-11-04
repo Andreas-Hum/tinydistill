@@ -1,0 +1,102 @@
+[
+  {
+    "teacher": "Qwen/Qwen3.5-9B",
+    "prompt": "task.yaml",
+    "few_shot": 8,
+    "accuracy": 0.85,
+    "macro_f1": 0.835938948359036,
+    "seconds_per_text": 6.652123350956011,
+    "instruction": "You are classifying messages that customers sent to their bank's support chat.\nChoose the single intent from this list that best matches the message:\n{labels}\n{examples}\n\nMessage: {text}\n\nReply with the intent exactly as written in the list.",
+    "descriptions": false
+  },
+  {
+    "teacher": "google/gemma-4-12B-it",
+    "prompt": "task.yaml",
+    "few_shot": 8,
+    "accuracy": 0.84,
+    "macro_f1": 0.8312245662942563,
+    "seconds_per_text": 11.956885852198,
+    "instruction": "You are classifying messages that customers sent to their bank's support chat.\nChoose the single intent from this list that best matches the message:\n{labels}\n{examples}\n\nMessage: {text}\n\nReply with the intent exactly as written in the list.",
+    "descriptions": false
+  },
+  {
+    "teacher": "Qwen/Qwen3.5-4B",
+    "prompt": "task.yaml",
+    "few_shot": 8,
+    "accuracy": 0.804,
+    "macro_f1": 0.7946716005861195,
+    "seconds_per_text": 6.61874646711399,
+    "instruction": "You are classifying messages that customers sent to their bank's support chat.\nChoose the single intent from this list that best matches the message:\n{labels}\n{examples}\n\nMessage: {text}\n\nReply with the intent exactly as written in the list.",
+    "descriptions": false
+  },
+  {
+    "teacher": "google/gemma-4-E4B-it",
+    "prompt": "task.yaml",
+    "few_shot": 8,
+    "accuracy": 0.794,
+    "macro_f1": 0.7800587943594116,
+    "seconds_per_text": 3.916828736090014,
+    "instruction": "You are classifying messages that customers sent to their bank's support chat.\nChoose the single intent from this list that best matches the message:\n{labels}\n{examples}\n\nMessage: {text}\n\nReply with the intent exactly as written in the list.",
+    "descriptions": false
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-7B-Instruct",
+    "prompt": "task.yaml",
+    "few_shot": 8,
+    "accuracy": 0.768,
+    "macro_f1": 0.7435033032782639,
+    "seconds_per_text": 0.18735429312000634,
+    "instruction": "You are classifying messages that customers sent to their bank's support chat.\nChoose the single intent from this list that best matches the message:\n{labels}\n{examples}\n\nMessage: {text}\n\nReply with the intent exactly as written in the list.",
+    "descriptions": false
+  },
+  {
+    "teacher": "google/gemma-4-12B-it",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.712,
+    "macro_f1": 0.6799252941570517,
+    "seconds_per_text": 2.936112334667996,
+    "instruction": "You are classifying messages that customers sent to their bank's support chat.\nChoose the single intent from this list that best matches the message:\n{labels}\n{examples}\n\nMessage: {text}\n\nReply with the intent exactly as written in the list.",
+    "descriptions": false
+  },
+  {
+    "teacher": "Qwen/Qwen3.5-9B",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.668,
+    "macro_f1": 0.6409153502766546,
+    "seconds_per_text": 1.471381423924002,
+    "instruction": "You are classifying messages that customers sent to their bank's support chat.\nChoose the single intent from this list that best matches the message:\n{labels}\n{examples}\n\nMessage: {text}\n\nReply with the intent exactly as written in the list.",
+    "descriptions": false
+  },
+  {
+    "teacher": "Qwen/Qwen3.5-4B",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.638,
+    "macro_f1": 0.6113423693075829,
+    "seconds_per_text": 1.2675545530140224,
+    "instruction": "You are classifying messages that customers sent to their bank's support chat.\nChoose the single intent from this list that best matches the message:\n{labels}\n{examples}\n\nMessage: {text}\n\nReply with the intent exactly as written in the list.",
+    "descriptions": false
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-7B-Instruct",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.616,
+    "macro_f1": 0.5709350425758483,
+    "seconds_per_text": 0.11522652546799508,
+    "instruction": "You are classifying messages that customers sent to their bank's support chat.\nChoose the single intent from this list that best matches the message:\n{labels}\n{examples}\n\nMessage: {text}\n\nReply with the intent exactly as written in the list.",
+    "descriptions": false
+  },
+  {
+    "teacher": "google/gemma-4-E4B-it",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.572,
+    "macro_f1": 0.5412792678664577,
+    "seconds_per_text": 0.6741261367400002,
+    "instruction": "You are classifying messages that customers sent to their bank's support chat.\nChoose the single intent from this list that best matches the message:\n{labels}\n{examples}\n\nMessage: {text}\n\nReply with the intent exactly as written in the list.",
+    "descriptions": false
+  }
+]
