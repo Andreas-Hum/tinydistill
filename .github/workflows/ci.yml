@@ -126,6 +126,23 @@ jobs:
       - name: End-to-end test against the installed package
         run: pytest -q tests/test_cli.py -k "end_to_end or python_pipeline" -p no:cacheprovider
 
+  docs:
+    name: docs build (strict)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[docs]"
+      - run: mkdocs build --strict --site-dir site
+        env:
+          NO_MKDOCS_2_WARNING: "1"
+
   browser:
     name: web page in a browser
     runs-on: ubuntu-latest

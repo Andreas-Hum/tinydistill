@@ -1,14 +1,14 @@
 # Results
 
-Every table on this page is written by the example scripts in [`examples/`](examples/) from their saved
-results files; the text only quotes them. The [README](README.md#results) has a summary, and the
-[live demo](https://andreas-hum.github.io/tinydistill/) runs the Banking77 student in your browser.
+Every table on this page is written by the example scripts in [`examples/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples) from their saved
+results files; the text only quotes them. The [README](https://github.com/Andreas-Hum/tinydistill#results) has a summary, and the
+[live demo](https://andreas-hum.github.io/tinydistill/demo/) runs the Banking77 student in your browser.
 
 Teachers are `Qwen/Qwen2.5-1.5B-Instruct` and `Qwen/Qwen2.5-7B-Instruct` (4 bit), zero-shot or with 8 gold
 examples per class in the prompt; the student is `sentence-transformers/all-MiniLM-L6-v2` unless a table says
 otherwise. Quality is measured on gold-labelled test texts that no model trains on, and students are trained
 with 3 seeds (mean ± standard deviation). Students train for 5 epochs (the default before 0.3.1) unless a
-table says otherwise; see [Training the student](README.md#training-the-student).
+table says otherwise; see [Training the student](https://andreas-hum.github.io/tinydistill/guide/training/).
 
 ## Banking77: the hard case
 

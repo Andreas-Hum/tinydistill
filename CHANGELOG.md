@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Documentation site at https://andreas-hum.github.io/tinydistill/ (MkDocs): getting started, a guide per
+  topic, how it works, benchmarks, and a command-line and Python API reference generated from the code. The
+  live demo moved to https://andreas-hum.github.io/tinydistill/demo/.
+
 ## 0.3.4 (2026-11-04)
 
 - Fix: `tune --out NAME` with a dot in NAME (such as `tune-1.5b`) wrote `tune-1.md`; it now writes

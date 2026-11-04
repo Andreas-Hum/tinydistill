@@ -6,7 +6,8 @@
 <a href="https://pepy.tech/projects/tinydistill"><img src="https://static.pepy.tech/badge/tinydistill/month" alt="Downloads per month"></a>
 <a href="https://github.com/Andreas-Hum/tinydistill/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Andreas-Hum/tinydistill.svg" alt="MIT licence"></a>
 <a href="https://colab.research.google.com/github/Andreas-Hum/tinydistill/blob/main/notebooks/quickstart.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open in Colab"></a>
-<a href="https://andreas-hum.github.io/tinydistill/"><img src="https://img.shields.io/badge/demo-live-2a78d6.svg" alt="Live demo"></a>
+<a href="https://andreas-hum.github.io/tinydistill/"><img src="https://img.shields.io/badge/docs-online-2a78d6.svg" alt="Documentation"></a>
+<a href="https://andreas-hum.github.io/tinydistill/demo/"><img src="https://img.shields.io/badge/demo-live-2a78d6.svg" alt="Live demo"></a>
 <a href="https://huggingface.co/collections/Shroomy/tinydistill-6aea5b24819dbca9cb7eeb8d"><img src="https://img.shields.io/badge/Hugging%20Face-models-ffcc4d.svg" alt="Models on the Hugging Face Hub"></a>
 
 **Most of a large model's quality on one task, many times faster, on a CPU.**
@@ -17,15 +18,19 @@ targets, a small encoder learns to imitate them, and the result is exported to O
 inference on a CPU, in a browser or behind an HTTP server. It continues my bachelor's project on inference
 optimisation by distilling LLMs.
 
+**[Documentation](https://andreas-hum.github.io/tinydistill/)** · [Live demo](https://andreas-hum.github.io/tinydistill/demo/) ·
+[Benchmarks](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md) ·
+[Notebooks](https://andreas-hum.github.io/tinydistill/getting-started/notebooks/)
+
 <p align="center">
-  <a href="https://andreas-hum.github.io/tinydistill/">
+  <a href="https://andreas-hum.github.io/tinydistill/demo/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/demo-dark.png">
       <img alt="The live demo: a 23 MB Banking77 classifier running in the browser, showing the word pieces and what each layer of the model would answer" src="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/demo-light.png" width="480">
     </picture>
   </a>
 </p>
-<p align="center"><i>The <a href="https://andreas-hum.github.io/tinydistill/">live demo</a>: a 23 MB student distilled from Qwen2.5-7B runs in your
+<p align="center"><i>The <a href="https://andreas-hum.github.io/tinydistill/demo/">live demo</a>: a 23 MB student distilled from Qwen2.5-7B runs in your
 browser and shows what happens inside it.</i></p>
 
 ## Highlights
@@ -259,17 +264,16 @@ visitor's browser with no server at all. Below the answer, an "Inside the model"
 for the examples and the cascade), so the page also explains distillation. Serve the folder with any static host (GitHub Pages works).
 
 **Hugging Face Hub.** `tinydistill push RUN/onnx --repo user/name` uploads the model with a model card.
-These models from the results are published that way, in a [collection](https://huggingface.co/collections/Shroomy/tinydistill-6aea5b24819dbca9cb7eeb8d):
+Anyone can then use it without the run directory: `Predictor("hf:user/name")` in Python, or
+`tinydistill predict hf:user/name "some text"`, `serve hf:user/name` and `web hf:user/name --out site` on the
+command line. These models from the results are published that way, in a
+[collection](https://huggingface.co/collections/Shroomy/tinydistill-6aea5b24819dbca9cb7eeb8d):
 
 | Model | Task | Size | Test accuracy |
 |---|---|---|---|
 | [`Shroomy/tinydistill-banking77-minilm`](https://huggingface.co/Shroomy/tinydistill-banking77-minilm) | Banking77, 77 intents | 23 MB | 0.814 |
 | [`Shroomy/tinydistill-banking77-static`](https://huggingface.co/Shroomy/tinydistill-banking77-static) | Banking77, static embeddings | 8 MB | 0.802 |
 | [`Shroomy/tinydistill-financial-tweets-minilm`](https://huggingface.co/Shroomy/tinydistill-financial-tweets-minilm) | financial tweet sentiment | 23 MB | 0.820 |
- Anyone
-can then use it without the run directory: `Predictor("hf:user/name")` in Python, or
-`tinydistill predict hf:user/name "some text"`, `serve hf:user/name` and `web hf:user/name --out site` on the
-command line.
 
 ### A few gold labels
 
@@ -475,8 +479,9 @@ among labels.
 - **Teacher cost grows with labels.** Every text is scored against every surface form of every label (shared
   prefixes are computed once). With very many labels use `--shortlist K`; a gold label outside the shortlist
   cannot be learned from the teacher for that text.
-- **Multi-label tasks ask one question per label**, so they cost one forward pass per label and text.
-  Inputs are truncated to 128 tokens by default (`--max-length`).
+- **Multi-label tasks ask one question per label** (all of a text's questions in one forward pass, but a longer
+  one), and their students need more epochs.
+- **Inputs are truncated** to 128 tokens by default (`--max-length`).
 - **Timings depend on the machine.** The results table states the threads and devices used; rerun `eval` on your
   own hardware.
 - ONNX export uses PyTorch's TorchScript-based exporter.

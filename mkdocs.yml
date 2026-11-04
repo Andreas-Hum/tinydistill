@@ -1,0 +1,104 @@
+site_name: tinydistill
+site_description: Distil an LLM classification prompt into a small, fast model.
+site_url: https://andreas-hum.github.io/tinydistill/
+repo_url: https://github.com/Andreas-Hum/tinydistill
+repo_name: Andreas-Hum/tinydistill
+edit_uri: edit/main/docs/
+copyright: MIT licence
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.instant
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Light mode
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - From Python: getting-started/python.md
+      - Notebooks: getting-started/notebooks.md
+  - Guide:
+      - The task file: guide/task-file.md
+      - Choosing the teacher: guide/teacher.md
+      - Many labels: guide/many-labels.md
+      - A few gold labels: guide/gold-labels.md
+      - Training the student: guide/training.md
+      - Results and charts: guide/evaluation.md
+      - Improving a run: guide/improving.md
+      - Deploying: guide/deploying.md
+      - No unlabelled data: guide/no-data.md
+  - How it works: how-it-works.md
+  - When to use it: when-to-use.md
+  - Benchmarks: results.md
+  - Reference:
+      - Command line: reference/cli.md
+      - Python API: reference/python.md
+  - Changelog: changelog.md
+  - Contributing: contributing.md
+  - Live demo: https://andreas-hum.github.io/tinydistill/demo/
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            show_root_heading: true
+            heading_level: 3
+            members_order: source
+            docstring_style: sphinx
+            show_signature_annotations: true
+            separate_signature: true
+
+hooks:
+  - docs/hooks.py
+
+exclude_docs: |
+  hooks.py

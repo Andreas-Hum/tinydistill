@@ -1,11 +1,22 @@
-name: Demo
+name: Docs and demo
 
-# Publishes demo/ (a static page that runs a distilled model in the browser) to GitHub Pages, after opening it
-# in Chromium to check that the model runs and the "Inside the model" view fills in.
+# Publishes the documentation (MkDocs) at the site root and demo/ (a static page that runs a distilled model in
+# the browser) at /demo/, after building the docs strictly and opening the demo in Chromium to check that the
+# model runs and the "Inside the model" view fills in.
 on:
   push:
     branches: [main]
-    paths: ["demo/**", "tests/browser/check_page.mjs", ".github/workflows/pages.yml"]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "demo/**"
+      - "src/**"
+      - "RESULTS.md"
+      - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
+      - "examples/**/*.md"
+      - "tests/browser/check_page.mjs"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -18,38 +29,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install (the CLI reference is generated from the code, so the package is needed)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[docs]"
+      - name: Build the docs
+        env:
+          NO_MKDOCS_2_WARNING: "1"
+        run: mkdocs build --strict --site-dir site
+      - name: Add the demo
+        run: cp -r demo site/demo
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: |
+      - name: Open the demo in Chromium
+        run: |
           npm install --no-save playwright@1.64.1
           npx playwright install --with-deps chromium
-      - run: |
-          python3 -m http.server 8000 --bind 127.0.0.1 -d demo &
-          node tests/browser/check_page.mjs http://127.0.0.1:8000/ demo.png
+          python -m http.server 8000 --bind 127.0.0.1 -d site &
+          node tests/browser/check_page.mjs http://127.0.0.1:8000/demo/ demo.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: demo-screenshot
           path: demo.png
           if-no-files-found: ignore
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
 
   deploy:
-    needs: check
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: demo
       - id: deployment
         uses: actions/deploy-pages@v4
