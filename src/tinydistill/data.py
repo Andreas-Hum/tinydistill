@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
+from typing import Any
 
 from .task import Task
 
@@ -43,7 +44,8 @@ def _gold_set(value: object, task: Task, names: list[str] | None) -> list[int] |
     if value is None or value == "":
         return None
     items = value if isinstance(value, list | tuple) else str(value).split("|")
-    return sorted({_gold_index(v.strip() if isinstance(v, str) else v, task, names) for v in items} - {None})
+    found = {_gold_index(v.strip() if isinstance(v, str) else v, task, names) for v in items}
+    return sorted(i for i in found if i is not None)
 
 
 def _rows(spec: str) -> tuple[Iterator[dict], dict[str, list[str]] | None]:
@@ -85,7 +87,7 @@ def _rows(spec: str) -> tuple[Iterator[dict], dict[str, list[str]] | None]:
 def _class_names(features: dict) -> dict[str, list[str]]:
     out = {}
     for k, f in features.items():
-        inner = getattr(f, "feature", None)  # Sequence(ClassLabel) for multi-label datasets
+        inner: Any = getattr(f, "feature", None)  # Sequence(ClassLabel) for multi-label datasets
         if hasattr(f, "names") or hasattr(inner, "names"):
             out[k] = list(f.names if hasattr(f, "names") else inner.names)
     return out

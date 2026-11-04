@@ -19,7 +19,7 @@ git clone https://github.com/Andreas-Hum/tinydistill && cd tinydistill
 python -m venv .venv && . .venv/bin/activate
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -e ".[dev]"
-ruff check . && ruff format --check . && pytest
+ruff check . && ruff format --check . && mypy && pytest
 ```
 
 The tests use tiny random models from `hf-internal-testing`, so they need a network connection the first time
@@ -32,7 +32,7 @@ To run ruff on every commit, install the hooks once with `pip install pre-commit
 - Keep a pull request to one change, and describe what it changes and why.
 - Add or update tests. New scoring code is checked against a plain forward pass per continuation (see
   `tests/test_scoring.py`); new losses and metrics against values worked out by hand.
-- Run `ruff check .`, `ruff format --check .` and `pytest` before pushing. CI runs the tests on Linux
+- Run `ruff check .`, `ruff format --check .`, `mypy` and `pytest` before pushing. CI runs the tests on Linux
   (Python 3.11 to 3.13), macOS and Windows, on the oldest supported dependency versions, against the built
   wheel, and opens a `tinydistill web` page in Chromium (`tests/browser/`); it also runs weekly against the
   newest dependency releases. A release runs all of it before publishing.

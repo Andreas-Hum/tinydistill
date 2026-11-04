@@ -39,7 +39,8 @@ class StaticForSequenceClassification(PreTrainedModel):
     def __init__(self, config: StaticConfig):
         super().__init__(config)
         self.embed = torch.nn.Embedding(config.vocab_size, config.dim)
-        self.head = torch.nn.Linear(config.dim, config.num_labels)
+        # transformers types num_labels as int | None; a config always has a label count here
+        self.head = torch.nn.Linear(config.dim, config.num_labels)  # type: ignore[arg-type]
         self.post_init()
 
     def forward(self, input_ids, attention_mask=None, **_):
