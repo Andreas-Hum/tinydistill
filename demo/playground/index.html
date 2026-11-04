@@ -1,0 +1,855 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Distillation playground</title>
+<meta name="description" content="Train a small network from a bigger one's soft labels, in your browser: the knowledge distillation that tinydistill does, on 2D toy data.">
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f6f5f1; --card: #fffefb; --fg: #1d1d1b; --muted: #5f5e5a; --line: #dcdad3;
+    --ink: #1d1d1b; --on-ink: #fffefb; --focus: #2a5db0;
+    --c0: #6a4fc9; --c1: #c98500; --c2: #2a9d8f; --c3: #b8381a;
+    --pos: #2b6cb0; --neg: #d0742c; --mid: #efeee9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #141413; --card: #1c1c1a; --fg: #efeee9; --muted: #b3b2aa; --line: #373733;
+      --ink: #efeee9; --on-ink: #141413; --focus: #7fa8e8;
+      --c0: #8a72e6; --c1: #c98500; --c2: #2a9d8f; --c3: #c63c3c;
+      --pos: #5b97da; --neg: #e08a45; --mid: #2a2a27;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 1.2rem; margin: 0; letter-spacing: -.01em; }
+  h2 { font-size: .74rem; margin: 12px 0 2px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  h2:first-child { margin-top: 0; }
+  h3 { font-size: .92rem; margin: 0; white-space: nowrap; }
+  p { margin: 0; }
+  a { color: var(--focus); }
+  .note { color: var(--muted); font-size: .8rem; }
+  .num { font-variant-numeric: tabular-nums; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; padding: 10px 16px;
+               border-bottom: 1px solid var(--line); }
+  header.top .brand { flex: 1 1 360px; }
+  header.top .brand p { color: var(--muted); font-size: .85rem; }
+  .run { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  button { font: inherit; font-size: .88rem; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line);
+           cursor: pointer; background: var(--card); color: var(--fg); transition: border-color .15s; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--ink); color: var(--on-ink); border-color: var(--ink); min-width: 70px; }
+  .epoch b { font-size: 1.05rem; }
+  #speed { color: var(--muted); font-size: .8rem; min-width: 8.5em; }
+  input[type=number], select { font: inherit; font-size: .85rem; padding: 2px 6px; border: 1px solid var(--line);
+                               border-radius: 6px; background: var(--card); color: var(--fg); }
+  input[type=number] { width: 6.5em; }
+
+  main { display: grid; gap: 10px; padding: 10px 16px 16px; max-width: 1600px; margin: 0 auto;
+         grid-template-columns: 250px minmax(0, 1.25fr) minmax(0, 1fr);
+         grid-template-areas: "controls models models" "controls net side"; align-items: start; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  #controls { grid-area: controls; } #models { grid-area: models; } #net { grid-area: net; } #side { grid-area: side; }
+
+  .ctl { display: grid; grid-template-columns: 6.6em minmax(0, 1fr) 2.6em; align-items: center; gap: 6px; margin: 3px 0; }
+  .ctl label { font-size: .84rem; }
+  .ctl output { font-variant-numeric: tabular-nums; font-size: .84rem; color: var(--muted); text-align: right; }
+  .ctl input[type=range] { width: 100%; margin: 0; accent-color: var(--ink); }
+  .ctl select { grid-column: 2 / -1; justify-self: start; }
+  .ctl input:disabled, .ctl input:disabled + output { opacity: .4; }
+  fieldset { border: 0; padding: 0; margin: 6px 0 4px; min-width: 0; }
+  legend { font-size: .84rem; padding: 0; margin-bottom: 3px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chips input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .chips label { padding: 1px 9px; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; font-size: .82rem;
+                 display: inline-flex; align-items: center; gap: 5px; }
+  .chips input:checked + label { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+  .chips input:focus-visible + label { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .chips input:disabled + label { display: none; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 6px; }
+  .check { display: flex; gap: 6px; align-items: center; font-size: .84rem; }
+  #clear-pts { margin-top: 4px; }
+
+  canvas { display: block; }
+  canvas.plane { width: 100%; aspect-ratio: 1; border-radius: 6px; border: 1px solid var(--line); cursor: crosshair;
+                 touch-action: manipulation; }
+  #models > .note { margin: 0 0 8px; }
+  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: var(--card); min-width: 0; }
+  .card.teacher { border-style: dashed; }
+  .card.sel { border-color: var(--ink); }
+  .card .rule { font-size: .76rem; color: var(--muted); height: 2.8em; overflow: hidden; margin: 2px 0 6px; }
+  .card .rule b { color: var(--fg); font-weight: 600; }
+  .tag { font-size: .68rem; border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; margin-left: 4px;
+         color: var(--muted); font-weight: normal; vertical-align: 1px; }
+  .stats { display: grid; grid-template-columns: 1fr auto; gap: 0 6px; margin-top: 6px; font-size: .8rem; }
+  .stats b { font-variant-numeric: tabular-nums; text-align: right; }
+  canvas.loss { width: 100%; height: 24px; margin-top: 4px; }
+  .lossline { display: flex; justify-content: space-between; font-size: .72rem; color: var(--muted); }
+  #teacher-status { font-size: .72rem; margin-top: 4px; }
+
+  #net canvas { width: 100%; height: 184px; }
+  #net .head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 10px; }
+  #net h2 { margin: 0; }
+  .key { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: .74rem; color: var(--muted); margin-top: 4px; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 3px; }
+  svg.shape { width: 11px; height: 11px; vertical-align: -1px; }
+
+  #readout { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 3px 10px; align-items: center;
+             font-size: .8rem; min-height: 7.6em; align-content: start; }
+  #readout .who { color: var(--muted); }
+  #readout .bar { display: flex; height: 12px; border-radius: 3px; overflow: hidden; gap: 1px; }
+  #readout .bar span { display: block; height: 100%; }
+  #readout .p { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+  #readout-head { grid-column: 1 / -1; color: var(--muted); }
+  details#try { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 6px; font-size: .84rem; }
+  details#try summary { cursor: pointer; font-weight: 600; }
+  details#try ul { margin: 4px 0 0; padding-left: 18px; }
+  details#try li { margin: 3px 0; }
+
+  @media (max-width: 1100px) {
+    main { grid-template-columns: 250px minmax(0, 1fr);
+           grid-template-areas: "controls models" "controls side" "controls net"; }
+    .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 700px) {
+    main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "models" "side" "controls" "net"; padding: 10px; }
+    header.top { padding: 10px; }
+    .card { padding: 6px; }
+    .card .rule { height: 5.6em; }
+    .stats { font-size: .74rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>Distillation playground</h1>
+    <p>Small networks learn from a bigger one's probabilities, in your browser, as in
+      <a href="https://andreas-hum.github.io/tinydistill/">tinydistill</a>.</p>
+  </div>
+  <div class="run">
+    <button id="play" class="primary" aria-pressed="true">Pause</button>
+    <button id="step" title="One training step for each student: every training point once, so one epoch">Step</button>
+    <button id="reset" title="Restart the students from their initial weights">Reset</button>
+    <span class="epoch">Epoch <b id="epoch" class="num">0</b></span>
+    <span id="speed" class="num"></span>
+    <label>Seed <input id="seed" type="number" min="1" max="999999" step="1"></label>
+  </div>
+</header>
+
+<main>
+  <aside id="controls" class="panel" aria-label="Settings">
+    <h2>Data</h2>
+    <p class="note">Gold points are labelled by hand, the rest only by the teacher. 600 test points report
+      accuracy.</p>
+    <fieldset>
+      <legend>Dataset</legend>
+      <div class="chips" id="ds"></div>
+    </fieldset>
+    <div class="ctl"><label for="k">Classes</label><input id="k" type="range" min="2" max="4" step="1"><output for="k" id="k-out"></output></div>
+    <div class="ctl"><label for="noise">Noise</label><input id="noise" type="range" min="0" max="100" step="5"><output for="noise" id="noise-out"></output></div>
+    <div class="ctl"><label for="gold">Gold per class</label><input id="gold" type="range" min="1" max="50" step="1"><output for="gold" id="gold-out"></output></div>
+    <div class="ctl"><label for="unl">Unlabelled</label><input id="unl" type="range" min="0" max="2000" step="50"><output for="unl" id="unl-out"></output></div>
+    <div class="row">
+      <button id="regen" title="A new random seed: new data, teacher and students">Regenerate</button>
+      <label class="check"><input id="show" type="checkbox"> Show unlabelled</label>
+    </div>
+    <fieldset>
+      <legend>A click on a plane adds a gold point of class</legend>
+      <div class="chips" id="add"></div>
+    </fieldset>
+    <button id="clear-pts" hidden></button>
+
+    <h2>Teacher</h2>
+    <p class="note">Its labelled data and training. A poor teacher errs, as an LLM can.</p>
+    <div class="ctl"><label for="tq">Quality</label><input id="tq" type="range" min="1" max="5" step="1"><output for="tq" id="tq-out"></output></div>
+
+    <h2>Students</h2>
+    <p class="note">One network for all three; a change restarts them. Adam, full batch: a step is an epoch.</p>
+    <div class="ctl"><label for="layers">Hidden layers</label><input id="layers" type="range" min="0" max="3" step="1"><output for="layers" id="layers-out"></output></div>
+    <div class="ctl"><label for="neurons">Neurons</label><input id="neurons" type="range" min="1" max="8" step="1"><output for="neurons" id="neurons-out"></output></div>
+    <div class="ctl"><label for="lr">Learning rate</label>
+      <select id="lr"><option>0.001</option><option>0.003</option><option>0.01</option><option>0.03</option>
+        <option>0.1</option><option>0.3</option></select></div>
+    <div class="ctl"><label for="lam" title="The weight of cross-entropy on gold for the hard- and soft-label students">Lambda (λ)</label><input id="lam" type="range" min="0" max="5" step="0.1"><output for="lam" id="lam-out"></output></div>
+  </aside>
+
+  <section id="models" class="panel" aria-label="Teacher and students">
+    <p class="note">The students share one network and its starting weights; only their targets differ. Colour
+      shows the class, brightness how sure the model is.</p>
+    <div class="cards" id="cards">
+      <article class="card teacher">
+        <h3>Teacher</h3>
+        <p class="rule"><b>CE(its own labelled points)</b><br>2 layers of 24, then fixed.</p>
+        <canvas class="plane" id="plane-teacher" aria-label="Teacher decision regions"></canvas>
+        <div class="stats"><span>Test accuracy</span><b id="acc-teacher">-</b></div>
+        <p class="note" id="teacher-status"></p>
+      </article>
+    </div>
+  </section>
+
+  <section id="net" class="panel">
+    <div class="head">
+      <h2 id="net-h">Inside a student</h2>
+      <div class="chips" id="sel" role="radiogroup" aria-labelledby="net-h"></div>
+    </div>
+    <canvas id="net-canvas" aria-label="Network diagram of the selected student"></canvas>
+    <div class="key">
+      <span>Tiles: each neuron's output over the plane.</span>
+      <span>Lines: weights, thicker when larger.</span>
+      <span><i class="sw" style="background:var(--pos)"></i>positive <i class="sw" style="background:var(--neg)"></i>negative</span>
+    </div>
+  </section>
+
+  <section id="side" class="panel" aria-labelledby="side-h">
+    <h2 id="side-h">At a point</h2>
+    <div id="readout"></div>
+    <details id="try">
+      <summary>What to try</summary>
+      <ul>
+        <li>Moons with 3 gold labels per class: compare the gold-only student with the soft-label one. The
+          gold-only student sees 6 points; the others see the shape of the data through the teacher.</li>
+        <li>Set the teacher quality to 1. The students inherit its mistakes: they keep agreeing with the teacher
+          while their test accuracy falls with its own.</li>
+        <li>With a weak teacher, raise lambda: the gold labels pull the students toward the truth near the gold
+          points.</li>
+        <li>Set unlabelled points to 0, then raise it: the distilled students learn from far more points than
+          were labelled by hand.</li>
+        <li>Hover near a boundary: where the teacher is unsure, the soft label keeps that; the hard label turns it
+          into a certain answer. With 3 or 4 noisy blobs the soft labels also say which classes are close.</li>
+        <li>Spiral with one hidden layer of 2 neurons: a student too small for the task gets it wrong whatever the
+          teacher says.</li>
+      </ul>
+    </details>
+  </section>
+</main>
+
+<script>
+"use strict";
+// ---------- settings, kept in the URL ----------
+const DATASETS = { blobs: "Blobs", moons: "Moons", circles: "Circles", xor: "XOR", spiral: "Spiral" };
+const FIXED_K = { moons: 2, xor: 2 };
+const QUALITY = [null, { n: 3, steps: 80, name: "poor" }, { n: 8, steps: 150, name: "weak" },
+  { n: 20, steps: 150, name: "fair" }, { n: 50, steps: 250, name: "good" }, { n: 120, steps: 500, name: "strong" }];
+const LRS = ["0.001", "0.003", "0.01", "0.03", "0.1", "0.3"];
+const DEFAULTS = { ds: "moons", k: 2, noise: 30, gold: 4, unl: 600, tq: 4, h: 2, n: 6, lr: "0.03", lam: 1, seed: 1,
+  show: 1, sel: 2, add: 0, pts: [] };
+const S = { ...DEFAULTS };
+const NAMES = ["Gold only", "Hard labels", "Soft labels"];
+const RULES = [["CE(gold)", "Only the hand-labelled points."],
+  ["CE(teacher's argmax) + λ CE(gold)", "The teacher's top class per point."],
+  ["KL(teacher ‖ student) + λ CE(gold)", "The teacher's probabilities."]];
+const LETTERS = "ABCD";
+const D = 1.25;           // the plane shows [-D, D] in both directions
+const G = 72, T = 18;     // grid of the decision regions; of a neuron tile
+
+function readURL() {
+  const q = new URLSearchParams(location.search);
+  const int = (key, lo, hi) => {
+    const v = parseInt(q.get(key), 10);
+    if (Number.isFinite(v)) S[key] = Math.min(hi, Math.max(lo, v));
+  };
+  if (q.get("ds") in DATASETS) S.ds = q.get("ds");
+  int("k", 2, 4); int("noise", 0, 100); int("gold", 1, 50); int("unl", 0, 2000); int("tq", 1, 5);
+  int("h", 0, 3); int("n", 1, 8); int("seed", 1, 999999); int("show", 0, 1); int("sel", 0, 2); int("add", 0, 3);
+  if (LRS.includes(q.get("lr"))) S.lr = q.get("lr");
+  const lam = parseFloat(q.get("lam"));
+  if (Number.isFinite(lam)) S.lam = Math.min(5, Math.max(0, Math.round(lam * 10) / 10));
+  S.unl = Math.round(S.unl / 50) * 50;
+  if (FIXED_K[S.ds]) S.k = FIXED_K[S.ds];
+  S.add = Math.min(S.add, S.k - 1);
+  S.pts = (q.get("pts") || "").split(";").filter(Boolean).slice(0, 200).map((p) => p.split(",").map(Number))
+    .filter(([x, y, c]) => Math.abs(x) <= D && Math.abs(y) <= D && Number.isInteger(c) && c >= 0 && c < S.k);
+}
+function writeURL() {
+  const q = new URLSearchParams();
+  for (const key of ["ds", "k", "noise", "gold", "unl", "tq", "h", "n", "lr", "lam", "seed", "show", "sel", "add"]) {
+    q.set(key, S[key]);
+  }
+  if (S.pts.length) q.set("pts", S.pts.map(([x, y, c]) => `${x.toFixed(2)},${y.toFixed(2)},${c}`).join(";"));
+  history.replaceState(null, "", "?" + q.toString().replaceAll("%2C", ",").replaceAll("%3B", ";"));
+}
+
+// ---------- seeded random numbers ----------
+function rng(...tags) {  // mulberry32, seeded from a string hash of the seed and the purpose
+  let h = 2166136261;
+  for (const ch of tags.join("|")) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  let a = h >>> 0;
+  const next = () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  next.gauss = () => Math.sqrt(-2 * Math.log(1 - next())) * Math.cos(2 * Math.PI * next());
+  return next;
+}
+
+// ---------- datasets: n points per class ----------
+function sample(r, perClass) {
+  const k = S.k, s = S.noise / 100, X = new Float32Array(perClass * k * 2), Y = new Int32Array(perClass * k);
+  let i = 0;
+  for (let c = 0; c < k; c++) {
+    for (let j = 0; j < perClass; j++, i++) {
+      let x, y;
+      if (S.ds === "blobs") {
+        const a = 2 * Math.PI * c / k + Math.PI / 4, sd = 0.1 + 0.32 * s;
+        x = 0.55 * Math.cos(a) + sd * r.gauss(); y = 0.55 * Math.sin(a) + sd * r.gauss();
+      } else if (S.ds === "moons") {
+        const t = Math.PI * r(), sd = 0.03 + 0.22 * s;
+        x = c ? 1 - Math.cos(t) : Math.cos(t); y = c ? 0.5 - Math.sin(t) : Math.sin(t);
+        x = (x - 0.5) * 0.6 + sd * r.gauss(); y = (y - 0.25) * 0.6 + sd * r.gauss();
+      } else if (S.ds === "circles") {
+        const a = 2 * Math.PI * r(), rad = 0.2 + 0.7 * c / (k - 1) + (0.02 + 0.16 * s) * r.gauss();
+        x = rad * Math.cos(a); y = rad * Math.sin(a);
+      } else if (S.ds === "xor") {
+        const sx = r() < 0.5 ? -1 : 1, sy = c ? -sx : sx, sd = 0.25 * s;
+        x = sx * (0.06 + 0.84 * r()) + sd * r.gauss(); y = sy * (0.06 + 0.84 * r()) + sd * r.gauss();
+      } else {  // spiral
+        const t = r(), rad = 0.08 + 0.85 * t, a = 2 * Math.PI * c / k + 5.5 * t, sd = 0.015 + 0.12 * s;
+        x = rad * Math.cos(a) + sd * r.gauss(); y = rad * Math.sin(a) + sd * r.gauss();
+      }
+      X[2 * i] = Math.max(-D, Math.min(D, x)); X[2 * i + 1] = Math.max(-D, Math.min(D, y)); Y[i] = c;
+    }
+  }
+  return { X, Y, n: perClass * k };
+}
+
+// ---------- a small MLP: tanh hidden layers, softmax output, Adam ----------
+class MLP {
+  constructor(sizes, r) {
+    this.sizes = sizes; this.L = sizes.length - 1; this.w = []; this.b = [];
+    let total = 0;
+    for (let l = 1; l <= this.L; l++) {
+      this.w[l] = total; total += sizes[l - 1] * sizes[l];
+      this.b[l] = total; total += sizes[l];
+    }
+    this.p = new Float32Array(total); this.g = new Float32Array(total);
+    this.m = new Float32Array(total); this.v = new Float32Array(total); this.t = 0; this.cache = new Map();
+    if (r) {
+      for (let l = 1; l <= this.L; l++) {  // Glorot uniform, zero biases
+        const lim = Math.sqrt(6 / (sizes[l - 1] + sizes[l]));
+        for (let i = this.w[l]; i < this.b[l]; i++) this.p[i] = (2 * r() - 1) * lim;
+      }
+    }
+  }
+  copy() {
+    const c = new MLP(this.sizes);
+    c.p.set(this.p);
+    return c;
+  }
+  bufs(n) {  // activations and deltas per layer, kept per batch size
+    let b = this.cache.get(n);
+    if (!b) {
+      b = { a: [null], d: [null] };
+      for (let l = 1; l <= this.L; l++) {
+        b.a[l] = new Float32Array(n * this.sizes[l]); b.d[l] = new Float32Array(n * this.sizes[l]);
+      }
+      b.q = new Float32Array(n * this.sizes[this.L]);
+      this.cache.set(n, b);
+    }
+    return b;
+  }
+  forward(X, n) {  // returns the buffers; b.q holds the softmax probabilities
+    const b = this.bufs(n), p = this.p;
+    b.a[0] = X;
+    for (let l = 1; l <= this.L; l++) {
+      const nin = this.sizes[l - 1], nout = this.sizes[l], A = b.a[l - 1], O = b.a[l], wo = this.w[l], bo = this.b[l];
+      for (let i = 0; i < n; i++) {
+        const oi = i * nout, ai = i * nin;
+        for (let j = 0; j < nout; j++) O[oi + j] = p[bo + j];
+        for (let k = 0; k < nin; k++) {
+          const x = A[ai + k], wk = wo + k * nout;
+          if (x !== 0) for (let j = 0; j < nout; j++) O[oi + j] += x * p[wk + j];
+        }
+        if (l < this.L) for (let j = 0; j < nout; j++) O[oi + j] = Math.tanh(O[oi + j]);
+      }
+    }
+    const K = this.sizes[this.L], Z = b.a[this.L], Q = b.q;
+    for (let i = 0; i < n; i++) {
+      let mx = -Infinity, sum = 0;
+      for (let j = 0; j < K; j++) mx = Math.max(mx, Z[i * K + j]);
+      for (let j = 0; j < K; j++) sum += (Q[i * K + j] = Math.exp(Z[i * K + j] - mx));
+      for (let j = 0; j < K; j++) Q[i * K + j] /= sum;
+    }
+    return b;
+  }
+  backward(b, n) {  // b.d[L] holds dLoss/dlogits; fills this.g
+    const p = this.p, g = this.g;
+    g.fill(0);
+    for (let l = this.L; l >= 1; l--) {
+      const nin = this.sizes[l - 1], nout = this.sizes[l], A = b.a[l - 1], Dl = b.d[l], wo = this.w[l], bo = this.b[l];
+      const Dp = l > 1 ? b.d[l - 1] : null;
+      for (let i = 0; i < n; i++) {
+        const di = i * nout, ai = i * nin;
+        for (let j = 0; j < nout; j++) g[bo + j] += Dl[di + j];
+        for (let k = 0; k < nin; k++) {
+          const x = A[ai + k], wk = wo + k * nout;
+          let s = 0;
+          for (let j = 0; j < nout; j++) {
+            g[wk + j] += x * Dl[di + j];
+            s += p[wk + j] * Dl[di + j];
+          }
+          if (Dp) Dp[ai + k] = s * (1 - x * x);
+        }
+      }
+    }
+  }
+  adam(lr) {
+    const b1 = 0.9, b2 = 0.999, t = ++this.t, c1 = 1 - b1 ** t, c2 = 1 - b2 ** t;
+    const { p, g, m, v } = this;
+    for (let i = 0; i < p.length; i++) {
+      m[i] = b1 * m[i] + (1 - b1) * g[i];
+      v[i] = b2 * v[i] + (1 - b2) * g[i] * g[i];
+      p[i] -= lr * (m[i] / c1) / (Math.sqrt(v[i] / c2) + 1e-8);
+    }
+  }
+}
+
+// One full-batch step. Per point i the loss is sum_k -R[i,k] log q[i,k] (plus the constant C), with
+// sum_k R[i,k] = W[i], so dLoss/dlogit = W[i] q - R[i]. R mixes the target term (teacher probabilities, the
+// teacher's argmax, or nothing) with lambda times the one-hot gold label; see buildStudents.
+function trainStep(job, lr) {
+  const { net, X, n, R, W } = job, K = net.sizes[net.L], b = net.forward(X, n), Q = b.q, Dl = b.d[net.L];
+  let loss = job.C;
+  for (let i = 0; i < n * K; i++) {
+    if (R[i] > 0) loss -= R[i] * Math.log(Math.max(Q[i], 1e-12));
+    Dl[i] = W[(i / K) | 0] * Q[i] - R[i];
+  }
+  net.backward(b, n);
+  net.adam(lr);
+  return loss;
+}
+
+// ---------- state ----------
+let data, teacher, teacherJob, teacherDone, students = [], epoch = 0, playing = true, dirty = true, hover = null;
+let speedCount = 0, speedT0 = performance.now(), teacherImg;
+const gridX = new Float32Array(G * G * 2), tileX = new Float32Array(T * T * 2);
+for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) {
+  gridX[2 * (i * G + j)] = ((j + 0.5) / G * 2 - 1) * D; gridX[2 * (i * G + j) + 1] = (1 - (i + 0.5) / G * 2) * D;
+}
+for (let i = 0; i < T; i++) for (let j = 0; j < T; j++) {
+  tileX[2 * (i * T + j)] = ((j + 0.5) / T * 2 - 1) * D; tileX[2 * (i * T + j) + 1] = (1 - (i + 0.5) / T * 2) * D;
+}
+
+function makeData() {  // the same settings and seed always give the same points
+  const tag = [S.seed, S.ds, S.k, S.noise];
+  const gold = sample(rng(...tag, "gold"), S.gold), unl = sample(rng(...tag, "unl"), Math.round(S.unl / S.k));
+  const test = sample(rng(...tag, "test"), Math.round(600 / S.k)), tset = sample(rng(...tag, "teacher"), QUALITY[S.tq].n);
+  const extra = S.pts.length;  // gold points added by clicking
+  const gX = new Float32Array((gold.n + extra) * 2), gY = new Int32Array(gold.n + extra);
+  gX.set(gold.X); gY.set(gold.Y);
+  S.pts.forEach(([x, y, c], i) => { gX[2 * (gold.n + i)] = x; gX[2 * (gold.n + i) + 1] = y; gY[gold.n + i] = c; });
+  // the teacher's results on the test set stay valid while it is not retrained
+  data = { gold: { X: gX, Y: gY, n: gold.n + extra }, unl, test, tset,
+    teacherTest: data?.teacherTest, teacherAcc: data?.teacherAcc };
+}
+function oneHot(Y, n, K, scale, R, offset = 0) {
+  for (let i = 0; i < n; i++) R[(offset + i) * K + Y[i]] += scale;
+}
+function startTeacher() {
+  const K = S.k, t = data.tset;
+  teacher = new MLP([2, 24, 24, K], rng(S.seed, "teacher-init"));
+  const R = new Float32Array(t.n * K);
+  oneHot(t.Y, t.n, K, 1 / t.n, R);
+  teacherJob = { net: teacher, X: t.X, n: t.n, R, W: new Float32Array(t.n).fill(1 / t.n), C: 0, done: 0 };
+  teacherDone = false; teacherImg = null; students = []; epoch = 0;
+  document.body.dataset.ready = "0";
+}
+function finishTeacher() {
+  teacherDone = true;
+  const K = S.k, test = data.test, Q = teacher.forward(test.X, test.n).q;
+  data.teacherTest = argmaxes(Q, test.n, K);
+  data.teacherAcc = accuracy(data.teacherTest, test.Y);
+  buildStudents();
+  document.body.dataset.ready = "1";
+}
+function argmaxes(Q, n, K) {
+  const out = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    let best = 0;
+    for (let j = 1; j < K; j++) if (Q[i * K + j] > Q[i * K + best]) best = j;
+    out[i] = best;
+  }
+  return out;
+}
+function accuracy(a, b) {
+  let hit = 0;
+  for (let i = 0; i < a.length; i++) hit += a[i] === b[i];
+  return hit / a.length;
+}
+
+// The three students' training sets: the same network and initial weights, different targets.
+// Distilled students train on the unlabelled points plus the gold points (all labelled by the teacher), with
+// loss = mean over points of KL(teacher || student) [or CE on the teacher's argmax] + lambda * mean CE on gold,
+// as tinydistill's distillation_loss.
+function buildStudents() {
+  const K = S.k, lam = S.lam, gold = data.gold, unl = data.unl, N = unl.n + gold.n;
+  const X = new Float32Array(N * 2);
+  X.set(unl.X); X.set(gold.X, unl.n * 2);
+  const P = new Float32Array(teacher.forward(X, N).q);  // the soft labels: the teacher's own softmax
+  data.soft = P; data.hard = argmaxes(P, N, K); data.all = X;
+  const sizes = [2, ...Array(S.h).fill(S.n), K], init = new MLP(sizes, rng(S.seed, "student-init"));
+  const jobs = [];
+  {  // 0: gold only
+    const R = new Float32Array(gold.n * K);
+    oneHot(gold.Y, gold.n, K, 1 / gold.n, R);
+    jobs.push({ X: gold.X, n: gold.n, R, W: new Float32Array(gold.n).fill(1 / gold.n), C: 0 });
+  }
+  for (const soft of [false, true]) {  // 1: hard labels, 2: soft labels
+    const R = new Float32Array(N * K), W = new Float32Array(N).fill(1 / N);
+    let C = 0;
+    for (let i = 0; i < N; i++) {
+      if (soft) {
+        for (let j = 0; j < K; j++) {
+          const p = P[i * K + j];
+          R[i * K + j] = p / N;
+          if (p > 0) C += p * Math.log(p) / N;  // minus the teacher's entropy: the loss is the KL
+        }
+      } else R[i * K + data.hard[i]] = 1 / N;
+    }
+    oneHot(gold.Y, gold.n, K, lam / gold.n, R, unl.n);
+    for (let i = unl.n; i < N; i++) W[i] += lam / gold.n;
+    jobs.push({ X, n: N, R, W, C });
+  }
+  students = jobs.map((job, i) => ({ ...job, net: init.copy(), name: NAMES[i], loss: [], acc: 0, agree: 0 }));
+  epoch = 0;
+  evaluate();
+  dirty = true;
+}
+function evaluate() {
+  const test = data.test, K = S.k;
+  for (const s of students) {
+    const pred = argmaxes(s.net.forward(test.X, test.n).q, test.n, K);
+    s.acc = accuracy(pred, test.Y); s.agree = accuracy(pred, data.teacherTest);
+  }
+}
+function trainEpoch() {
+  const lr = parseFloat(S.lr);
+  for (const s of students) {
+    const loss = trainStep(s, lr);
+    s.loss.push(loss);
+    if (s.loss.length > 4000) s.loss = s.loss.filter((_, i) => i % 2 === 0);  // keep the shape, halve the points
+    s.lossNow = loss;
+  }
+  epoch++; speedCount++;
+}
+
+// ---------- drawing ----------
+let colors;
+function readColors() {
+  const cs = getComputedStyle(document.documentElement), hex = (v) => {
+    const h = cs.getPropertyValue(v).trim().slice(1);
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  };
+  colors = { cls: [0, 1, 2, 3].map((i) => hex(`--c${i}`)), bg: hex("--card"), fg: hex("--fg"), line: hex("--line"),
+    pos: hex("--pos"), neg: hex("--neg"), mid: hex("--mid"), muted: hex("--muted") };
+}
+const rgb = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const mix = (a, b, t) => [0, 1, 2].map((i) => a[i] + (b[i] - a[i]) * t);
+
+const scratch = document.createElement("canvas");
+function regionImage(net, out) {  // class colour per cell, stronger where the network is more sure
+  const K = S.k, Q = net.forward(gridX, G * G).q;
+  scratch.width = G; scratch.height = G;
+  const ctx = scratch.getContext("2d"), img = ctx.createImageData(G, G);
+  for (let i = 0; i < G * G; i++) {
+    let c = 0;
+    for (let j = 1; j < K; j++) if (Q[i * K + j] > Q[i * K + c]) c = j;
+    const sure = (Q[i * K + c] - 1 / K) / (1 - 1 / K), col = mix(colors.bg, colors.cls[c], 0.06 + 0.5 * sure);
+    img.data.set([col[0], col[1], col[2], 255], i * 4);
+  }
+  ctx.putImageData(img, 0, 0);
+  out = out || document.createElement("canvas");
+  out.width = G; out.height = G;
+  out.getContext("2d").drawImage(scratch, 0, 0);
+  return out;
+}
+function fit(canvas) {  // match the backing store to the CSS size
+  const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  return [w, h, dpr];
+}
+function shape(ctx, x, y, c, r) {  // a shape per class, so the class never rests on colour alone
+  ctx.beginPath();
+  if (c === 0) ctx.arc(x, y, r, 0, 2 * Math.PI);
+  else if (c === 1) ctx.rect(x - r * 0.9, y - r * 0.9, r * 1.8, r * 1.8);
+  else if (c === 2) { ctx.moveTo(x, y - r * 1.15); ctx.lineTo(x + r * 1.1, y + r * 0.8); ctx.lineTo(x - r * 1.1, y + r * 0.8); ctx.closePath(); }
+  else { ctx.moveTo(x, y - r * 1.2); ctx.lineTo(x + r * 1.2, y); ctx.lineTo(x, y + r * 1.2); ctx.lineTo(x - r * 1.2, y); ctx.closePath(); }
+}
+const regionBuf = [0, 1, 2].map(() => document.createElement("canvas"));
+function drawPlane(canvas, img, layers) {
+  const [w, h, dpr] = fit(canvas), ctx = canvas.getContext("2d"), K = S.k;
+  const px = (x) => (x / D + 1) / 2 * w, py = (y) => (1 - y / D) / 2 * h;
+  ctx.imageSmoothingEnabled = true;
+  if (img) ctx.drawImage(img, 0, 0, w, h);
+  else { ctx.fillStyle = rgb(colors.bg); ctx.fillRect(0, 0, w, h); }
+  if (layers.dots && S.show) {  // unlabelled points: the teacher's argmax, or its probabilities mixed
+    const { X, n, P, hard } = layers.dots, s = 2.2 * dpr;
+    for (let i = 0; i < n; i++) {
+      let col;
+      if (hard) col = colors.cls[hard[i]];
+      else { col = [0, 0, 0]; for (let j = 0; j < K; j++) col = col.map((v, m) => v + P[i * K + j] * colors.cls[j][m]); }
+      ctx.fillStyle = rgb(col, 0.9);
+      ctx.fillRect(px(X[2 * i]) - s / 2, py(X[2 * i + 1]) - s / 2, s, s);
+    }
+  }
+  if (layers.points) {
+    const { X, Y, n } = layers.points, r = (layers.small ? 2.6 : 4.2) * dpr;
+    ctx.lineWidth = 1.4 * dpr; ctx.strokeStyle = rgb(colors.bg);
+    for (let i = 0; i < n; i++) {
+      shape(ctx, px(X[2 * i]), py(X[2 * i + 1]), Y[i], r);
+      ctx.fillStyle = rgb(colors.cls[Y[i]]); ctx.fill(); ctx.stroke();
+    }
+  }
+  if (hover) {
+    ctx.strokeStyle = rgb(colors.fg); ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath(); ctx.arc(px(hover[0]), py(hover[1]), 7 * dpr, 0, 2 * Math.PI); ctx.stroke();
+  }
+}
+function drawLoss(canvas, values) {
+  const [w, h, dpr] = fit(canvas), ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = rgb(colors.line); ctx.lineWidth = dpr;
+  ctx.beginPath(); ctx.moveTo(0, h - 0.5 * dpr); ctx.lineTo(w, h - 0.5 * dpr); ctx.stroke();
+  if (values.length < 2) return;
+  const logs = values.map((v) => Math.log(Math.max(v, 1e-4)));
+  let lo = Infinity, hi = -Infinity;
+  for (const v of logs) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  if (hi - lo < 1e-6) hi = lo + 1;
+  ctx.strokeStyle = rgb(colors.fg, 0.8); ctx.lineWidth = 1.5 * dpr; ctx.lineJoin = "round";
+  ctx.beginPath();
+  const step = Math.max(1, Math.floor(logs.length / w));
+  for (let i = 0; i < logs.length; i += step) {
+    const x = i / (logs.length - 1) * (w - 2 * dpr) + dpr, y = dpr * 2 + (hi - logs[i]) / (hi - lo) * (h - 4 * dpr);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.stroke();
+}
+function drawNet() {
+  const canvas = $("net-canvas"), [w, h, dpr] = fit(canvas), ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, w, h);
+  const s = students[S.sel];
+  if (!s) return;
+  const net = s.net, sizes = net.sizes, b = net.forward(tileX, T * T);
+  const cols = sizes.length, maxNodes = Math.max(...sizes), top = 18 * dpr;
+  const tile = Math.min(40 * dpr, (h - top) / maxNodes * 0.8, w / cols * 0.5);
+  const xs = sizes.map((_, l) => (l + 0.5) / cols * w);
+  const ys = sizes.map((m) => Array.from({ length: m }, (_, i) => top + (h - top) * (i + 0.5) / maxNodes
+    + (maxNodes - m) * (h - top) / maxNodes / 2));
+  for (let l = 1; l < cols; l++) {  // weights
+    for (let k = 0; k < sizes[l - 1]; k++) for (let j = 0; j < sizes[l]; j++) {
+      const wv = net.p[net.w[l] + k * sizes[l] + j], a = Math.min(1, Math.abs(wv) / 2);
+      ctx.strokeStyle = rgb(wv > 0 ? colors.pos : colors.neg, 0.25 + 0.65 * a);
+      ctx.lineWidth = (0.6 + 3.4 * a) * dpr;
+      ctx.beginPath(); ctx.moveTo(xs[l - 1] + tile / 2, ys[l - 1][k]); ctx.lineTo(xs[l] - tile / 2, ys[l][j]); ctx.stroke();
+    }
+  }
+  scratch.width = T; scratch.height = T;
+  const sctx = scratch.getContext("2d"), img = sctx.createImageData(T, T);
+  ctx.imageSmoothingEnabled = true;
+  for (let l = 0; l < cols; l++) {
+    const m = sizes[l], A = l === 0 ? tileX : l === net.L ? b.q : b.a[l];
+    for (let j = 0; j < m; j++) {
+      for (let i = 0; i < T * T; i++) {
+        const v = A[i * m + j];
+        const col = l === net.L ? mix(colors.bg, colors.cls[j], v)
+          : mix(colors.mid, v > 0 ? colors.pos : colors.neg, Math.min(1, Math.abs(l === 0 ? v / D : v)));
+        img.data.set([col[0], col[1], col[2], 255], i * 4);
+      }
+      sctx.putImageData(img, 0, 0);
+      const x = xs[l] - tile / 2, y = ys[l][j] - tile / 2;
+      ctx.drawImage(scratch, x, y, tile, tile);
+      ctx.strokeStyle = rgb(colors.line); ctx.lineWidth = dpr; ctx.strokeRect(x, y, tile, tile);
+    }
+  }
+  ctx.fillStyle = rgb(colors.muted); ctx.font = `${11 * dpr}px system-ui, sans-serif`; ctx.textAlign = "center";
+  sizes.forEach((_, l) => ctx.fillText(l === 0 ? "x, y" : l === net.L ? "classes" : `layer ${l}`, xs[l], 11 * dpr));
+}
+const pct = (v) => (100 * v).toFixed(1) + "%";
+const fmtLoss = (v) => v >= 0.01 ? v.toFixed(3) : v.toExponential(1);
+function drawAll() {
+  if (!teacherImg && teacherDone) teacherImg = regionImage(teacher);
+  drawPlane($("plane-teacher"), teacherImg || (teacher && regionImage(teacher, regionBuf[0])),
+    { points: data.tset, small: true });
+  $("acc-teacher").textContent = teacherDone ? pct(data.teacherAcc) : "-";
+  $("acc-teacher").dataset.acc = teacherDone ? data.teacherAcc : "";
+  students.forEach((s, i) => {
+    const dots = i === 0 ? null : { X: data.all, n: data.unl.n, P: data.soft, hard: i === 1 ? data.hard : null };
+    drawPlane($(`plane-${i}`), regionImage(s.net, regionBuf[i]), { dots, points: data.gold });
+    $(`acc-${i}`).textContent = pct(s.acc); $(`acc-${i}`).dataset.acc = s.acc;
+    $(`agree-${i}`).textContent = pct(s.agree);
+    $(`loss-${i}`).textContent = s.lossNow === undefined ? "" : fmtLoss(s.lossNow);
+    drawLoss($(`lossc-${i}`), s.loss);
+  });
+  if (!students.length) {
+    for (let i = 0; i < 3; i++) {
+      drawPlane($(`plane-${i}`), null, {});
+      for (const id of [`acc-${i}`, `agree-${i}`]) $(id).textContent = "-";
+      $(`loss-${i}`).textContent = ""; drawLoss($(`lossc-${i}`), []);
+    }
+  }
+  $("epoch").textContent = epoch.toLocaleString("en");
+  drawNet();
+  drawReadout();
+}
+function drawReadout() {
+  const el = $("readout"), K = S.k;
+  if (!hover || !teacher) {
+    el.innerHTML = `<div id="readout-head">Hover over a plane to compare the probabilities the teacher and each
+      student give that point; click to add a gold point there.</div>`;
+    return;
+  }
+  const X = new Float32Array(hover), rows = [["Teacher", teacher], ...students.map((s) => [s.name, s.net])];
+  let html = `<div id="readout-head">At (${hover[0].toFixed(2)}, ${hover[1].toFixed(2)})</div>`;
+  for (const [who, net] of rows) {
+    const q = net.forward(X, 1).q;
+    html += `<span class="who">${who}</span><div class="bar">${[...Array(K).keys()].map((j) =>
+      `<span style="width:${(100 * q[j]).toFixed(1)}%;background:var(--c${j})"></span>`).join("")}</div>
+      <span class="p">${[...Array(K).keys()].map((j) => `${LETTERS[j]} ${Math.round(100 * q[j])}`).join(" · ")}</span>`;
+  }
+  el.innerHTML = html;
+}
+
+// ---------- the page ----------
+const $ = (id) => document.getElementById(id);
+const SHAPES = ['<circle cx="6" cy="6" r="5"/>', '<rect x="1.5" y="1.5" width="9" height="9"/>',
+  '<polygon points="6,0.5 11.5,10.5 0.5,10.5"/>', '<polygon points="6,0 12,6 6,12 0,6"/>'];
+const shapeSvg = (c) => `<svg class="shape" viewBox="0 0 12 12" aria-hidden="true" style="fill:var(--c${c})">${SHAPES[c]}</svg>`;
+function buildControls() {
+  $("ds").innerHTML = Object.entries(DATASETS).map(([key, name]) =>
+    `<input type="radio" name="ds" id="ds-${key}" value="${key}"><label for="ds-${key}">${name}</label>`).join("");
+  $("add").innerHTML = [0, 1, 2, 3].map((c) =>
+    `<input type="radio" name="add" id="add-${c}" value="${c}"><label for="add-${c}">${shapeSvg(c)}${LETTERS[c]}</label>`).join("");
+  $("sel").innerHTML = NAMES.map((name, i) =>
+    `<input type="radio" name="sel" id="sel-${i}" value="${i}"><label for="sel-${i}">${name}</label>`).join("");
+  $("cards").insertAdjacentHTML("beforeend", NAMES.map((name, i) => `<article class="card" id="card-${i}">
+      <h3>${name}${i === 2 ? '<span class="tag">tinydistill</span>' : ""}</h3>
+      <p class="rule"><b>${RULES[i][0]}</b><br>${RULES[i][1]}</p>
+      <canvas class="plane" id="plane-${i}" aria-label="${name} student decision regions"></canvas>
+      <div class="stats"><span>Test accuracy</span><b id="acc-${i}">-</b>
+        <span>Agrees with teacher</span><b id="agree-${i}">-</b></div>
+      <canvas class="loss" id="lossc-${i}" aria-hidden="true"></canvas>
+      <div class="lossline"><span>loss, log scale</span><span id="loss-${i}" class="num"></span></div>
+    </article>`).join(""));
+}
+function syncControls() {
+  $(`ds-${S.ds}`).checked = true;
+  $(`add-${S.add}`).checked = true;
+  $(`sel-${S.sel}`).checked = true;
+  for (let c = 0; c < 4; c++) $(`add-${c}`).disabled = c >= S.k;
+  $("k").disabled = !!FIXED_K[S.ds];
+  for (const key of ["k", "noise", "gold", "unl", "tq", "lam"]) $(key).value = S[key];
+  $("layers").value = S.h; $("neurons").value = S.n; $("neurons").disabled = S.h === 0;
+  $("lr").value = S.lr; $("seed").value = S.seed; $("show").checked = !!S.show;
+  $("k-out").textContent = S.k; $("noise-out").textContent = S.noise + "%"; $("gold-out").textContent = S.gold;
+  $("unl-out").textContent = S.unl; $("lam-out").textContent = S.lam.toFixed(1);
+  $("layers-out").textContent = S.h; $("neurons-out").textContent = S.n; $("tq-out").textContent = S.tq;
+  $("clear-pts").hidden = !S.pts.length;
+  $("clear-pts").textContent = `Remove ${S.pts.length} added point${S.pts.length === 1 ? "" : "s"}`;
+  for (let i = 0; i < 3; i++) $(`card-${i}`).classList.toggle("sel", i === S.sel);
+}
+// what a change needs: new data and a new teacher ("all"), new students only, or a redraw
+function change(level) {
+  writeURL(); syncControls();
+  if (level === "all") { makeData(); startTeacher(); }
+  else if (level === "students" && teacherDone) { makeData(); buildStudents(); }
+  dirty = true;
+}
+function bind() {
+  const onInput = (id, key, level, parse = Number) => $(id).addEventListener("input", () => {
+    S[key] = parse($(id).value);
+    change(level);
+  });
+  const setK = (k) => { S.k = k; S.pts = S.pts.filter((p) => p[2] < k); S.add = Math.min(S.add, k - 1); };
+  $("ds").addEventListener("change", (e) => { S.ds = e.target.value; setK(FIXED_K[S.ds] || S.k); change("all"); });
+  $("k").addEventListener("input", () => { setK(Number($("k").value)); change("all"); });
+  onInput("noise", "noise", "all"); onInput("tq", "tq", "all");
+  onInput("gold", "gold", "students"); onInput("unl", "unl", "students");
+  onInput("layers", "h", "students"); onInput("neurons", "n", "students");
+  onInput("lr", "lr", "students", String); onInput("lam", "lam", "students");
+  $("seed").addEventListener("change", () => {
+    const v = parseInt($("seed").value, 10);
+    if (v >= 1 && v <= 999999) { S.seed = v; change("all"); } else syncControls();
+  });
+  $("regen").addEventListener("click", () => { S.seed = 1 + Math.floor(Math.random() * 999999); change("all"); });
+  $("clear-pts").addEventListener("click", () => { S.pts = []; change("students"); });
+  $("show").addEventListener("change", () => { S.show = $("show").checked ? 1 : 0; change("view"); });
+  $("add").addEventListener("change", (e) => { S.add = Number(e.target.value); change("view"); });
+  $("sel").addEventListener("change", (e) => { S.sel = Number(e.target.value); change("view"); });
+  $("play").addEventListener("click", () => {
+    playing = !playing;
+    $("play").textContent = playing ? "Pause" : "Play"; $("play").setAttribute("aria-pressed", playing);
+  });
+  $("step").addEventListener("click", () => {
+    if (!teacherDone) return;
+    if (playing) $("play").click();
+    trainEpoch(); evaluate(); dirty = true;
+  });
+  $("reset").addEventListener("click", () => { if (teacherDone) buildStudents(); });
+  for (const id of ["plane-teacher", "plane-0", "plane-1", "plane-2"]) {
+    const c = $(id), at = (e) => {
+      const r = c.getBoundingClientRect();
+      return [((e.clientX - r.left) / r.width * 2 - 1) * D, (1 - (e.clientY - r.top) / r.height * 2) * D];
+    };
+    c.addEventListener("pointermove", (e) => { hover = at(e); dirty = true; });
+    c.addEventListener("pointerleave", () => { hover = null; dirty = true; });
+    c.addEventListener("click", (e) => {
+      const [x, y] = at(e);
+      if (S.pts.length >= 200) return;
+      S.pts.push([Math.round(x * 100) / 100, Math.round(y * 100) / 100, S.add]);
+      hover = [x, y];
+      change("students");
+    });
+  }
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readColors(); teacherImg = null; dirty = true; });
+  new ResizeObserver(() => { dirty = true; }).observe(document.querySelector("main"));
+}
+
+function frame(now) {
+  const budget = now + 10;  // milliseconds of training per frame
+  if (teacher && !teacherDone) {
+    const q = QUALITY[S.tq];
+    while (teacherJob.done < q.steps && performance.now() < budget) { trainStep(teacherJob, 0.01); teacherJob.done++; }
+    $("teacher-status").textContent = `${q.name}: training, step ${teacherJob.done} of ${q.steps}`;
+    if (teacherJob.done >= q.steps) {
+      finishTeacher();
+      $("teacher-status").textContent = `${q.name}: ${q.steps} steps on ${data.tset.n} labelled points, then fixed`;
+    }
+    dirty = true;
+  } else if (playing && students.length) {
+    do trainEpoch(); while (performance.now() < budget);
+    evaluate();
+    dirty = true;
+  }
+  if (now - speedT0 > 1000) {
+    const rate = speedCount * 1000 / (now - speedT0);
+    $("speed").textContent = rate ? `${Math.round(rate).toLocaleString("en")} epochs/s` : "";
+    $("speed").dataset.rate = rate;
+    speedCount = 0; speedT0 = now;
+  }
+  if (dirty) { drawAll(); dirty = false; }
+  requestAnimationFrame(frame);
+}
+
+readURL();
+buildControls();
+readColors();
+syncControls();
+bind();
+makeData();
+startTeacher();
+writeURL();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

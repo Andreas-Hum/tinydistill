@@ -19,6 +19,7 @@ inference on a CPU, in a browser or behind an HTTP server. It continues my bache
 optimisation by distilling LLMs.
 
 **[Documentation](https://andreas-hum.github.io/tinydistill/)** · [Live demo](https://andreas-hum.github.io/tinydistill/demo/) ·
+[Distillation playground](https://andreas-hum.github.io/tinydistill/demo/playground/) ·
 [Benchmarks](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md) ·
 [Notebooks](https://andreas-hum.github.io/tinydistill/getting-started/notebooks/)
 
