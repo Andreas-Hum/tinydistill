@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix: `tune --out NAME` with a dot in NAME (such as `tune-1.5b`) wrote `tune-1.md`; it now writes
+  `NAME.md` and `NAME.json`.
 - `label --shortlist-keep IDS`: labels the teacher scores for every text besides the shortlist, for catch-all
   labels such as "other" or "out of scope" (on CLINC150, "out of scope" was shortlisted for only 9% of its
   test texts).

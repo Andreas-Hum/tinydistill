@@ -702,7 +702,7 @@ def test_tune_tries_every_setting_on_a_dev_split(tmp_path, capsys):
         for j, w in enumerate(["good", "bad", "great", "awful"])
     ]
     write_jsonl(tmp_path / "d.jsonl", rows)
-    out = tmp_path / "tune"
+    out = tmp_path / "tune-1.5b"  # a dot in the name: the files are tune-1.5b.md and tune-1.5b.json
     main(
         [
             "tune",
@@ -723,7 +723,7 @@ def test_tune_tries_every_setting_on_a_dev_split(tmp_path, capsys):
             str(out),
         ]
     )
-    results = json.loads(out.with_suffix(".json").read_text(encoding="utf-8"))
+    results = json.loads((tmp_path / "tune-1.5b.json").read_text(encoding="utf-8"))
     # task.yaml with 0 and 1 examples; alt.yaml only zero-shot (it has no {examples} line)
     assert sorted((r["prompt"], r["few_shot"]) for r in results) == [
         ("alt.yaml", 0),
@@ -731,7 +731,7 @@ def test_tune_tries_every_setting_on_a_dev_split(tmp_path, capsys):
         ("task.yaml", 1),
     ]
     assert [r["accuracy"] for r in results] == sorted((r["accuracy"] for r in results), reverse=True)
-    assert "Best: `tinydistill run" in out.with_suffix(".md").read_text(encoding="utf-8")
+    assert "Best: `tinydistill run" in (tmp_path / "tune-1.5b.md").read_text(encoding="utf-8")
 
 
 def test_cascade_log_then_refresh(tmp_path, capsys):

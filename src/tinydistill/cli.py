@@ -826,10 +826,8 @@ def cmd_tune(a: argparse.Namespace) -> None:
     cmd = f"tinydistill run {task_path} --teacher {best['teacher']}" + (
         f" --few-shot {best['few_shot']}" if best["few_shot"] else ""
     )
-    Path(a.out).with_suffix(".md").write_text(
-        md + f"\nBest: `{cmd} --data ... --out ...`\n", encoding="utf-8"
-    )
-    Path(a.out).with_suffix(".json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+    Path(f"{a.out}.md").write_text(md + f"\nBest: `{cmd} --data ... --out ...`\n", encoding="utf-8")
+    Path(f"{a.out}.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(md)
     log(f"best on the dev split: {cmd} --data {a.data} --out RUN")
 
