@@ -99,6 +99,10 @@ tinydistill train run --student answerdotai/ModernBERT-base
 - A text of at most T tokens is a single window and is scored exactly as without the flag.
 - The web page reads only the first window of a text; `web` warns about it.
 
+On 2,000 IMDB reviews, MiniLM-L6 read in windows of 128 tokens, 64 apart, reached 0.860 against 0.844 when
+reading the first 128 tokens, at about three times the latency
+([Benchmarks](../results.md#imdb-long-reviews)).
+
 A window that starts inside a word can come to a token or two more than T when it is read again; they are cut
 at `--max-length`, the same way in training and prediction. `--gold-file` matches whole texts, so it does not
 reach the windows of a long document.

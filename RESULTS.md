@@ -350,6 +350,31 @@ English MiniLM student gets within about a point of its teacher; the multilingua
 `paraphrase-multilingual-MiniLM-L12-v2` student is more accurate than the teacher (0.761 against 0.736), at
 twice the latency and five times the size.
 
+## IMDB: long reviews
+
+Film reviews are often several hundred tokens long, while the student reads 128
+([IMDB](https://huggingface.co/datasets/stanfordnlp/imdb), Maas et al., 2011; 5,000 training and 2,000 test
+reviews, shuffled), reproduced by
+[`examples/imdb/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/imdb/run.sh). Either
+the student reads the first 128 tokens of each review, or every review is cut into windows of 128 tokens, 64
+apart (`--chunk-tokens 128 --chunk-stride 64`): the teacher scores each window, the student trains on the
+windows, and at prediction time it averages its windows' probabilities:
+
+<!-- results: imdb/summary.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| imdb-truncated | zero-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.934 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.844 ± 0.007 | 0.843 ± 0.007 | 0.851 ± 0.005 | ONNX int8 | 6.4 | 217.4 | 23 |
+| imdb-chunked | zero-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.875 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.860 ± 0.006 | 0.858 ± 0.006 | 0.926 ± 0.001 | ONNX int8 | 18.0 | 866.0 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+Reading in windows makes the student 1.6 points more accurate (0.860 against 0.844) and much closer to its
+teacher, at about three times the latency, since a review is read as several windows. The teacher is less
+accurate on windows (0.875) than on whole reviews (0.934), because one window often says too little about the
+whole review; the truncated student learns from the whole-review teacher yet still sees only the first 128
+tokens.
+
 ## A vLLM teacher agrees with the local one
 
 [`examples/vllm-smoke.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/vllm-smoke.sh)
