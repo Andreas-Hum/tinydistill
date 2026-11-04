@@ -52,15 +52,18 @@ class Task:
         )
         prompt = self.prompt.replace("{labels}", options)
         if examples:
-            answer = LETTERS if lettered else self.verbalisations
-            shots = "\n".join(f'- "{" ".join(t.split())}" -> {answer[y]}' for t, y in examples)
-            prompt = prompt.replace("{examples}", "\nExamples:\n" + shots)
+            prompt = prompt.replace("{examples}", self.shots(examples, lettered))
         else:
             prompt = prompt.replace("{examples}\n", "").replace("{examples}", "")
         if label is not None:
             prompt = prompt.replace("{label}", label)
         prompt = prompt.replace("{text}", text)
         return prompt + "\nAnswer with the letter of one option." if lettered else prompt
+
+    def shots(self, examples: list[tuple[str, int]], lettered: bool = False) -> str:
+        """What {examples} becomes for these (text, label index) pairs, in order."""
+        answer = LETTERS if lettered else self.verbalisations
+        return "\nExamples:\n" + "\n".join(f'- "{" ".join(t.split())}" -> {answer[y]}' for t, y in examples)
 
     def to_dict(self) -> dict:
         labels = {}

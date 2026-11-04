@@ -71,20 +71,30 @@ def cmd_label(a: argparse.Namespace) -> None:
         yaml.safe_dump(task.to_dict(), sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
     examples = None
-    if a.few_shot and "{examples}" not in task.prompt:
-        raise SystemExit("--few-shot needs an {examples} line in the task's prompt")
-    if a.few_shot:
+    flag = "--few-shot" if a.few_shot else "--few-shot-similar"
+    if (a.few_shot or a.few_shot_similar) and "{examples}" not in task.prompt:
+        raise SystemExit(f"{flag} needs an {{examples}} line in the task's prompt")
+    if a.few_shot_similar and task.prompt.index("{examples}") > task.prompt.index("{text}"):
+        raise SystemExit("--few-shot-similar needs {examples} before {text} in the task's prompt")
+    if a.few_shot or a.few_shot_similar:
         from .student import few_shot_examples
 
         rows = list(read_examples(a.data, task, a.limit))
         if not any(e.gold is not None for e in rows):
-            raise SystemExit("--few-shot needs gold labels in the training data")
+            raise SystemExit(f"{flag} needs gold labels in the training data")
         gold = cast(list[int | None], [e.gold for e in rows])  # single-label: load_task refuses multi-label
-        examples = few_shot_examples([e.text for e in rows], gold, a.few_shot, a.seed)
+        if a.few_shot:
+            examples = few_shot_examples([e.text for e in rows], gold, a.few_shot, a.seed)
+        else:  # the pool for --few-shot-similar alone: every gold-labelled training text, once
+            pairs = zip([e.text for e in rows], gold, strict=True)
+            examples = list(dict.fromkeys((t, g) for t, g in pairs if g is not None))
         with (run / "examples.jsonl").open("w", encoding="utf-8") as f:
             for text, y in examples:
                 f.write(json.dumps({"text": text, "gold": y}) + "\n")
-        log(f"few-shot prompt with {len(examples)} gold examples ({a.few_shot} per class)")
+        if a.few_shot_similar:
+            log(f"each text's prompt: its {a.few_shot_similar} most similar of {len(examples)} gold examples")
+        else:
+            log(f"few-shot prompt with {len(examples)} gold examples ({a.few_shot} per class)")
     cache_dir = Path(a.cache_dir) if a.cache_dir else run
     cache_dir.mkdir(parents=True, exist_ok=True)
     splits = [
@@ -101,7 +111,16 @@ def cmd_label(a: argparse.Namespace) -> None:
         quick = None
         if not a.vllm_url and not a.api_url:  # a server's tokenizer and setup are not known locally
             quick = quick_key(
-                name, task, a.device, a.load_4bit, examples, a.shortlist, a.shortlist_model, a.shortlist_keep
+                name,
+                task,
+                a.device,
+                a.load_4bit,
+                examples,
+                a.shortlist,
+                a.shortlist_model,
+                a.shortlist_keep,
+                a.few_shot_similar,
+                a.few_shot_model,
             )
             known = keys.get(quick)
             cache = ScoreCache(cache_dir / f"teacher-{known}.jsonl") if known else None
@@ -130,6 +149,8 @@ def cmd_label(a: argparse.Namespace) -> None:
             a.shortlist_keep,
             a.api_url,
             a.api_key_env,
+            a.few_shot_similar,
+            a.few_shot_model,
         )
         fingerprints.append(scorer.fingerprint())
         device = str(scorer.device)
@@ -180,6 +201,8 @@ def cmd_label(a: argparse.Namespace) -> None:
             "teacher": a.teacher,
             "teachers": _teachers(a.teacher),
             "few_shot": a.few_shot,
+            "few_shot_similar": a.few_shot_similar,
+            "few_shot_model": a.few_shot_model,
             "n_examples": len(examples or []),
             "load_4bit": a.load_4bit,
             "teacher_device": device,
@@ -437,6 +460,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
     prompt = (f"{meta['few_shot']}-shot" if meta.get("few_shot") else "zero-shot") + (
         ", 4-bit" if meta.get("load_4bit") else ""
     )
+    if meta.get("few_shot_similar"):
+        prompt = f"{meta['few_shot_similar']} similar examples" + prompt.partition("-shot")[2]
     examples = [(r["text"], r["gold"]) for r in _read_jsonl(run / "examples.jsonl")] or None
     members: list[dict] = []
     for ti, name in enumerate(teachers):
@@ -468,6 +493,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                     meta.get("shortlist_keep"),
                     meta.get("api_url"),
                     meta.get("api_key_env", "OPENAI_API_KEY"),
+                    meta.get("few_shot_similar", 0),
+                    meta.get("few_shot_model"),
                 )
                 if hasattr(scorer, "model"):  # a local model (not a vLLM server)
                     row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
@@ -588,6 +615,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "n_gold_upper_bound",
                 "label_texts_scored",
                 "few_shot",
+                "few_shot_similar",
+                "few_shot_model",
                 "n_examples",
                 "ce_weight",
                 "student_device",
@@ -664,6 +693,8 @@ def _run_teacher(run: Path, device: str):
             meta.get("shortlist_keep"),
             meta.get("api_url"),
             meta.get("api_key_env", "OPENAI_API_KEY"),
+            meta.get("few_shot_similar", 0),
+            meta.get("few_shot_model"),
         )
         for t in meta.get("teachers") or [meta["teacher"]]
     ]
@@ -1024,6 +1055,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         metavar="K",
         help="show K gold training examples per class in the teacher's prompt (needs {examples} in it)",
+    )
+    label.add_argument(
+        "--few-shot-similar",
+        type=int,
+        default=0,
+        metavar="M",
+        help="show each text the M gold training examples most similar to it, most similar last (needs "
+        "{examples} before {text}); with --few-shot K they are picked from those K per class",
+    )
+    label.add_argument(
+        "--few-shot-model", help="sentence-embedding model for --few-shot-similar (default: MiniLM)"
     )
     label.add_argument(
         "--teacher-tokens",

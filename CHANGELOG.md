@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `label --few-shot-similar M`: each text's prompt shows the M gold training examples most similar to it
+  (sentence embeddings, as for `--shortlist`; `--few-shot-model` picks the model), most similar last, never the
+  text itself (Liu et al., 2021). With `--few-shot K` they are picked from those K per class. The prompt needs
+  `{examples}` before `{text}`; the part before it stays cached. Local, vLLM and hosted API teachers. Score
+  caches of runs without it are unchanged.
 - ModernBERT students are tested (training, ONNX and int8 export). On Banking77, ModernBERT-base reached the
   accuracy of MiniLM-L6 at about eight times the latency.
 - Fix: the input length a student was trained with (`--max-length`) is stored with the model, and `Predictor`,

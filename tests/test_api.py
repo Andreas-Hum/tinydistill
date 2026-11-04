@@ -229,3 +229,19 @@ def test_a_warning_when_the_model_does_not_answer_with_a_letter(api, task):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert scorer.score("nice") == [-0.5, -0.5, -0.5]
+
+
+def test_similar_examples_are_sent_per_text(api):
+    from tinydistill.shortlist import Retriever
+
+    url, state = api
+    shots = Task("t", ["up", "down"], ["up", "down"], "{labels}\n{examples}\nReview: {text}\nAnswer:")
+    pool = [("good film", 0), ("bad film", 1), ("great day", 0)]
+    similar = Retriever(pool, 2, TINY_ENCODER)
+    scorer = ApiScorer(url, "m", shots, api_key_env=KEY_ENV, workers=1, similar=similar)
+    scorer.score_many(["good film", "other"])
+    sent = [b["messages"][0]["content"] for _, _, b in state["requests"]]
+    (own,) = [c for c in sent if "Review: good film\n" in c]
+    shown = own.split("Review:")[0]
+    assert shown.count(" -> ") == 2 and '"good film"' not in shown  # never its own example
+    assert scorer.fingerprint() != ApiScorer(url, "m", shots, api_key_env=KEY_ENV).fingerprint()

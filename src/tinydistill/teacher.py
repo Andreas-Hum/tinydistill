@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 from collections.abc import Iterable, Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 from urllib.parse import urlsplit
@@ -44,6 +45,7 @@ class Scorer(Protocol):
 
 _SENTINEL = "\x00TEXT\x00"
 _LABEL = "\x00LABEL\x00"
+_EXAMPLES = "\x00EXAMPLES\x00"
 
 
 def pick_device(device: str) -> str:
@@ -101,7 +103,13 @@ def end_of_turn(tokenizer, chat: bool) -> list[int]:
 
 class _Prompt:
     """The rendered prompt split around the text, and every label's continuations, as token ids. Shared by the
-    local scorer and the vLLM client, which score the same continuations."""
+    local scorer and the vLLM client, which score the same continuations.
+
+    With ``similar`` (a ``Retriever``: each text's own few-shot examples) the prompt is split at {examples}
+    instead: the cached prefix ends there, and a text's tokens are its examples, the prompt between
+    {examples} and {text}, the text and the rest."""
+
+    middle = ""  # with similar: the prompt between {examples} and {text}
 
     def _prepare(
         self,
@@ -111,6 +119,7 @@ class _Prompt:
         surface_forms: bool,
         examples: list[tuple[str, int]] | None,
         max_positions: int | None,
+        similar=None,
     ) -> None:
         self.tok = tokenizer
         self.task = task
@@ -118,6 +127,14 @@ class _Prompt:
 
         # Split the rendered prompt around the text (and, multi-label, around the label being asked about).
         self.examples = examples or []
+        self.similar = similar
+        if similar is not None:
+            at = task.prompt.find("{examples}")
+            if at < 0 or at > task.prompt.find("{text}"):
+                raise ValueError(
+                    "similar few-shot examples need {examples} before {text} in the task's prompt"
+                )
+            task = replace(task, prompt=task.prompt.replace("{examples}", _EXAMPLES))
         user = task.render(_SENTINEL, self.examples, _LABEL if task.multi_label else None)
         if self.chat:
             full = tokenizer.apply_chat_template(
@@ -126,6 +143,8 @@ class _Prompt:
         else:
             full = user
         prefix, suffix = full.split(_SENTINEL)
+        if similar is not None:
+            prefix, self.middle = prefix.split(_EXAMPLES)
         rest = ""  # multi-label: what follows {label}, up to where the answer starts
         if task.multi_label:
             suffix, rest = suffix.split(_LABEL)
@@ -178,8 +197,16 @@ class _Prompt:
                     self.forms.append(list(ids))
                     self.form_label.append(li)
 
-    def text_ids(self, text: str) -> list[int]:
-        return self.tok(text + self.suffix, add_special_tokens=False)["input_ids"]
+    def text_ids(self, text: str, head: str = "") -> list[int]:
+        return self.tok(head + text + self.suffix, add_special_tokens=False)["input_ids"]
+
+    def heads(self, texts: list[str]) -> list[str]:
+        """With ``similar``, per text: what comes between the cached prefix and the text (its examples and the
+        prompt up to {text}, as ``Task.render`` writes them); otherwise nothing."""
+        if self.similar is None:
+            return [""] * len(texts)
+        middle = self.middle.removeprefix("\n")  # no examples: render drops the {examples} line
+        return [self.task.shots(ex) + self.middle if ex else middle for ex in self.similar(texts)]
 
     def _label_scores(self, f: torch.Tensor) -> list[list[float]]:
         """(texts, forms) log-probabilities -> per label, the log of the summed probability of its forms.
@@ -239,7 +266,10 @@ class LabelScorer(_Prompt):
         max_tokens: int = 2048,
         examples: list[tuple[str, int]] | None = None,
         shortlist=None,
+        similar=None,
     ):
+        """``similar``: a ``Retriever`` that picks each text's own few-shot examples (instead of
+        ``examples``)."""
         self.model = model.eval()
         self.max_tokens = max_tokens  # tokens per forward pass when packing several texts
         self.device = next(model.parameters()).device
@@ -249,7 +279,7 @@ class LabelScorer(_Prompt):
         if shortlist is not None and task.multi_label:
             raise ValueError("--shortlist is for single-label tasks")
         limit = getattr(getattr(model, "config", None), "max_position_embeddings", None)
-        self._prepare(tokenizer, task, use_chat_template, surface_forms, examples, limit)
+        self._prepare(tokenizer, task, use_chat_template, surface_forms, examples, limit, similar)
         self._build_tree()
         self._prefix_cache: Any = None  # the prompt prefix's KV cache (a transformers Cache)
 
@@ -334,6 +364,8 @@ class LabelScorer(_Prompt):
         }
         if self.shortlist is not None:
             key["shortlist"] = self.shortlist.fingerprint()
+        if self.similar is not None:
+            key["similar"] = [self.similar.fingerprint(), self.middle]
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
     @torch.no_grad()
@@ -342,7 +374,7 @@ class LabelScorer(_Prompt):
         With a shortlist, continuations of labels outside a text's shortlist get NOT_SCORED."""
         if self._prefix_cache is None:
             self._encode_prefix()
-        ids = [self.text_ids(t) for t in texts]
+        ids = [self.text_ids(t, h) for t, h in zip(texts, self.heads(texts), strict=True)]
         labels = self.shortlist(texts) if self.shortlist is not None else [None] * len(texts)
         views = [self._view(lab) for lab in labels]
         out: list[torch.Tensor] = []
@@ -477,10 +509,11 @@ class VLLMScorer(_Prompt):
         workers: int = 8,
         surface_forms: bool = True,
         timeout: float = 600,
+        similar=None,
     ):
         self.url, self.model_name, self.workers, self.timeout = url.rstrip("/"), model, workers, timeout
         self.device = "vllm"
-        self._prepare(tokenizer, task, True, surface_forms, examples, None)
+        self._prepare(tokenizer, task, True, surface_forms, examples, None, similar)
 
     def fingerprint(self) -> str:
         key = {
@@ -492,12 +525,14 @@ class VLLMScorer(_Prompt):
             "form_label": self.form_label,
             "form_answer": self.form_answer,
         }
+        if self.similar is not None:
+            key["similar"] = [self.similar.fingerprint(), self.middle]
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
-    def _one(self, text: str) -> list[float]:
+    def _one(self, text: str, head: str = "") -> list[float]:
         import urllib.request
 
-        prompt = self.prefix_ids + self.text_ids(text)
+        prompt = self.prefix_ids + self.text_ids(text, head)
         body = {
             "model": self.model_name,
             "prompt": [prompt + f for f in self.forms],
@@ -522,7 +557,7 @@ class VLLMScorer(_Prompt):
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(self.workers) as pool:
-            rows = list(pool.map(self._one, texts))
+            rows = list(pool.map(self._one, texts, self.heads(texts)))
         return torch.tensor(rows, dtype=torch.float64).reshape(len(texts), len(self.forms))
 
 
@@ -550,6 +585,7 @@ class ApiScorer:
         api_key_env: str = "OPENAI_API_KEY",
         workers: int = 8,
         timeout: float = 120,
+        similar=None,
     ):
         if task.multi_label:
             raise SystemExit("--api-url works for single-label tasks; use a local or vLLM teacher")
@@ -561,6 +597,7 @@ class ApiScorer:
             )
         self.url, self.model_name, self.task, self.examples = url.rstrip("/"), model, task, examples or []
         self.api_key_env, self.workers, self.timeout = api_key_env, workers, timeout
+        self.similar = similar  # a Retriever: each text's own examples (instead of ``examples``)
         self.device = "api"
         self.letters = LETTERS[: len(task.labels)]
         self._blind: list[str] = []
@@ -576,6 +613,8 @@ class ApiScorer:
             "labels": self.task.verbalisations,
             "scheme": "letters-v1",
         }
+        if self.similar is not None:
+            key["similar"] = self.similar.fingerprint()
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
     def _post(self, body: dict) -> dict:
@@ -609,8 +648,8 @@ class ApiScorer:
                 last = str(getattr(e, "reason", e))
         raise SystemExit(f"the API at {self.host} failed {API_ATTEMPTS} times (last: {last})")
 
-    def _one(self, text: str) -> list[float]:
-        content = self.task.render(text, self.examples, lettered=True)
+    def _one(self, text: str, examples: list[tuple[str, int]] | None = None) -> list[float]:
+        content = self.task.render(text, self.examples if examples is None else examples, lettered=True)
         out = self._post(
             {
                 "model": self.model_name,
@@ -646,8 +685,9 @@ class ApiScorer:
         from concurrent.futures import ThreadPoolExecutor
 
         self._blind = []
+        shots = self.similar(texts) if self.similar is not None else [None] * len(texts)
         with ThreadPoolExecutor(self.workers) as pool:
-            rows = list(pool.map(self._one, texts))
+            rows = list(pool.map(self._one, texts, shots))
         blind = len(self._blind)  # texts with no option letter among the returned tokens
         if blind:
             warnings.warn(
@@ -690,22 +730,32 @@ def load_teacher(
     shortlist_keep: list[str] | None = None,
     api_url: str | None = None,
     api_key_env: str = "OPENAI_API_KEY",
+    similar: int = 0,
+    similar_model: str | None = None,
 ) -> LabelScorer | VLLMScorer | ApiScorer:
     """A local teacher, or with ``vllm_url`` the same model served by vLLM, or with ``api_url`` the model
     ``name`` at a hosted OpenAI-compatible chat API (key in the environment variable ``api_key_env``); then
     ``device`` is not used. ``shortlist`` K: score only the K labels most similar to each text (for tasks with
-    very many labels)."""
+    very many labels). ``similar`` M: ``examples`` is a pool of gold examples, and each text's prompt shows
+    the M most similar to it (embedded with ``similar_model``)."""
+    retriever = None
+    if similar:
+        from .shortlist import DEFAULT_SHORTLIST_MODEL, Retriever
+
+        where = "cpu" if api_url or vllm_url else pick_device(device)
+        retriever = Retriever(examples or [], similar, similar_model or DEFAULT_SHORTLIST_MODEL, where)
+        examples = None
     if api_url:
         if vllm_url:
             raise SystemExit("use either --vllm-url or --api-url, not both")
         if shortlist:
             raise SystemExit("--shortlist works with a local teacher, not --api-url")
-        return ApiScorer(api_url, name, task, examples, api_key_env)
+        return ApiScorer(api_url, name, task, examples, api_key_env, similar=retriever)
     tok = AutoTokenizer.from_pretrained(name)
     if vllm_url:
         if shortlist:
             raise SystemExit("--shortlist works with a local teacher, not --vllm-url")
-        return VLLMScorer(vllm_url, name, tok, task, examples)
+        return VLLMScorer(vllm_url, name, tok, task, examples, similar=retriever)
     device = pick_device(device)
     kwargs: dict = {}
     if load_4bit:
@@ -727,7 +777,9 @@ def load_teacher(
         from .shortlist import DEFAULT_SHORTLIST_MODEL, Shortlist
 
         short = Shortlist(task, shortlist, shortlist_model or DEFAULT_SHORTLIST_MODEL, device, shortlist_keep)
-    return LabelScorer(model, tok, task, max_tokens=max_tokens, examples=examples, shortlist=short)
+    return LabelScorer(
+        model, tok, task, max_tokens=max_tokens, examples=examples, shortlist=short, similar=retriever
+    )
 
 
 def quick_key(
@@ -739,12 +791,14 @@ def quick_key(
     shortlist: int | None = None,
     shortlist_model: str | None = None,
     shortlist_keep: list[str] | None = None,
+    similar: int = 0,
+    similar_model: str | None = None,
 ) -> str:
     """What decides a local teacher's cache fingerprint, from the tokenizer alone (no model weights): the
     rendered prompt and continuations, and how the model would be loaded. `label` maps it to the full
     fingerprint, so a run whose texts are all cached never loads the teacher."""
     p = _Prompt()
-    p._prepare(AutoTokenizer.from_pretrained(name), task, True, True, examples, None)
+    p._prepare(AutoTokenizer.from_pretrained(name), task, True, True, None if similar else examples, None)
     key = {
         "model": name,
         "device": pick_device(device),
@@ -758,6 +812,10 @@ def quick_key(
         if shortlist
         else None,
     }
+    if similar:
+        from .shortlist import DEFAULT_SHORTLIST_MODEL, retrieval_key
+
+        key["similar"] = retrieval_key(examples or [], similar, similar_model or DEFAULT_SHORTLIST_MODEL)
     return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
 

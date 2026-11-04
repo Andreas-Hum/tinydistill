@@ -61,3 +61,20 @@ def test_vllm_scores_equal_local_scores(fake_vllm, task):
         body["prompt_logprobs"] == 0 and body["model"] == TINY_LM and len(body["prompt"]) == len(local.forms)
     )
     assert remote.fingerprint() != local.fingerprint()  # a server's scores are cached separately
+
+
+def test_vllm_with_similar_examples_equals_local(fake_vllm, task):
+    from conftest import TINY_ENCODER
+
+    from tinydistill.shortlist import Retriever
+
+    url, model, _ = fake_vllm
+    tok = AutoTokenizer.from_pretrained(TINY_LM)
+    shots = type(task)(**{**task.__dict__, "prompt": "{labels}\n{examples}\n\nReview: {text}\nAnswer:"})
+    r = Retriever([("good film", 0), ("bad film", 1), ("so-so", 2)], 2, TINY_ENCODER)
+    remote = VLLMScorer(url, TINY_LM, tok, shots, workers=2, similar=r)
+    local = LabelScorer(model, tok, shots, similar=r)
+    texts = ["great product", "bad film"]
+    for got, want in zip(remote.score_many(texts), local.score_many(texts), strict=True):
+        assert got == pytest.approx(want, abs=1e-4)
+    assert remote.fingerprint() != VLLMScorer(url, TINY_LM, tok, shots).fingerprint()
