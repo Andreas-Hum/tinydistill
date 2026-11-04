@@ -250,6 +250,8 @@ class Distiller:
         src, out = self.predictor.file.parent, Path(path)
         if src.resolve() != out.resolve():
             shutil.copytree(src, out, dirs_exist_ok=True)
+            if not (src / "model.int8.onnx").exists():  # an earlier save's, which Predictor would pick
+                (out / "model.int8.onnx").unlink(missing_ok=True)
         (out / "task.yaml").write_text(
             yaml.safe_dump(self._fitted_task.to_dict(), sort_keys=False, allow_unicode=True), encoding="utf-8"
         )

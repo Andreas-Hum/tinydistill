@@ -75,6 +75,26 @@ def test_multi_label(tmp_path):
     assert Distiller.load(tmp_path / "m").predict(TEXTS) == pred
 
 
+def test_save_over_a_folder_with_an_int8_model(tmp_path):
+    """Saving an fp32-only model into a folder that holds an earlier int8 model replaces it; the old int8
+    file must not stay behind, as Predictor and Distiller.load would read it instead."""
+    import torch
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+    from tinydistill.export import export_onnx
+
+    torch.manual_seed(0)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        TINY_ENCODER, num_labels=3, id2label={0: "a", 1: "b", 2: "c"}, ignore_mismatched_sizes=True
+    )
+    model.save_pretrained(tmp_path / "student")
+    AutoTokenizer.from_pretrained(TINY_ENCODER).save_pretrained(tmp_path / "student")
+    export_onnx(tmp_path / "student", tmp_path / "old", int8=True)
+    export_onnx(tmp_path / "student", tmp_path / "new")
+    Distiller.load(tmp_path / "new").save(tmp_path / "old")
+    assert Distiller.load(tmp_path / "old").predictor.file.name == "model.onnx"
+
+
 def test_params_and_not_fitted(task):
     d = Distiller(task, epochs=3, log=quiet)
     params = d.get_params()
