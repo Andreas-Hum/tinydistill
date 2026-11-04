@@ -60,6 +60,7 @@ nav:
   - Changelog: changelog.md
   - Contributing: contributing.md
   - Live demo: https://andreas-hum.github.io/tinydistill/demo/
+  - Distillation playground: https://andreas-hum.github.io/tinydistill/demo/playground/
 
 markdown_extensions:
   - admonition
