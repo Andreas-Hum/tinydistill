@@ -114,5 +114,72 @@ def test_tune_proposes_instructions(tmp_path, monkeypatch, capsys):
     assert names_only.prompt == task.prompt and names_only.descriptions == [] and task.descriptions
     assert names_only.labels == task.labels
     assert load_task(tmp_path / "tune-best.yaml").prompt == results[0]["instruction"]
+    assert all("round" not in r for r in results)
     md = (tmp_path / "tune.md").read_text(encoding="utf-8")
     assert "### Instructions" in md and good in md and "`tune-names-only.yaml`" in md
+
+
+def test_tune_rounds_reflect_on_mistakes(tmp_path, monkeypatch):
+    import tinydistill.tune
+    from tinydistill.teacher import LabelScorer
+
+    (tmp_path / "task.yaml").write_text(TASK)
+    data = _data(tmp_path)
+    truth = {f"it was {w}": i % 2 for i, w in enumerate(["good", "bad", "great", "awful", "fine", "poor"])}
+    asked: list[str] = []
+
+    def score_many(
+        self, texts
+    ):  # right or wrong by the instruction; OVERFIT is right on the shown texts only
+        right = {
+            "BETTER": lambda t: t not in asked[2],
+            "OVERFIT": lambda t: t in asked[2],
+        }
+        rule = next((f for w, f in right.items() if w in self.task.prompt), lambda t: False)
+        return [[1.0, 0.0] if (truth[t] == 0) == rule(t) else [0.0, 1.0] for t in texts]
+
+    replies = iter(
+        [
+            "Plain:\n{labels}\nReview: {text}",  # round 1: wrong everywhere, like the task
+            "Pick one of {labels}.",  # dropped
+            "BETTER:\n{labels}\nReview: {text}",  # round 2: right on the scored half
+            "OVERFIT:\n{labels}\nReview: {text}",  # right on the shown half only
+            "Again:\n{labels}\nReview: {text}",  # round 3: no improvement, so no round 4
+            "Plain:\n{labels}\nReview: {text}",  # a repeat of round 1
+        ]
+    )
+    monkeypatch.setattr(LabelScorer, "score_many", score_many)
+    monkeypatch.setattr(
+        tinydistill.tune,
+        "generator",
+        lambda model, tok, **kw: lambda msg: asked.append(msg) or next(replies),
+    )
+    out = tmp_path / "tune"
+    main(
+        ["tune", str(tmp_path / "task.yaml"), *data, "--few-shot", "0", "--dev-size", "6"]
+        + ["--propose", "2", "--rounds", "5", "--out", str(out)]
+    )
+    assert len(asked) == 6  # three rounds of two requests: round 3 brought no improvement
+    assert "Mistakes made with it" not in asked[0]
+    shown = [t for t in truth if t in asked[2]]
+    assert len(shown) == 3 and asked[2] == asked[3]  # every text of the shown half was wrong
+    for t in shown:
+        right, wrong = ("positive review", "negative review")[:: 1 - 2 * truth[t]]
+        assert f"Text: {t}\nCorrect answer: {right}\nThe model's answer: {wrong}" in asked[2]
+    assert "BETTER" in asked[4] and "Plain" not in asked[4]  # round 3 rewrites round 2's best
+
+    results = json.loads((tmp_path / "tune.json").read_text(encoding="utf-8"))
+    score = {r["prompt"]: (r["round"], r["accuracy"]) for r in results}
+    assert score == {
+        "task.yaml": (1, 0.0),
+        "tune-1.yaml": (1, 0.0),
+        "tune-r2-1.yaml": (2, 1.0),
+        "tune-r2-2.yaml": (2, 0.0),  # right on every shown text, but those are not scored
+        "tune-r3-1.yaml": (3, 0.0),
+    }
+    assert load_task(tmp_path / "tune-best.yaml").prompt.startswith("BETTER")
+    md = (tmp_path / "tune.md").read_text(encoding="utf-8")
+    assert "Scored on 3 gold-labelled" in md and "`tune-r3-1.yaml` (round 3): dev accuracy 0.000" in md
+
+    with pytest.raises(SystemExit, match="--rounds needs --propose"):
+        main(["tune", str(tmp_path / "task.yaml"), *data, "--rounds", "2", "--out", str(out)])

@@ -14,6 +14,11 @@
   are scored on the dev split together with the task without label descriptions. Each candidate is written as
   `OUT-<name>.yaml`, the best as `OUT-best.yaml`, and the report lists every instruction with its dev score.
   `tune.json` rows now include the instruction.
+- `tune --propose N --rounds R`: after the first round, the teacher is shown up to 8 dev texts the best
+  instruction so far gets wrong and writes N rewrites of it to fix them, for up to R rounds; it stops at the
+  first round without an improvement. Mistakes come from one half of the dev split and all candidates are
+  scored on the other. The report and `tune.json` give each candidate's round; `OUT-best.yaml` is the best of
+  all rounds. Without `--rounds` nothing changes.
 - Long documents: `label --chunk-tokens T [--chunk-stride S]` cuts texts longer than T tokens of the student's
   tokenizer (`--chunk-tokenizer`) into overlapping windows, S tokens apart (default T // 2). The teacher scores
   every window and the student trains on them; a test document's teacher scores are the mean of its windows'

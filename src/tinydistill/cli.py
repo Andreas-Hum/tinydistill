@@ -974,9 +974,12 @@ def cmd_tune(a: argparse.Namespace) -> None:
         log,
         a.propose,
         Path(a.out).name + "-",
+        a.rounds,
     )
     n_dev = min(a.dev_size, sum(g not in (None, []) for g in gold))
-    md = table(results, n_dev)
+    md = table(results, n_dev - n_dev // 2 if a.rounds > 1 else n_dev)
+    if a.rounds > 1:
+        md += f"The teacher saw mistakes on {n_dev // 2} other dev texts; those are not scored.\n"
     best = results[0]
     if a.propose:  # the candidates, and the best task file, next to OUT.md
         for name, t in tasks[len(paths) :]:
@@ -1396,6 +1399,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="the (first) teacher writes N rewrites of the task's instruction; those that keep its "
         "placeholders are tried too, as is the task without label descriptions. Writes each candidate as "
         "OUT-<name>.yaml and the best task file as OUT-best.yaml",
+    )
+    tun.add_argument(
+        "--rounds",
+        type=int,
+        default=1,
+        metavar="R",
+        help="with --propose: up to R rounds. Each later round shows the teacher the best instruction's "
+        "mistakes on one half of the dev split and asks for N rewrites that fix them (OUT-r2-1.yaml, ...); "
+        "every candidate is scored on the other half. Stops at the first round without an improvement",
     )
     tun.add_argument("--dev-size", type=int, default=200, help="gold-labelled training texts to score")
     tun.add_argument("--limit", type=int, help="use only the first N training texts")
