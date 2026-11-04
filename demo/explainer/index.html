@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banking77 intent classifier: inside the model</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.47/dist/katex.min.css">
+<style>
+  :root {
+    --bg: #f7f6f2; --bg-rgb: 247, 246, 242; --card: #ffffff; --fg: #1b1b19; --muted: #5d5c57; --line: #d9d7cf;
+    --soft: #efede7; --accent: #0f766e; --on-accent: #ffffff; --teacher: #b45309;
+    --att: 15, 118, 110; --pos: 194, 65, 12; --neg: 37, 99, 235;
+    --c1: #0f766e; --c2: #c2410c; --c3: #6d28d9; --c4: #2563eb; --c5: #a16207;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141513; --bg-rgb: 20, 21, 19; --card: #1c1d1a; --fg: #ecebe6; --muted: #a9a8a0; --line: #34352f;
+      --soft: #23241f; --accent: #2dd4bf; --on-accent: #0b1514; --teacher: #f0a35e;
+      --att: 45, 212, 191; --pos: 251, 146, 60; --neg: 96, 165, 250;
+      --c1: #2dd4bf; --c2: #fb923c; --c3: #a78bfa; --c4: #60a5fa; --c5: #facc15;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 28px 16px 48px; }
+  h1 { font-size: 1.7rem; margin: 0 0 6px; line-height: 1.2; }
+  h2 { font-size: 1.2rem; margin: 32px 0 4px; }
+  h3 { font-size: 1rem; margin: 18px 0 6px; }
+  p { margin: 0 0 10px; max-width: 75ch; }
+  a { color: var(--accent); }
+  .kicker { font: 600 .8rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase;
+            color: var(--accent); margin: 0 0 8px; }
+  .sub, .note { color: var(--muted); }
+  .note { font-size: .92rem; }
+  .mono, .num { font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  label.big { font-weight: 600; display: block; margin: 16px 0 6px; }
+  textarea { width: 100%; padding: 10px; font: inherit; color: inherit; background: var(--card);
+             border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+  button, select { font: inherit; font-size: .92rem; padding: 6px 12px; border-radius: 7px; cursor: pointer;
+                   border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); }
+  select { background: var(--card); color: var(--fg); border-color: var(--line); max-width: 100%; }
+  button.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+  button.ghost[aria-pressed="true"], button.ghost[aria-current="step"] { border-color: var(--accent);
+    color: var(--accent); font-weight: 650; }
+  button:disabled { opacity: .45; cursor: default; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+            padding: 10px 6px; }
+  #overview { display: block; font-family: system-ui, sans-serif; }
+  #overview .stage { cursor: pointer; }
+  #overview .stage:focus { outline: none; }
+  #overview .frame { fill: var(--card); stroke: var(--line); stroke-width: 1.2; }
+  #overview .stage:hover .frame, #overview .stage:focus-visible .frame { stroke: var(--accent); stroke-width: 2.5; }
+  #overview .stage.on .frame { stroke: var(--accent); stroke-width: 2.5; fill: var(--soft); }
+  #overview text { fill: var(--fg); }
+  #overview .t { font-size: 11px; font-weight: 650; }
+  #overview .s { font-size: 9.5px; fill: var(--muted); }
+  #overview .arrow { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+  #overview .bar { fill: rgba(var(--att), .55); }
+  #overview .tbar { fill: var(--teacher); opacity: .55; }
+  #overview .track { fill: var(--soft); }
+  #overview .bracket { stroke: var(--line); fill: none; }
+  nav ol { list-style: none; padding: 0; margin: 18px 0 0; display: flex; gap: 6px; flex-wrap: wrap; }
+  nav button { font-size: .85rem; padding: 4px 10px; }
+  #stage { margin-top: 14px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  #stage h2 { margin-top: 0; }
+  .box { margin: 10px 0; overflow-x: auto; }
+  svg text { fill: var(--fg); }
+  .toks { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tok { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 6px; min-width: 34px;
+         border: 1px solid var(--line); border-radius: 6px; background: var(--soft); color: var(--fg);
+         font: 14px/1.3 ui-monospace, monospace; cursor: default; }
+  .tok small { font-size: .7rem; color: var(--muted); }
+  .tok.special { font-style: italic; color: var(--muted); }
+  .tok.cont { border-left: 3px solid var(--accent); }
+  .tok.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  canvas.strip { display: block; width: 100%; height: 14px; image-rendering: pixelated; border-radius: 3px; }
+  .strips { display: grid; grid-template-columns: fit-content(45%) minmax(0, 1fr); gap: 6px 12px; align-items: center; margin: 10px 0; }
+  .strips span { font-size: .85rem; color: var(--muted); }
+  .heads { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin: 10px 0; }
+  .head { background: var(--card); color: var(--fg); border: 1px solid var(--line); padding: 4px; display: flex;
+          flex-direction: column; align-items: center; gap: 2px; font-size: .78rem; }
+  .head canvas { width: 100%; aspect-ratio: 1; image-rendering: pixelated; display: block; }
+  .head[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); font-weight: 650; }
+  .detail { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .detail, .cols { grid-template-columns: minmax(0, 1fr); } }
+  .detail svg, .chart { width: 100%; height: auto; display: block; }
+  .lines line { stroke: rgb(var(--att)); stroke-linecap: round; }
+  .lines .q { cursor: pointer; }
+  .lines .q:focus { outline: none; }
+  .lines .q.on text, .lines .q:focus-visible text { fill: var(--accent); font-weight: 700; }
+  .lines .w { fill: var(--muted); font-size: 10px; }
+  .cursor { fill: none; stroke: var(--fg); stroke-width: 1.5; }
+  .band { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 2; }
+  .readout { min-height: 1.5em; font-size: .92rem; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .82rem; color: var(--muted); align-items: center; margin: 6px 0; }
+  .legend i { display: inline-block; width: 70px; height: 10px; border-radius: 3px; vertical-align: -1px; margin: 0 4px; }
+  .legend b { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 4px; }
+  table { border-collapse: collapse; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  td, th { padding: 3px 10px 3px 0; text-align: left; vertical-align: middle; }
+  th { font-weight: 600; color: var(--muted); }
+  .bars { list-style: none; padding: 0; margin: 0; }
+  .bars li { position: relative; padding: 4px 10px; margin-bottom: 3px; border-radius: 6px; overflow: hidden;
+             background: var(--soft); font-size: .92rem; }
+  .bars li .fill { position: absolute; inset: 0 auto 0 0; background: rgba(var(--att), .3); }
+  .bars.teacher li .fill { background: var(--teacher); opacity: .3; }
+  .bars li span { position: relative; }
+  .bars li .p { float: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bars li.gold span:first-of-type::after { content: "  gold"; color: var(--teacher); font-size: .78rem; font-weight: 650; }
+  .bars li.chosen span:first-of-type { font-weight: 650; }
+  .bars .half { position: absolute; top: 0; bottom: 0; left: 50%; border-left: 1px dashed var(--muted); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .cols h3.t { color: var(--teacher); }
+  .pt circle { fill: var(--muted); }
+  .pt.cls circle { fill: var(--accent); }
+  .pt text { font-size: 11px; }
+  .pt.cls text { font-weight: 700; fill: var(--accent); }
+  .pt { transition: transform .6s ease; }
+  .axis { stroke: var(--line); }
+  .grid-l { stroke: var(--line); stroke-dasharray: 2 3; }
+  .chart .lab { font-size: 11px; fill: var(--muted); }
+  input[type=range] { width: min(100%, 420px); accent-color: var(--accent); }
+  details { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+  summary { cursor: pointer; font-weight: 650; color: var(--accent); }
+  .tex { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+  .tex .katex-display { margin: .5em 0; }
+  #math p { font-size: .92rem; color: var(--muted); margin-top: 10px; }
+  #tip { position: fixed; z-index: 10; max-width: min(340px, 90vw); padding: 8px 10px; border-radius: 8px;
+         background: var(--card); color: var(--fg); border: 1px solid var(--line); font-size: .85rem;
+         box-shadow: 0 4px 14px rgba(0, 0, 0, .18); pointer-events: none; }
+  #tip canvas { width: 240px; max-width: 100%; }
+  .nav { justify-content: space-between; margin-top: 18px; }
+  footer { margin-top: 36px; color: var(--muted); font-size: .9rem; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<main>
+  <p class="kicker">Inside the model</p>
+  <h1>Banking77 intent classifier</h1>
+  <p class="sub">A walk through the distilled student as it reads your text: every number and picture on this page
+    is computed by the model itself, running in your browser. Nothing you type leaves the page. Test accuracy 0.855 on 3080 held-out texts. Distilled from Qwen/Qwen2.5-7B-Instruct (16 similar examples, 4-bit) into sentence-transformers/all-MiniLM-L6-v2.
+    <a href="../">The plain demo page</a>.</p>
+  <label class="big" for="text">Text</label>
+  <textarea id="text" rows="3" placeholder="Type a text"></textarea>
+  <div class="row"><button id="go" disabled>Run the model</button><span class="row" id="samples" style="margin:0"></span></div>
+  <p id="status" class="note" aria-live="polite">Loading the model...</p>
+
+  <h2 id="ov-h">The whole model at a glance</h2>
+  <p class="note">Left to right, the stages your text passes through, each drawn from this run. Select a stage
+    (click, or Tab and Enter) to zoom into it below.</p>
+  <div class="scroll"><svg id="overview" role="group" aria-labelledby="ov-h"></svg></div>
+
+  <nav aria-label="Steps of the walk"><ol id="walk"></ol></nav>
+  <section id="stage" aria-labelledby="stage-title">
+    <h2 id="stage-title">Loading</h2>
+    <div id="stage-text"></div>
+    <div id="stage-body"></div>
+    <details id="math-box"><summary>The math</summary><div id="math"></div></details>
+    <div class="row nav"><button class="ghost" id="prev">Previous</button><button class="ghost" id="next">Next</button></div>
+  </section>
+  <footer>Made with <a href="https://github.com/Andreas-Hum/tinydistill">tinydistill</a>,
+    <a href="https://github.com/huggingface/transformers.js">transformers.js</a> and
+    <a href="https://katex.org">KaTeX</a>. Trained on the Banking77 dataset (PolyAI, CC BY 4.0), labelled by Qwen2.5-7B-Instruct shown each text&#x27;s 16 most similar gold examples.</footer>
+</main>
+<div id="tip" role="tooltip" hidden></div>
+<script type="application/json" id="data">{"labels": ["activate_my_card", "age_limit", "apple_pay_or_google_pay", "atm_support", "automatic_top_up", "balance_not_updated_after_bank_transfer", "balance_not_updated_after_cheque_or_cash_deposit", "beneficiary_not_allowed", "cancel_transfer", "card_about_to_expire", "card_acceptance", "card_arrival", "card_delivery_estimate", "card_linking", "card_not_working", "card_payment_fee_charged", "card_payment_not_recognised", "card_payment_wrong_exchange_rate", "card_swallowed", "cash_withdrawal_charge", "cash_withdrawal_not_recognised", "change_pin", "compromised_card", "contactless_not_working", "country_support", "declined_card_payment", "declined_cash_withdrawal", "declined_transfer", "direct_debit_payment_not_recognised", "disposable_card_limits", "edit_personal_details", "exchange_charge", "exchange_rate", "exchange_via_app", "extra_charge_on_statement", "failed_transfer", "fiat_currency_support", "get_disposable_virtual_card", "get_physical_card", "getting_spare_card", "getting_virtual_card", "lost_or_stolen_card", "lost_or_stolen_phone", "order_physical_card", "passcode_forgotten", "pending_card_payment", "pending_cash_withdrawal", "pending_top_up", "pending_transfer", "pin_blocked", "receiving_money", "Refund_not_showing_up", "request_refund", "reverted_card_payment?", "supported_cards_and_currencies", "terminate_account", "top_up_by_bank_transfer_charge", "top_up_by_card_charge", "top_up_by_cash_or_cheque", "top_up_failed", "top_up_limits", "top_up_reverted", "topping_up_by_card", "transaction_charged_twice", "transfer_fee_charged", "transfer_into_account", "transfer_not_received_by_recipient", "transfer_timing", "unable_to_verify_identity", "verify_my_identity", "verify_source_of_funds", "verify_top_up", "virtual_card_not_working", "visa_or_mastercard", "why_verify_identity", "wrong_amount_of_cash_received", "wrong_exchange_rate_for_cash_withdrawal"], "multi": false, "dtype": "q8", "model": "model-52e98c44ed", "max_length": 128, "config": {"model_type": "bert", "num_hidden_layers": 6, "num_attention_heads": 12, "hidden_size": 384, "intermediate_size": 1536, "hidden_act": "gelu", "layer_norm_eps": 1e-12, "vocab_size": 30522}, "teacher": "Qwen/Qwen2.5-7B-Instruct", "training": {"ce_weight": 1.0, "n_gold": 616}, "samples": [{"text": "How do I locate my card?", "gold": 11, "teacher": [[38, 0.9242], [41, 0.0463], [10, 0.0176], [14, 0.0094], [43, 0.0016], [11, 0.0005], [13, 0.0002], [12, 0.0], [0, 0.0], [40, 0.0], [23, 0.0], [16, 0.0], [52, 0.0], [70, 0.0], [50, 0.0], [69, 0.0], [49, 0.0], [68, 0.0], [8, 0.0], [18, 0.0], [39, 0.0], [74, 0.0], [54, 0.0], [15, 0.0], [35, 0.0], [45, 0.0], [6, 0.0], [21, 0.0], [47, 0.0], [75, 0.0], [22, 0.0], [30, 0.0], [17, 0.0], [63, 0.0], [73, 0.0], [48, 0.0], [44, 0.0], [72, 0.0], [29, 0.0], [51, 0.0], [28, 0.0], [7, 0.0], [71, 0.0], [20, 0.0], [24, 0.0], [66, 0.0], [3, 0.0], [58, 0.0], [33, 0.0], [9, 0.0], [2, 0.0], [36, 0.0], [25, 0.0], [55, 0.0], [19, 0.0], [34, 0.0], [76, 0.0], [67, 0.0], [1, 0.0], [5, 0.0], [31, 0.0], [4, 0.0], [60, 0.0], [53, 0.0], [59, 0.0], [56, 0.0], [37, 0.0], [57, 0.0], [46, 0.0], [62, 0.0], [65, 0.0], [26, 0.0], [32, 0.0], [27, 0.0], [64, 0.0], [42, 0.0], [61, 0.0]]}, {"text": "I bought something in a foreign currency but the rate applied is wrong!", "gold": 17, "teacher": [[17, 0.9526], [76, 0.0474], [32, 0.0], [63, 0.0], [20, 0.0], [35, 0.0], [23, 0.0], [74, 0.0], [47, 0.0], [21, 0.0], [24, 0.0], [48, 0.0], [52, 0.0], [72, 0.0], [41, 0.0], [75, 0.0], [16, 0.0], [31, 0.0], [73, 0.0], [49, 0.0], [8, 0.0], [25, 0.0], [29, 0.0], [6, 0.0], [51, 0.0], [28, 0.0], [2, 0.0], [34, 0.0], [5, 0.0], [30, 0.0], [58, 0.0], [53, 0.0], [57, 0.0], [68, 0.0], [70, 0.0], [46, 0.0], [36, 0.0], [44, 0.0], [43, 0.0], [7, 0.0], [4, 0.0], [64, 0.0], [33, 0.0], [42, 0.0], [3, 0.0], [1, 0.0], [22, 0.0], [12, 0.0], [56, 0.0], [40, 0.0], [14, 0.0], [45, 0.0], [54, 0.0], [71, 0.0], [38, 0.0], [59, 0.0], [0, 0.0], [61, 0.0], [67, 0.0], [55, 0.0], [26, 0.0], [60, 0.0], [37, 0.0], [66, 0.0], [15, 0.0], [19, 0.0], [65, 0.0], [50, 0.0], [27, 0.0], [11, 0.0], [10, 0.0], [18, 0.0], [9, 0.0], [13, 0.0], [39, 0.0], [69, 0.0], [62, 0.0]]}, {"text": "What fiat currencies are supported for holding and exchange?", "gold": 36, "teacher": [[36, 0.8559], [54, 0.1441], [31, 0.0], [47, 0.0], [48, 0.0], [50, 0.0], [24, 0.0], [40, 0.0], [20, 0.0], [28, 0.0], [19, 0.0], [29, 0.0], [35, 0.0], [73, 0.0], [51, 0.0], [7, 0.0], [63, 0.0], [37, 0.0], [72, 0.0], [23, 0.0], [76, 0.0], [5, 0.0], [21, 0.0], [44, 0.0], [52, 0.0], [2, 0.0], [33, 0.0], [6, 0.0], [46, 0.0], [41, 0.0], [17, 0.0], [25, 0.0], [3, 0.0], [68, 0.0], [58, 0.0], [74, 0.0], [64, 0.0], [57, 0.0], [22, 0.0], [30, 0.0], [0, 0.0], [67, 0.0], [60, 0.0], [43, 0.0], [1, 0.0], [8, 0.0], [4, 0.0], [32, 0.0], [38, 0.0], [70, 0.0], [56, 0.0], [34, 0.0], [49, 0.0], [27, 0.0], [15, 0.0], [66, 0.0], [42, 0.0], [45, 0.0], [26, 0.0], [39, 0.0], [16, 0.0], [55, 0.0], [53, 0.0], [75, 0.0], [13, 0.0], [14, 0.0], [10, 0.0], [59, 0.0], [65, 0.0], [71, 0.0], [11, 0.0], [12, 0.0], [62, 0.0], [69, 0.0], [18, 0.0], [61, 0.0], [9, 0.0]]}, {"text": "My card is broke, what do I do?", "gold": 14, "teacher": [[14, 1.0], [16, 0.0], [15, 0.0], [17, 0.0], [23, 0.0], [18, 0.0], [20, 0.0], [21, 0.0], [49, 0.0], [8, 0.0], [41, 0.0], [68, 0.0], [29, 0.0], [35, 0.0], [25, 0.0], [12, 0.0], [0, 0.0], [63, 0.0], [38, 0.0], [47, 0.0], [75, 0.0], [73, 0.0], [72, 0.0], [24, 0.0], [52, 0.0], [51, 0.0], [2, 0.0], [59, 0.0], [45, 0.0], [6, 0.0], [10, 0.0], [30, 0.0], [13, 0.0], [22, 0.0], [48, 0.0], [11, 0.0], [28, 0.0], [33, 0.0], [19, 0.0], [66, 0.0], [43, 0.0], [74, 0.0], [7, 0.0], [44, 0.0], [3, 0.0], [58, 0.0], [69, 0.0], [5, 0.0], [60, 0.0], [1, 0.0], [31, 0.0], [40, 0.0], [36, 0.0], [57, 0.0], [4, 0.0], [50, 0.0], [9, 0.0], [76, 0.0], [64, 0.0], [46, 0.0], [55, 0.0], [70, 0.0], [34, 0.0], [54, 0.0], [56, 0.0], [67, 0.0], [32, 0.0], [62, 0.0], [53, 0.0], [26, 0.0], [61, 0.0], [65, 0.0], [39, 0.0], [71, 0.0], [37, 0.0], [42, 0.0], [27, 0.0]]}, {"text": "What age can sign up for services?", "gold": 1, "teacher": [[1, 1.0], [2, 0.0], [6, 0.0], [43, 0.0], [0, 0.0], [5, 0.0], [38, 0.0], [23, 0.0], [20, 0.0], [51, 0.0], [37, 0.0], [21, 0.0], [48, 0.0], [50, 0.0], [42, 0.0], [25, 0.0], [52, 0.0], [30, 0.0], [7, 0.0], [68, 0.0], [27, 0.0], [8, 0.0], [73, 0.0], [74, 0.0], [29, 0.0], [26, 0.0], [24, 0.0], [36, 0.0], [19, 0.0], [60, 0.0], [47, 0.0], [34, 0.0], [40, 0.0], [15, 0.0], [4, 0.0], [41, 0.0], [33, 0.0], [63, 0.0], [54, 0.0], [44, 0.0], [67, 0.0], [76, 0.0], [66, 0.0], [35, 0.0], [69, 0.0], [16, 0.0], [32, 0.0], [49, 0.0], [53, 0.0], [72, 0.0], [28, 0.0], [31, 0.0], [59, 0.0], [10, 0.0], [22, 0.0], [58, 0.0], [55, 0.0], [56, 0.0], [39, 0.0], [14, 0.0], [57, 0.0], [3, 0.0], [70, 0.0], [13, 0.0], [17, 0.0], [11, 0.0], [75, 0.0], [45, 0.0], [64, 0.0], [61, 0.0], [62, 0.0], [9, 0.0], [65, 0.0], [46, 0.0], [12, 0.0], [71, 0.0], [18, 0.0]]}, {"text": "new customer and filling gas today, it's not working, the thing shows pending half an hour!", "gold": 47, "teacher": [[45, 0.9971], [46, 0.0022], [47, 0.0007], [48, 0.0], [25, 0.0], [35, 0.0], [26, 0.0], [63, 0.0], [16, 0.0], [59, 0.0], [20, 0.0], [6, 0.0], [50, 0.0], [51, 0.0], [14, 0.0], [66, 0.0], [75, 0.0], [56, 0.0], [49, 0.0], [57, 0.0], [68, 0.0], [40, 0.0], [23, 0.0], [58, 0.0], [72, 0.0], [5, 0.0], [54, 0.0], [41, 0.0], [73, 0.0], [44, 0.0], [8, 0.0], [28, 0.0], [52, 0.0], [76, 0.0], [62, 0.0], [71, 0.0], [2, 0.0], [67, 0.0], [53, 0.0], [19, 0.0], [29, 0.0], [70, 0.0], [7, 0.0], [34, 0.0], [4, 0.0], [33, 0.0], [61, 0.0], [3, 0.0], [64, 0.0], [22, 0.0], [31, 0.0], [38, 0.0], [21, 0.0], [36, 0.0], [60, 0.0], [30, 0.0], [24, 0.0], [1, 0.0], [43, 0.0], [39, 0.0], [32, 0.0], [0, 0.0], [55, 0.0], [65, 0.0], [37, 0.0], [17, 0.0], [27, 0.0], [15, 0.0], [42, 0.0], [74, 0.0], [10, 0.0], [69, 0.0], [13, 0.0], [18, 0.0], [12, 0.0], [11, 0.0], [9, 0.0]]}]}</script>
+<script type="module">
+  import { AutoTokenizer, AutoModel, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
+  env.allowLocalModels = true;  // the model files sit next to this page
+  env.allowRemoteModels = false;
+  env.localModelPath = "./";
+  const katexReady = import("https://cdn.jsdelivr.net/npm/katex@0.16.47/dist/katex.mjs").then((m) => m.default, () => null);  // without it: TeX source
+
+  const D = JSON.parse(document.getElementById("data").textContent), C = D.config;
+  const L = C.num_hidden_layers, H = C.num_attention_heads, DIM = C.hidden_size, NL = D.labels.length;
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, props = {}, ...kids) => {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) k.includes("-") ? e.setAttribute(k, v) : (e[k] = v);
+    e.append(...kids);
+    return e;
+  };
+  const sv = (tag, attrs = {}, ...kids) => {
+    const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    e.append(...kids);
+    return e;
+  };
+  const range = (n) => Array.from({ length: n }, (_, i) => i);
+  const name = (i) => D.labels[i].replaceAll("_", " ");
+  const short = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+  const pct = (x) => (100 * x).toFixed(x >= 0.995 || x < 0.001 ? 0 : 1) + "%";
+  const fx = (x, d = 3) => (Math.abs(x) < 0.5 * 10 ** -d ? 0 : x).toFixed(d);
+  const argmax = (xs) => xs.reduce((b, x, i) => (x > xs[b] ? i : b), 0);
+  const order = (xs) => Array.from(xs, (x, i) => [x, i]).sort((a, b) => b[0] - a[0]).map(([, i]) => i);
+  const softmax = (z) => { const m = Math.max(...z), e = z.map((x) => Math.exp(x - m)), s = e.reduce((a, b) => a + b);
+                           return e.map((x) => x / s); };
+  const sigmoid = (x) => 1 / (1 + Math.exp(-x));
+  const toProbs = (z) => (D.multi ? z.map(sigmoid) : softmax(z));
+  const dot = (a, b) => { let s = 0; for (let k = 0; k < a.length; k++) s += a[k] * b[k]; return s; };
+  const norm = (a) => Math.sqrt(dot(a, a));
+  const cos = (a, b) => dot(a, b) / (norm(a) * norm(b) || 1);
+  const shown = (t) => t.replace(/^##/, "").replace(/^[Ġ▁]/, "") || t;
+  const special = (t) => /^\[.*\]$|^<.*>$/.test(t);
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const texName = (s) => s.replaceAll("_", "\\_");
+  const sci = (x) => { const e = Math.floor(Math.log10(x) + 1e-9), m = x / 10 ** e;
+                       return (Math.abs(m - 1) < 1e-6 ? "" : `${fx(m, 2)} \\times `) + `10^{${e}}`; };
+
+  // ---- colours: heat maps blend from the page background to a theme colour ----
+  let P;
+  const rgbOf = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).split(",").map(Number);
+  const palette = () => { P = { bg: rgbOf("--bg-rgb"), att: rgbOf("--att"), pos: rgbOf("--pos"), neg: rgbOf("--neg") }; };
+  const mix = (t, to) => P.bg.map((x, i) => x + (to[i] - x) * Math.max(0, Math.min(1, t)));
+  const attColor = (a) => mix(Math.sqrt(a), P.att);  // square-root scale, so small weights stay visible
+  const valColor = (v, m) => mix(Math.abs(v) / m, v >= 0 ? P.pos : P.neg);
+  const scaleOf = (xs) => 2.5 * Math.sqrt(dot(xs, xs) / xs.length) || 1;  // colours saturate at 2.5 x RMS
+  function paint(w, h, color, canvas = document.createElement("canvas")) {
+    canvas.width = w; canvas.height = h;
+    const g = canvas.getContext("2d"), img = g.createImageData(w, h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const c = color(x, y), o = 4 * (y * w + x);
+      img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    return canvas;
+  }
+  const strip = (v, m = scaleOf(v)) => Object.assign(paint(v.length, 1, (x) => valColor(v[x], m)), { className: "strip" });
+  const image = (canvas, x, y, w, h) => sv("image", { href: canvas.toDataURL(), x, y, width: w, height: h,
+    preserveAspectRatio: "none", style: "image-rendering:pixelated" });
+  const attLegend = () => el("div", { className: "legend" }, el("span", {}, "attention 0",
+    el("i", { style: `background:linear-gradient(90deg,rgb(${P.bg}),rgb(${P.att}))` }), "1 (square-root scale)"));
+  const valLegend = (m) => el("div", { className: "legend" }, el("span", {}, `-${fx(m, 2)}`,
+    el("i", { style: `background:linear-gradient(90deg,rgb(${P.neg}),rgb(${P.bg}),rgb(${P.pos}))` }),
+    `+${fx(m, 2)} (values beyond are clipped)`));
+
+  // ---- tooltip ----
+  const tip = $("tip");
+  function tipAt(node, e, ...kids) {
+    tip.replaceChildren(...kids);
+    tip.hidden = false;
+    const b = node.getBoundingClientRect(), t = tip.getBoundingClientRect();
+    const x = e && e.clientX !== undefined ? e.clientX : b.left, y = e && e.clientY !== undefined ? e.clientY : b.bottom;
+    tip.style.left = Math.max(8, Math.min(x + 14, innerWidth - t.width - 8)) + "px";
+    tip.style.top = Math.max(8, Math.min(y + 14, innerHeight - t.height - 8)) + "px";
+  }
+  const hideTip = () => { tip.hidden = true; };
+  addEventListener("scroll", hideTip, { passive: true });
+
+  // ---- the model ----
+  let tok, model;
+  async function analyse(text) {
+    const t0 = performance.now();
+    const enc = tok([text], { padding: true, truncation: true, max_length: D.max_length });
+    const ids = Array.from(enc.input_ids.data, Number), T = ids.length;
+    const out = await model(enc);
+    const r = { text, ids, T, tokens: tok.model.convert_ids_to_tokens(ids), full: tok(text).input_ids.dims.at(-1),
+                ms: performance.now() - t0, att: out.attentions.data, hs: out.hidden_states.data,
+                mid: out.attention_states.data, tokE: out.token_embeddings.data, posE: out.position_embeddings.data,
+                h: out.head_input.data, terms: out.head_terms.data, bias: Array.from(out.head_bias.data),
+                z: Array.from(out.logits.data) };
+    const ll = Array.from(out.layer_logits.data);
+    r.layerP = range(L).map((l) => toProbs(ll.slice(l * NL, (l + 1) * NL)));
+    r.p = toProbs(r.z);
+    r.top = argmax(r.p);
+    const at = (arr, k, i) => arr.subarray((k * T + i) * DIM, (k * T + i + 1) * DIM);
+    r.hsAt = (l, i) => at(r.hs, l, i);  // l = 0: after the embeddings; l: after layer l
+    r.midAt = (l, i) => at(r.mid, l, i);  // after layer l + 1's attention block
+    r.tokAt = (i) => at(r.tokE, 0, i);
+    r.posAt = (i) => at(r.posE, 0, i);
+    r.attAt = (l, h, i) => r.att.subarray(((l * H + h) * T + i) * T, ((l * H + h) * T + i + 1) * T);
+    r.termsOf = (c) => r.terms.subarray(c * r.h.length, (c + 1) * r.h.length);
+    r.pca = pcaLayers(r);
+    r.sample = D.samples.find((s) => s.text.trim() === text);
+    return r;
+  }
+
+  // PCA of each layer's token vectors: power iteration on the tokens' Gram matrix (tokens x tokens)
+  function pca2(X) {
+    const n = X.length, d = X[0].length, mean = new Float64Array(d);
+    for (const x of X) for (let k = 0; k < d; k++) mean[k] += x[k] / n;
+    const Y = X.map((x) => Float64Array.from(x, (v, k) => v - mean[k]));
+    const G = Y.map((a) => Y.map((b) => dot(a, b)));
+    const total = G.reduce((s, row, i) => s + row[i], 0) || 1;
+    const comps = [];
+    for (let c = 0; c < 2; c++) {
+      let v = range(n).map((i) => Math.cos(i * (c + 1) + 1)), lam = 0;
+      for (let it = 0; it < 200; it++) {
+        const w = G.map((row) => dot(row, v));
+        lam = Math.hypot(...w);
+        if (lam < 1e-9) { lam = 0; break; }
+        v = w.map((x) => x / lam);
+      }
+      comps.push({ v, lam });
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) G[i][j] -= lam * v[i] * v[j];
+    }
+    return { xy: range(n).map((i) => comps.map(({ v, lam }) => v[i] * Math.sqrt(lam))),
+             share: comps.map(({ lam }) => lam / total) };
+  }
+  function pcaLayers(r) {
+    const out = range(L + 1).map((l) => pca2(range(r.T).map((i) => r.hsAt(l, i))));
+    for (let l = 1; l <= L; l++) for (let k = 0; k < 2; k++) {  // keep each axis pointing the same way as before
+      if (out[l].xy.reduce((s, p, i) => s + p[k] * out[l - 1].xy[i][k], 0) < 0) for (const p of out[l].xy) p[k] = -p[k];
+    }
+    return out;
+  }
+
+  // ---- state and the walk ----
+  const ST = { step: 0, layer: L - 1, head: 0, token: 0, key: 0, mapLayer: L, label: 0, all: false };
+  let R = null;
+  const STEPS = [
+    { id: "tokens", title: "Text to tokens", text: tokensText, body: tokensBody, math: tokensMath },
+    { id: "embed", title: "Embeddings", text: embedText, body: embedBody, math: embedMath },
+    { id: "layers", title: "Inside a layer: attention", text: layerText, body: layerBody, math: layerMath },
+    { id: "trace", title: "The answer forming", text: traceText, body: traceBody, math: traceMath },
+    { id: "map", title: "Token map", text: mapText, body: mapBody, math: mapMath },
+    { id: "cls", title: "The [CLS] vector and the classifier", text: clsText, body: clsBody, math: clsMath },
+    { id: "output", title: "Probabilities", text: outText, body: outBody, math: outMath },
+    { id: "teacher", title: "Teacher and distillation", text: teacherText, body: teacherBody, math: teacherMath },
+  ];
+  const stepOf = (id) => STEPS.findIndex((s) => s.id === id);
+  let katex = null;
+  const tex = (s) => {
+    const d = el("div", { className: "tex" });
+    if (katex) katex.render(s, d, { displayMode: true, throwOnError: false }); else d.textContent = s;
+    return d;
+  };
+  const para = (...kids) => el("p", {}, ...kids);
+  const refreshMath = () => { if (R) $("math").replaceChildren(...STEPS[ST.step].math(R)); };
+
+  function render(scroll = false) {
+    if (!R) return;
+    const key = document.activeElement?.dataset?.key, s = STEPS[ST.step];
+    hideTip();
+    $("stage-title").textContent = `${ST.step + 1}. ${s.title}`;
+    $("stage-text").replaceChildren(...s.text(R).map((t) => (typeof t === "string" ? para(t) : t)));
+    $("stage-body").replaceChildren(...s.body(R));
+    refreshMath();
+    $("prev").disabled = ST.step === 0;
+    $("next").disabled = ST.step === STEPS.length - 1;
+    for (const b of document.querySelectorAll("#walk button")) {
+      if (Number(b.dataset.step) === ST.step) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
+    }
+    for (const g of document.querySelectorAll("#overview .stage")) {
+      const on = Number(g.dataset.step) === ST.step && (g.dataset.layer === undefined || Number(g.dataset.layer) === ST.layer);
+      g.classList.toggle("on", on);
+    }
+    if (key) document.querySelector(`[data-key="${key}"]`)?.focus({ preventScroll: true });
+    if (scroll) $("stage").scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+  }
+  const goTo = (i, scroll) => { ST.step = Math.max(0, Math.min(STEPS.length - 1, i)); render(scroll); };
+  $("walk").replaceChildren(...STEPS.map((s, i) => el("li", {}, el("button", {
+    className: "ghost", textContent: `${i + 1}. ${s.title}`, onclick: () => goTo(i),
+    "data-step": i, "data-key": `walk-${i}` }))));
+  $("prev").onclick = () => goTo(ST.step - 1);
+  $("next").onclick = () => goTo(ST.step + 1);
+
+  // ---- the overview: one box per stage, each drawn from this run ----
+  function drawOverview(r) {
+    const svg = $("overview"), BW = 92, LW = 58, GAP = 18, TOP = 6, BH = 132;
+    const stages = [
+      { label: "Text", step: "tokens", w: BW, draw: (g, w) => {
+        const words = r.text.slice(0, 80).split(/\s+/), lines = [""];
+        for (const wd of words) {
+          if ((lines.at(-1) + " " + wd).length > 15 && lines.at(-1)) lines.push(wd); else lines[lines.length - 1] += (lines.at(-1) ? " " : "") + wd;
+        }
+        lines.slice(0, 6).forEach((t, i) => g.append(sv("text", { x: 8, y: 34 + i * 13, class: "s" }, short(t, 17))));
+      }, foot: `${r.text.length} characters` },
+      { label: "Tokens", step: "tokens", w: BW, draw: (g) => {
+        r.tokens.slice(0, 6).forEach((t, i) => g.append(sv("text", { x: 8, y: 34 + i * 13, class: "s" },
+          short(shown(t), 10)), sv("text", { x: BW - 8, y: 34 + i * 13, class: "s", "text-anchor": "end" }, String(r.ids[i]))));
+      }, foot: `${r.T} tokens` },
+      { label: "Embeddings", step: "embed", w: BW, draw: (g) => {
+        const k = Math.min(DIM, 64), v = r.hs.subarray(0, r.T * DIM), m = scaleOf(v);
+        g.append(image(paint(r.T, k, (x, y) => valColor(r.hsAt(0, x)[y], m)), 8, 26, BW - 16, 84));
+      }, foot: `${r.T} x ${DIM}` },
+      ...range(L).map((l) => ({ label: `Layer ${l + 1}`, step: "layers", layer: l, w: LW, draw: (g) => {
+        const mean = new Float32Array(r.T * r.T);
+        for (let h = 0; h < H; h++) for (let i = 0; i < r.T; i++) {
+          const row = r.attAt(l, h, i);
+          for (let j = 0; j < r.T; j++) mean[i * r.T + j] += row[j] / H;
+        }
+        g.append(image(paint(r.T, r.T, (x, y) => attColor(mean[y * r.T + x])), 6, 28, LW - 12, LW - 12));
+        const p = r.layerP[l][r.top];
+        g.append(sv("rect", { x: 6, y: 92, width: LW - 12, height: 8, class: "track" }),
+                 sv("rect", { x: 6, y: 92, width: (LW - 12) * p, height: 8, class: "bar" }),
+                 sv("text", { x: LW / 2, y: 114, class: "s", "text-anchor": "middle" }, pct(p)));
+      } })),
+      { label: "[CLS] vector", step: "cls", w: BW, draw: (g) => {
+        const v = r.hsAt(L, 0);
+        g.append(image(paint(1, v.length, (x, y) => valColor(v[y], scaleOf(v))), BW / 2 - 8, 26, 16, 84));
+      }, foot: `${DIM} numbers` },
+      { label: "Classifier", step: "cls", w: BW, draw: (g) => {
+        g.append(sv("text", { x: 8, y: 36, class: "s" }, "z = W h + b"));
+        order(r.z).slice(0, 4).forEach((c, i) => g.append(
+          sv("text", { x: 8, y: 54 + i * 13, class: "s" }, short(name(c), 10)),
+          sv("text", { x: BW - 8, y: 54 + i * 13, class: "s", "text-anchor": "end" }, fx(r.z[c], 2))));
+      }, foot: `${NL} scores` },
+      { label: "Probabilities", step: "output", w: BW, draw: (g) => miniBars(g, r.p, "bar") ,
+        foot: D.multi ? "sigmoids" : "softmax" },
+      { label: "Teacher", step: "teacher", w: BW, draw: (g) => {
+        if (!r.sample?.teacher) {
+          ["the teacher's", "soft labels are", "saved for the", "examples"].forEach((t, i) => g.append(sv("text", { x: 8, y: 40 + i * 13, class: "s" }, t)));
+          return;
+        }
+        miniBars(g, teacherProbs(r.sample), "tbar");
+      }, foot: "soft labels" },
+    ];
+    let x = 4;
+    const kids = [sv("defs", {}, sv("marker", { id: "ah", viewBox: "0 0 8 8", refX: 7, refY: 4, markerWidth: 7, markerHeight: 7, orient: "auto" },
+      sv("path", { d: "M0,0 L8,4 L0,8 z", fill: "currentColor", style: "color:var(--muted)" })))];
+    stages.forEach((s, i) => {
+      const step = stepOf(s.step);
+      const g = sv("g", { class: "stage", transform: `translate(${x},${TOP})`, tabindex: 0, role: "button",
+        "data-step": step, "data-key": `ov-${i}`, "aria-label": `${s.label}: zoom in` });
+      if (s.layer !== undefined) g.dataset.layer = s.layer;
+      g.append(sv("rect", { class: "frame", width: s.w, height: BH, rx: 8 }),
+               sv("text", { x: s.w / 2, y: 17, class: "t", "text-anchor": "middle" }, s.label));
+      s.draw(g, s.w);
+      if (s.foot) g.append(sv("text", { x: s.w / 2, y: BH - 8, class: "s", "text-anchor": "middle" }, s.foot));
+      const open = () => { if (s.layer !== undefined) ST.layer = s.layer; goTo(step, true); };
+      g.addEventListener("click", open);
+      g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+      kids.push(g);
+      x += s.w;
+      if (i < stages.length - 1) kids.push(sv("path", { class: "arrow", d: `M${x + 2},${TOP + BH / 2} h${GAP - 5}`, "marker-end": "url(#ah)" }));
+      x += GAP;
+    });
+    const first = 3 * (BW + GAP) + 4, last = first + L * (LW + GAP) - GAP;
+    kids.push(sv("path", { class: "bracket", d: `M${first},${TOP + BH + 8} v6 H${last} v-6` }),
+      sv("text", { x: (first + last) / 2, y: TOP + BH + 28, class: "s", "text-anchor": "middle" },
+        `${L} layers: mean attention over ${H} heads; bar = chance of "${short(name(r.top), 18)}" if the model stopped there`));
+    const W = x - GAP + 4, Ht = TOP + BH + 36;
+    svg.setAttribute("viewBox", `0 0 ${W} ${Ht}`);
+    svg.style.width = `${W}px`;
+    svg.replaceChildren(...kids);
+  }
+  function miniBars(g, p, cls) {
+    order(p).slice(0, 4).forEach((c, i) => {
+      const y = 30 + i * 21;
+      g.append(sv("text", { x: 8, y: y + 8, class: "s" }, short(name(c), 15)),
+               sv("rect", { x: 8, y: y + 11, width: 76, height: 5, class: "track" }),
+               sv("rect", { x: 8, y: y + 11, width: 76 * p[c], height: 5, class: cls }));
+    });
+  }
+  const teacherProbs = (s) => { const t = Array(NL).fill(0); for (const [i, x] of s.teacher) t[i] = x; return t; };
+
+  // ---- 1. tokens ----
+  function tokensText(r) {
+    const out = [`The tokenizer cuts the text into ${r.T} pieces from a vocabulary of ${C.vocab_size.toLocaleString("en")}. ` +
+      "Each piece becomes a number, its id, and only these ids enter the model. Rare words are split into several " +
+      "pieces (a coloured left edge marks a piece that continues a word)."];
+    const sp = r.tokens.filter(special);
+    if (sp.length) out.push(`${[...new Set(sp)].join(" and ")} are special pieces the tokenizer adds. The classifier ` +
+      `will read the model's output at the first position, ${r.tokens[0]}.`);
+    if (r.full > r.T) out.push(`This page reads the first ${r.T} of the text's ${r.full} pieces.`);
+    out.push("Hover or focus a piece to see the vector the embedding step gives it.");
+    return out;
+  }
+  function tokensBody(r) {
+    const m = scaleOf(r.hs.subarray(0, r.T * DIM));
+    return [el("div", { className: "toks" }, ...r.tokens.map((t, i) => {
+      const b = el("button", { className: "tok" + (special(t) ? " special" : "") + (t.startsWith("##") ? " cont" : "") +
+        (i === ST.token ? " on" : ""), "data-key": `tok-${i}`, "aria-label": `${t}, id ${r.ids[i]}` },
+        shown(t), el("small", { textContent: String(r.ids[i]) }));
+      const show = (e) => tipAt(b, e, el("div", {}, el("b", { textContent: t }), ` position ${i + 1}, id ${r.ids[i]}`),
+        el("div", { className: "note", textContent: `its vector after the embeddings (${DIM} numbers):` }), strip(r.hsAt(0, i), m));
+      b.onmousemove = show; b.onfocus = show; b.onmouseleave = hideTip; b.onblur = hideTip;
+      b.onclick = () => { ST.token = i; render(); };
+      return b;
+    })), valLegend(m)];
+  }
+  function tokensMath(r) {
+    const ids = r.ids.slice(0, 6).join(", ") + (r.T > 6 ? ", \\ldots" : "");
+    return [para(`The text becomes a sequence of ${r.T} ids, each an index into the vocabulary of V = ${C.vocab_size} pieces:`),
+      tex(`\\mathbf{x} = (${ids}), \\qquad x_i \\in \\{0, \\ldots, ${C.vocab_size - 1}\\}`)];
+  }
+
+  // ---- 2. embeddings ----
+  function embedText(r) {
+    return [`Each id picks a row of the token embedding table, a vector of ${DIM} numbers. A position embedding for its ` +
+      "slot is added (otherwise the model could not tell the order of the pieces), and LayerNorm rescales the sum. " +
+      "Below, one column per token and one row per dimension; select a column to follow that token."];
+  }
+  function embedBody(r) {
+    const T = r.T, v = r.hs.subarray(0, T * DIM), m = scaleOf(v), cw = Math.max(6, Math.min(26, Math.floor(640 / T)));
+    const showLab = cw >= 12, top = showLab ? 70 : 6, Hh = Math.min(DIM, 220), W = T * cw + 8;
+    const svg = sv("svg", { viewBox: `0 0 ${W} ${top + Hh + 6}`, tabindex: 0, "data-key": "embed",
+      role: "img", "aria-label": `Embedding vectors, ${T} tokens by ${DIM} dimensions. Left and right arrows choose a token.`,
+      style: `max-width:${W}px;width:100%;height:auto;display:block` });
+    svg.append(image(paint(T, DIM, (x, y) => valColor(r.hsAt(0, x)[y], m)), 4, top, T * cw, Hh));
+    if (showLab) r.tokens.forEach((t, i) => svg.append(sv("text", { transform: `translate(${4 + i * cw + cw * 0.65},${top - 4}) rotate(-60)`,
+      "font-size": 11 }, short(shown(t), 10))));
+    const cur = sv("rect", { class: "cursor", y: top - 1, width: cw, height: Hh + 2 });
+    svg.append(cur);
+    const strips = el("div", { className: "strips" });
+    const pick = (i) => {
+      ST.token = Math.max(0, Math.min(T - 1, i));
+      cur.setAttribute("x", 4 + ST.token * cw);
+      const ti = ST.token, s = r.tokAt(ti), q = r.posAt(ti), sm = scaleOf(Float32Array.from(s, (x, k) => x + q[k]));
+      strips.replaceChildren(
+        el("span", { textContent: `token "${shown(r.tokens[ti])}" (id ${r.ids[ti]})` }), strip(s, sm),
+        el("span", { textContent: `+ position ${ti + 1}` }), strip(q, sm),
+        el("span", { textContent: "= LayerNorm of the sum" }), strip(r.hsAt(0, ti), m));
+      refreshMath();
+    };
+    const at = (e) => { const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+                        return Math.floor((p.x - 4) / cw); };
+    svg.onpointermove = (e) => { const i = at(e); if (i >= 0 && i < T && i !== ST.token) pick(i); };
+    svg.onkeydown = (e) => {
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); pick(ST.token + (e.key === "ArrowRight" ? 1 : -1)); }
+    };
+    pick(Math.min(ST.token, T - 1));
+    return [svg, valLegend(m), el("h3", { textContent: "The sum for the selected token" }), strips,
+      el("p", { className: "note", textContent: "The first two strips share one colour scale; the third uses the scale above." })];
+  }
+  function embedMath(r) {
+    const i = Math.min(ST.token, r.T - 1), a = r.tokAt(i), b = r.posAt(i), e = r.hsAt(0, i);
+    const s = Float64Array.from(a, (x, k) => x + b[k]), mu = s.reduce((x, y) => x + y) / s.length;
+    const sd = Math.sqrt(s.reduce((x, y) => x + (y - mu) ** 2, 0) / s.length);
+    const col = (v) => `\\begin{bmatrix}${Array.from(v.slice(0, 4), (x) => fx(x, 3)).join("\\\\")}\\\\ \\vdots\\end{bmatrix}`;
+    return [
+      para(`Token ${i + 1}, "${shown(r.tokens[i])}" (id ${r.ids[i]}): the first four of its ${DIM} numbers.`),
+      tex(`\\mathbf{e}_i = \\mathrm{LayerNorm}\\big(E_{\\text{tok}}[x_i] + E_{\\text{pos}}[i]\\big)`),
+      tex(`${col(a)} + ${col(b)} = ${col(s)} \\;\\xrightarrow{\\ \\mathrm{LayerNorm}\\ }\\; ${col(e)}`),
+      para(`E_pos here is everything added before the LayerNorm: the position embedding, plus a segment embedding when ` +
+        "the model has one (the same for every token here). LayerNorm subtracts the vector's mean and divides by its " +
+        "standard deviation, then scales and shifts each dimension by learned weights:"),
+      tex(`\\mathrm{LayerNorm}(\\mathbf{s}) = \\boldsymbol{\\gamma} \\odot \\frac{\\mathbf{s} - \\mu}{\\sqrt{\\sigma^2 + \\varepsilon}} + \\boldsymbol{\\beta}, ` +
+        `\\quad \\mu = ${fx(mu, 4)},\\ \\sigma = ${fx(sd, 4)},\\ \\varepsilon = ${sci(C.layer_norm_eps)}`),
+    ];
+  }
+
+  // ---- 3. a layer ----
+  function layerText(r) {
+    return [`Layer ${ST.layer + 1} of ${L}. Each of its ${H} attention heads decides, for every token, how much to draw ` +
+      "on every other token: one row per token, one column per token it looks at, darker is more, and each row sums " +
+      "to one. Heads learn different patterns: some look at the next or previous piece, some at the special pieces, " +
+      "some at related words. Select a head to zoom in."];
+  }
+  function layerBody(r) {
+    const T = r.T, l = ST.layer;
+    const pick = el("div", { className: "row", role: "group", "aria-label": "Layer" }, el("span", { className: "note", textContent: "Layer" }),
+      ...range(L).map((k) => el("button", { className: "ghost", textContent: String(k + 1), "aria-pressed": String(k === l),
+        "aria-label": `Layer ${k + 1}`, "data-key": `layer-${k}`, onclick: () => { ST.layer = k; render(); } })));
+    const heads = el("div", { className: "heads" }, ...range(H).map((h) => el("button", {
+      className: "head", "aria-pressed": String(h === ST.head), "aria-label": `Head ${h + 1}`, "data-key": `head-${h}`,
+      onclick: () => { ST.head = h; render(); } },
+      paint(T, T, (x, y) => attColor(r.attAt(l, h, y)[x])), el("span", { textContent: `head ${h + 1}` }))));
+    // the zoomed head: the full matrix, and lines from the selected token to the tokens it attends to
+    const cs = Math.max(4, Math.min(22, Math.floor(520 / T))), lab = cs >= 9, m0 = lab ? 86 : 6, side = T * cs;
+    const mx = sv("svg", { viewBox: `0 0 ${m0 + side + 4} ${m0 + side + 4}`, tabindex: 0, "data-key": "matrix", role: "img",
+      "aria-label": `Attention of layer ${l + 1}, head ${ST.head + 1}: rows are tokens, columns the tokens they attend to. Arrow keys move the cursor.`,
+      style: `max-width:${m0 + side + 4}px` });
+    mx.append(image(paint(T, T, (x, y) => attColor(r.attAt(l, ST.head, y)[x])), m0, m0, side, side));
+    if (lab) r.tokens.forEach((t, i) => mx.append(
+      sv("text", { x: m0 - 4, y: m0 + i * cs + cs * 0.75, "text-anchor": "end", "font-size": Math.min(12, cs - 1) }, short(shown(t), 11)),
+      sv("text", { transform: `translate(${m0 + i * cs + cs * 0.7},${m0 - 4}) rotate(-60)`, "font-size": Math.min(12, cs - 1) }, short(shown(t), 11))));
+    const rowBand = sv("rect", { class: "band", x: m0, width: side, height: cs }), colBand = sv("rect", { class: "band", y: m0, width: cs, height: side });
+    const cell = sv("rect", { class: "cursor", width: cs, height: cs });
+    mx.append(rowBand, colBand, cell);
+    const RH = 18, LW = 330, lines = sv("svg", { viewBox: `0 0 ${LW} ${T * RH + 8}`, class: "lines", style: `max-width:${LW}px` });
+    const wires = sv("g"), right = sv("g"), left = sv("g");
+    lines.append(wires, left, right);
+    r.tokens.forEach((t, i) => right.append(sv("text", { x: 214, y: 4 + i * RH + 13, "font-size": 12 }, short(shown(t), 12))));
+    const weights = sv("g");
+    right.append(weights);
+    const qs = r.tokens.map((t, i) => {
+      const g = sv("g", { class: "q", tabindex: 0, role: "button", "data-key": `q-${i}`, "aria-label": `Lines from ${t}` },
+        sv("rect", { x: 0, y: 4 + i * RH, width: 120, height: RH, fill: "transparent" }),
+        sv("text", { x: 116, y: 4 + i * RH + 13, "text-anchor": "end", "font-size": 12 }, short(shown(t), 13)));
+      const go = () => { if (ST.token !== i) select(i, ST.key); };
+      g.addEventListener("mouseenter", go); g.addEventListener("focus", go);
+      left.append(g);
+      return g;
+    });
+    const readout = el("p", { className: "readout", "aria-live": "polite" });
+    function select(i, j) {
+      ST.token = Math.max(0, Math.min(T - 1, i)); ST.key = Math.max(0, Math.min(T - 1, j));
+      const row = r.attAt(l, ST.head, ST.token);
+      rowBand.setAttribute("y", m0 + ST.token * cs); colBand.setAttribute("x", m0 + ST.key * cs);
+      cell.setAttribute("x", m0 + ST.key * cs); cell.setAttribute("y", m0 + ST.token * cs);
+      wires.replaceChildren(...range(T).filter((j2) => row[j2] >= 0.01).map((j2) => sv("line", {
+        x1: 122, y1: 4 + ST.token * RH + RH / 2, x2: 208, y2: 4 + j2 * RH + RH / 2,
+        "stroke-width": (0.6 + 9 * row[j2]).toFixed(2), "stroke-opacity": (0.25 + 0.75 * row[j2]).toFixed(2) })));
+      weights.replaceChildren(...range(T).filter((j2) => row[j2] >= 0.05).map((j2) =>
+        sv("text", { x: LW - 2, y: 4 + j2 * RH + 13, "text-anchor": "end", class: "w" }, pct(row[j2]))));
+      qs.forEach((g, k) => g.classList.toggle("on", k === ST.token));
+      const top = order(row).slice(0, 3).map((j2) => `"${shown(r.tokens[j2])}" ${pct(row[j2])}`).join(", ");
+      readout.textContent = `"${shown(r.tokens[ST.token])}" (row ${ST.token + 1}) attends most to ${top}. ` +
+        `Cursor: to "${shown(r.tokens[ST.key])}", ${pct(row[ST.key])}.`;
+      refreshMath();
+    }
+    const cellAt = (e) => { const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(mx.getScreenCTM().inverse());
+                            return [Math.floor((p.y - m0) / cs), Math.floor((p.x - m0) / cs)]; };
+    mx.onpointermove = (e) => {
+      const [i, j] = cellAt(e);
+      if (i < 0 || j < 0 || i >= T || j >= T) return;
+      if (i !== ST.token || j !== ST.key) select(i, j);
+      const a = r.attAt(l, ST.head, i)[j];
+      tipAt(mx, e, el("div", { textContent: `"${shown(r.tokens[i])}" to "${shown(r.tokens[j])}": ${pct(a)}` }));
+    };
+    mx.onpointerleave = hideTip;
+    mx.onkeydown = (e) => {
+      const d = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+      if (d) { e.preventDefault(); select(ST.token + d[0], ST.key + d[1]); }
+    };
+    select(Math.min(ST.token, T - 1), Math.min(ST.key, T - 1));
+    return [pick, heads, attLegend(), el("h3", { textContent: `Layer ${l + 1}, head ${ST.head + 1}` }), readout,
+      el("div", { className: "detail" },
+        el("div", {}, el("p", { className: "note", textContent: "The whole matrix: hover a cell, or focus it and use the arrow keys." }), mx),
+        el("div", {}, el("p", { className: "note", textContent: "Hover or focus a token on the left: the lines show where it looks, thicker for more weight." }), lines))];
+  }
+  function layerMath(r) {
+    const l = ST.layer, h = ST.head, i = Math.min(ST.token, r.T - 1), dk = DIM / H, row = r.attAt(l, h, i);
+    const top = order(row).slice(0, 3), sum = row.reduce((a, b) => a + b, 0);
+    const hin = r.hsAt(l, i), hmid = r.midAt(l, i), hout = r.hsAt(l + 1, i), act = texName(C.hidden_act || "gelu");
+    const out = [
+      para(`Each token's vector is projected to a query q, a key k and a value v of d_k = ${DIM} / ${H} = ${dk} numbers ` +
+        "per head. A token's weights are the softmax of its query's dot products with every key, scaled by the square root " +
+        "of d_k; its output is the weighted sum of the values."),
+      tex(`\\mathrm{Attention}(Q,K,V) = \\mathrm{softmax}\\!\\left(\\frac{QK^{\\top}}{\\sqrt{d_k}}${C.model_type === "mpnet" ? " + B" : ""}\\right)V, ` +
+        `\\qquad \\sqrt{d_k} = \\sqrt{${dk}} = ${fx(Math.sqrt(dk), 3)}`),
+    ];
+    if (C.model_type === "mpnet") out.push(para("B is MPNet's learned bias for the relative position of the two tokens."));
+    out.push(
+      para(`Row ${i + 1} ("${shown(r.tokens[i])}") of head ${h + 1} in layer ${l + 1}, its three largest weights and the row's sum:`),
+      tex(top.map((j) => `a_{${i + 1},${j + 1}} = ${fx(row[j], 3)}`).join(",\\ ") + `, \\qquad \\textstyle\\sum_j a_{${i + 1},j} = ${fx(sum, 3)}`),
+      para(`The ${H} heads' outputs are joined and projected back to ${DIM} numbers:`),
+      tex(`\\mathrm{MHA}(\\mathbf{H}) = \\big[\\mathrm{head}_1; \\ldots; \\mathrm{head}_{${H}}\\big]\\,W^{O}`),
+      para("Residual connection and LayerNorm: the attention's output is added to the token's own vector, then normalised. " +
+        "For this token, the length of its vector before and after, and how much its direction changed (cosine):"),
+      tex(`\\mathbf{h}'_i = \\mathrm{LayerNorm}\\big(\\mathbf{h}_i + \\mathrm{MHA}(\\mathbf{H})_i\\big), \\quad ` +
+        `\\|\\mathbf{h}_i\\| = ${fx(norm(hin), 2)},\\ \\|\\mathbf{h}'_i\\| = ${fx(norm(hmid), 2)},\\ \\cos(\\mathbf{h}_i, \\mathbf{h}'_i) = ${fx(cos(hin, hmid), 3)}`),
+      para(`Feed-forward: each token on its own passes through a layer of ${C.intermediate_size} units with a ${C.hidden_act} ` +
+        `activation and back to ${DIM}, then another residual connection and LayerNorm. The result is the layer's output.`),
+      tex(`\\mathbf{h}''_i = \\mathrm{LayerNorm}\\big(\\mathbf{h}'_i + W_2\\,\\mathrm{${act}}(W_1 \\mathbf{h}'_i + \\mathbf{b}_1) + \\mathbf{b}_2\\big), ` +
+        `\\quad W_1 \\in \\mathbb{R}^{${C.intermediate_size} \\times ${DIM}}`),
+      tex(`\\|\\mathbf{h}''_i\\| = ${fx(norm(hout), 2)}, \\quad \\cos(\\mathbf{h}'_i, \\mathbf{h}''_i) = ${fx(cos(hmid, hout), 3)}, ` +
+        `\\quad \\cos(\\mathbf{h}_i, \\mathbf{h}''_i) = ${fx(cos(hin, hout), 3)}`));
+    return out;
+  }
+
+  // ---- 4. the answer forming ----
+  const leadsFrom = (r) => { let k = L; while (k > 0 && argmax(r.layerP[k - 1]) === r.top) k--; return k; };
+  function traceText(r) {
+    const k = leadsFrom(r);
+    return ["The classifier normally reads only the last layer. Here it also reads the [CLS] vector after every " +
+      "earlier layer, to show what the model would answer if it stopped there.",
+      `The final answer, "${name(r.top)}", ` + (k === 0 ? "already leads after the first layer." :
+        `takes the lead after layer ${k + 1} and keeps it.`)];
+  }
+  function traceBody(r) {
+    const labs = [...new Set([r.top, ...order(r.p).slice(1, 3), ...r.layerP.map(argmax)])].slice(0, 5);
+    const W = 560, Ht = 230, x0 = 44, y0 = 14, w = W - x0 - 16, h = Ht - y0 - 34;
+    const X = (l) => x0 + (L > 1 ? (l * w) / (L - 1) : w / 2), Y = (p) => y0 + h * (1 - p);
+    const svg = sv("svg", { viewBox: `0 0 ${W} ${Ht}`, class: "chart", role: "img", style: `max-width:${W}px`,
+      "aria-label": "Probability of the leading labels after each layer; the table below has the same numbers" });
+    for (const p of [0, 0.5, 1]) svg.append(sv("line", { class: "grid-l", x1: x0, x2: x0 + w, y1: Y(p), y2: Y(p) }),
+      sv("text", { x: x0 - 6, y: Y(p) + 4, "text-anchor": "end", class: "lab" }, pct(p)));
+    range(L).forEach((l) => svg.append(sv("text", { x: X(l), y: Ht - 12, "text-anchor": "middle", class: "lab" }, `layer ${l + 1}`)));
+    labs.forEach((c, k) => {
+      const col = `var(--c${k + 1})`;
+      svg.append(sv("polyline", { points: range(L).map((l) => `${X(l)},${Y(r.layerP[l][c])}`).join(" "), fill: "none",
+        style: `stroke:${col}`, "stroke-width": c === r.top ? 3 : 1.6 }),
+        ...range(L).map((l) => sv("circle", { cx: X(l), cy: Y(r.layerP[l][c]), r: 3.2, style: `fill:${col}` })));
+    });
+    const legend = el("div", { className: "legend" }, ...labs.map((c, k) => el("span", {},
+      el("b", { style: `background:var(--c${k + 1})` }), name(c) + (c === r.top ? " (final answer)" : ""))));
+    const table = el("table", {}, el("tr", {}, el("th", { textContent: "after" }), el("th", { textContent: "would answer" }),
+      el("th", { textContent: `chance of "${name(r.top)}"` })),
+      ...range(L).map((l) => el("tr", {}, el("td", { textContent: `layer ${l + 1}` }),
+        el("td", { textContent: name(argmax(r.layerP[l])), style: argmax(r.layerP[l]) === r.top ? "font-weight:650" : "" }),
+        el("td", { className: "num", textContent: pct(r.layerP[l][r.top]) }))));
+    return [svg, legend, el("div", { className: "box" }, table)];
+  }
+  function traceMath(r) {
+    const vals = range(L).map((l) => fx(r.layerP[l][r.top], 3)).join(",\\ ");
+    return [para("After layer ℓ, the same classifier is applied to that layer's [CLS] vector:"),
+      tex(`\\mathbf{z}^{(\\ell)} = \\mathrm{head}\\big(\\mathbf{h}^{(\\ell)}_{\\mathrm{[CLS]}}\\big), \\qquad ` +
+        `\\mathbf{p}^{(\\ell)} = ${D.multi ? "\\sigma" : "\\mathrm{softmax}"}\\big(\\mathbf{z}^{(\\ell)}\\big)`),
+      para(`The chance of "${name(r.top)}" after layers 1 to ${L}:`),
+      tex(`p^{(\\ell)}_{c} = (${vals})`),
+      para("The classifier was trained only on the last layer, so earlier layers' answers show how far the evidence has formed, not what the model was taught to say there.")];
+  }
+
+  // ---- 5. token map ----
+  function mapText(r) {
+    const s = r.pca[ST.mapLayer].share;
+    return [`Each dot is one token's vector, flattened from ${DIM} dimensions to two with principal component analysis ` +
+      `(computed in this page for each layer on its own). The two axes keep ${pct(s[0] + s[1])} of the spread ` +
+      `${ST.mapLayer === 0 ? "after the embeddings" : `after layer ${ST.mapLayer}`}. Move the slider to watch the ` +
+      "layers mix the tokens: by the last layer the [CLS] vector has gathered what the classifier needs."];
+  }
+  function mapBody(r) {
+    const W = 560, Ht = 380, pad = 46;
+    const slider = el("input", { type: "range", min: 0, max: L, step: 1, value: ST.mapLayer, id: "map-layer",
+      "data-key": "map-layer", "aria-label": "Layer" });
+    const lab = el("output", { htmlFor: "map-layer", className: "num" });
+    const play = el("button", { className: "ghost", textContent: "Play", "data-key": "map-play" });
+    const svg = sv("svg", { viewBox: `0 0 ${W} ${Ht}`, class: "chart", role: "img", style: `max-width:${W}px`,
+      "aria-label": "Token vectors projected to two dimensions" });
+    svg.append(sv("line", { class: "axis", x1: W / 2, x2: W / 2, y1: 8, y2: Ht - 8 }), sv("line", { class: "axis", x1: 8, x2: W - 8, y1: Ht / 2, y2: Ht / 2 }));
+    const pts = r.tokens.map((t, i) => {
+      const g = sv("g", { class: "pt" + (i === 0 ? " cls" : "") }, sv("circle", { r: i === 0 ? 6 : 4 }),
+        sv("text", { x: 7, y: 4 }, short(shown(t), 12)));
+      g.addEventListener("mousemove", (e) => tipAt(g, e, el("div", { textContent: `${t}, position ${i + 1}` })));
+      g.addEventListener("mouseleave", hideTip);
+      svg.append(g);
+      return g;
+    });
+    const share = el("p", { className: "note" });
+    function place() {
+      const { xy, share: s } = r.pca[ST.mapLayer], m = Math.max(1e-9, ...xy.flat().map(Math.abs));
+      xy.forEach(([a, b], i) => { pts[i].style.transform = `translate(${W / 2 + (a / m) * (W / 2 - pad)}px, ${Ht / 2 - (b / m) * (Ht / 2 - pad / 2)}px)`; });
+      lab.textContent = ST.mapLayer === 0 ? "after the embeddings" : `after layer ${ST.mapLayer}`;
+      share.textContent = `Horizontal axis: ${pct(s[0])} of the spread; vertical: ${pct(s[1])}.`;
+      slider.value = ST.mapLayer;
+    }
+    slider.oninput = () => { ST.mapLayer = Number(slider.value); place(); $("stage-text").replaceChildren(...mapText(r).map((t) => para(t))); refreshMath(); };
+    let timer = null;
+    play.onclick = () => {
+      if (timer) { clearInterval(timer); timer = null; play.textContent = "Play"; return; }
+      ST.mapLayer = 0; place(); play.textContent = "Stop";
+      timer = setInterval(() => {
+        if (ST.mapLayer >= L || !play.isConnected) { clearInterval(timer); timer = null; play.textContent = "Play"; return; }
+        ST.mapLayer++; slider.oninput.call(slider, null);
+      }, 900);
+    };
+    place();
+    return [el("div", { className: "row" }, el("label", { htmlFor: "map-layer", textContent: "Layer " }), slider, lab, play), svg, share];
+  }
+  function mapMath(r) {
+    const s = r.pca[ST.mapLayer].share;
+    return [para(`The ${r.T} vectors of the chosen layer are the rows of X. After subtracting their mean, the singular value ` +
+      "decomposition gives the two directions of largest spread; each token's coordinates are its components along them."),
+      tex("\\tilde{X} = X - \\mathbf{1}\\bar{\\mathbf{x}}^{\\top} \\approx U_2 \\Sigma_2 V_2^{\\top}, \\qquad \\text{coordinates} = U_2 \\Sigma_2"),
+      tex(`\\frac{\\sigma_1^2}{\\sum_k \\sigma_k^2} = ${fx(s[0], 3)}, \\qquad \\frac{\\sigma_2^2}{\\sum_k \\sigma_k^2} = ${fx(s[1], 3)}`),
+      para("Each layer gets its own projection, so the axes mean different things from layer to layer; a direction is flipped when that keeps the picture closer to the previous layer's.")];
+  }
+
+  // ---- 6. [CLS] and the classifier ----
+  function clsText(r) {
+    return ["The classifier reads only the first position of the last layer, the [CLS] vector. A dense layer and its " +
+      "activation turn it into h (for BERT this is called the pooler), and one linear layer gives every label a score: " +
+      "each of h's numbers times that label's weight, summed, plus the label's bias. Below, the dimensions that push " +
+      "the chosen label's score up or down the most."];
+  }
+  function clsBody(r) {
+    const c = ST.label, terms = r.termsOf(c), cv = r.hsAt(L, 0);
+    const sel = el("select", { id: "cls-label", "data-key": "cls-label" }, ...order(r.p).map((k) => el("option", {
+      value: k, textContent: `${name(k)} (${pct(r.p[k])})`, selected: k === c })));
+    sel.onchange = () => { ST.label = Number(sel.value); render(); };
+    const big = order(Array.from(terms, Math.abs)).slice(0, 12), m = Math.max(1e-9, ...big.map((i) => Math.abs(terms[i])));
+    const W = 560, RH = 20, x0 = 70, mid = x0 + (W - x0 - 10) / 2, half = (W - x0 - 10) / 2;
+    const svg = sv("svg", { viewBox: `0 0 ${W} ${big.length * RH + 8}`, class: "chart contrib", role: "img", style: `max-width:${W}px`,
+      "aria-label": `The ${big.length} largest terms W times h for ${name(c)}` });
+    svg.append(sv("line", { class: "axis", x1: mid, x2: mid, y1: 0, y2: big.length * RH + 8 }));
+    big.forEach((i, k) => {
+      const v = terms[i], w = (Math.abs(v) / m) * half;
+      svg.append(sv("text", { x: x0 - 8, y: 4 + k * RH + 14, "text-anchor": "end", class: "lab" }, `dim ${i + 1}`),
+        sv("rect", { x: v >= 0 ? mid : mid - w, y: 4 + k * RH + 3, width: Math.max(1, w), height: RH - 6, rx: 2,
+          fill: `rgb(${v >= 0 ? P.pos : P.neg})` }),
+        sv("text", { x: v >= 0 ? mid - 6 : mid + 6, y: 4 + k * RH + 14, "text-anchor": v >= 0 ? "end" : "start", class: "lab" }, fx(v, 3)));
+    });
+    const s = terms.reduce((a, b) => a + b, 0);
+    return [el("div", { className: "strips" },
+        el("span", { textContent: `[CLS] after layer ${L}` }), strip(cv),
+        el("span", { textContent: "h, the classifier's input" }), strip(r.h)),
+      el("div", { className: "row" }, el("label", { htmlFor: "cls-label", textContent: "Label" }), sel),
+      svg, el("p", { className: "num", textContent: `sum of all ${r.h.length} terms ${fx(s, 3)} + bias ${fx(r.bias[c], 3)} = ${fx(s + r.bias[c], 3)}` })];
+  }
+  function clsMath(r) {
+    const c = ST.label, s = r.termsOf(c).reduce((a, b) => a + b, 0), b = r.bias[c];
+    const out = [para("The head's dense layer, with g its activation (tanh for BERT, RoBERTa and MPNet heads), then the linear layer:"),
+      tex(`\\mathbf{h} = g\\big(W_d\\,\\mathbf{h}^{(${L})}_{\\mathrm{[CLS]}} + \\mathbf{b}_d\\big), \\qquad ` +
+        `\\mathbf{z} = W\\mathbf{h} + \\mathbf{b}, \\quad W \\in \\mathbb{R}^{${NL} \\times ${r.h.length}}`),
+      para(`For "${name(c)}":`),
+      tex(`z_c = \\sum_{i=1}^{${r.h.length}} W_{c,i}\\,h_i + b_c = ${fx(s, 3)} + (${fx(b, 3)}) = ${fx(s + b, 3)}`)];
+    if (Math.abs(s + b - r.z[c]) >= 5e-4) out.push(para(`This model is quantised: it multiplies by 8-bit copies of the ` +
+      `weights, so its own score is ${fx(r.z[c], 3)}.`));
+    return out;
+  }
+
+  // ---- 7. probabilities ----
+  function outText(r) {
+    return [D.multi ? `Each of the ${NL} labels gets its own sigmoid: a probability between 0 and 1, independent of the ` +
+      "others. Every label at 50% or more is part of the answer." :
+      `Softmax turns the ${NL} scores into probabilities that add up to one. The answer is the label with the largest.`];
+  }
+  function bars(idx, p, { teacher = false, gold = null } = {}) {
+    const golds = Array.isArray(gold) ? gold : gold === null ? [] : [gold];
+    return el("ol", { className: "bars" + (teacher ? " teacher" : "") }, ...idx.map((i) => el("li", {
+      className: (golds.includes(i) ? "gold " : "") + (D.multi && p[i] >= 0.5 ? "chosen" : "") },
+      el("div", { className: "fill", style: `width:${(100 * p[i]).toFixed(1)}%` }),
+      ...(D.multi ? [el("div", { className: "half" })] : []),
+      el("span", { textContent: name(i) }), el("span", { className: "p", textContent: pct(p[i]) }))));
+  }
+  function outBody(r) {
+    const idx = order(r.p), k = ST.all ? NL : Math.min(NL, 10);
+    const out = [bars(idx.slice(0, k), r.p)];
+    if (NL > 10) out.push(el("button", { className: "ghost", "data-key": "all", textContent: ST.all ? "Show the top 10" : `Show all ${NL} labels`,
+      onclick: () => { ST.all = !ST.all; render(); } }));
+    if (D.multi) out.push(el("p", { className: "note", textContent: "The dashed line marks 50%." }));
+    return out;
+  }
+  function outMath(r) {
+    if (D.multi) {
+      return [para("Each label's probability is the sigmoid of its own score, independent of the other labels:"),
+        tex("p_c = \\sigma(z_c) = \\frac{1}{1 + e^{-z_c}}"),
+        tex(order(r.p).slice(0, 3).map((c) => `\\sigma(${fx(r.z[c], 3)}) = ${fx(r.p[c], 3)}`).join(",\\quad "))];
+    }
+    const m = Math.max(...r.z), S = r.z.reduce((a, z) => a + Math.exp(z - m), 0), c = r.top;
+    return [para("Softmax exponentiates every score and divides by the total; subtracting the largest score m first changes nothing but keeps the numbers small:"),
+      tex(`p_c = \\frac{e^{z_c}}{\\sum_{j=1}^{${NL}} e^{z_j}} = \\frac{e^{z_c - m}}{\\sum_j e^{z_j - m}}, \\qquad m = \\max_j z_j = ${fx(m, 3)}`),
+      para(`For "${name(c)}":`),
+      tex(`p_c = \\frac{e^{${fx(r.z[c] - m, 3)}}}{${fx(S, 3)}} = ${fx(r.p[c], 3)}`)];
+  }
+
+  // ---- 8. teacher and distillation ----
+  const lambda = () => (D.training ? D.training.ce_weight ?? null : null);
+  function teacherText(r) {
+    const out = [];
+    if (r.sample?.teacher) out.push(`When the student was trained, the teacher${D.teacher ? `, ${D.teacher},` : ""} labelled ` +
+      "this text. The teacher is far too large to run here, but its saved soft labels for the examples are in this page.");
+    else out.push("Pick one of the examples to compare the student with the teacher's saved soft labels for it.");
+    const lam = lambda();
+    const gold = lam === null ? "plus, on the training texts that have a gold label, the cross-entropy against it times a weight (--ce-weight)" :
+      lam > 0 ? `plus ${lam} times the cross-entropy against the gold label on the ${D.training.n_gold} training texts that have one` :
+      "and nothing else: this run's loss had no gold-label term";
+    out.push((D.multi ? "The student learned to match the teacher's probability for every label (binary cross-entropy), " :
+      "The student learned to match the teacher's probabilities (the KL divergence from them to its own), ") + gold + ". " +
+      "The soft labels are the teacher's own probabilities, used as they are.");
+    return out;
+  }
+  function teacherBody(r) {
+    if (!r.sample?.teacher) return [];
+    const tp = teacherProbs(r.sample), g = r.sample.gold ?? null, k = Math.min(NL, 5);
+    const agree = D.multi ? null : argmax(tp) === r.top;
+    return [el("div", { className: "cols" },
+      el("div", {}, el("h3", { className: "t", textContent: "Teacher" }), bars(order(tp).slice(0, k), tp, { teacher: true, gold: g })),
+      el("div", {}, el("h3", { textContent: "Student (this page)" }), bars(order(r.p).slice(0, k), r.p, { gold: g }))),
+      el("p", { className: "note", textContent: (agree === null ? "" : agree ? "They agree on the top label. " : "They disagree on the top label. ") +
+        (g === null ? "" : `The gold label${Array.isArray(g) ? "s" : ""}: ${[].concat(g).map(name).join(", ") || "none"}.`) })];
+  }
+  function teacherMath(r) {
+    const lam = lambda(), L2 = lam === null ? "\\lambda" : String(lam), out = [];
+    if (D.multi) {
+      out.push(para("Over a batch B of training texts and every label c, with q the student's sigmoids, p^T the teacher's probabilities and B_G the texts with gold labels y:"),
+        tex(`\\mathcal{L} = \\frac{1}{|B|\\,N}\\sum_{n \\in B}\\sum_{c} \\mathrm{BCE}(q_{n,c}, p^{T}_{n,c}) + ${L2}\\,\\frac{1}{|B_G|\\,N}\\sum_{n \\in B_G}\\sum_{c} \\mathrm{BCE}(q_{n,c}, y_{n,c})`),
+        tex("\\mathrm{BCE}(q, p) = -\\big[p \\log q + (1 - p)\\log(1 - q)\\big]"));
+    } else {
+      out.push(para("Over a batch B of training texts, with q the student's probabilities, p^T the teacher's and B_G the texts with a gold label y:"),
+        tex(`\\mathcal{L} = \\frac{1}{|B|}\\sum_{n \\in B} \\mathrm{KL}\\big(\\mathbf{p}^{T}_n \\,\\|\\, \\mathbf{q}_n\\big) + ${L2}\\,\\frac{1}{|B_G|}\\sum_{n \\in B_G} -\\log q_{n, y_n}`),
+        tex("\\mathrm{KL}(\\mathbf{p} \\,\\|\\, \\mathbf{q}) = \\sum_c p_c \\log \\frac{p_c}{q_c}"));
+    }
+    if (!r.sample?.teacher) return out;
+    const tp = teacherProbs(r.sample), q = r.p, g = r.sample.gold ?? null, eps = 1e-12;
+    const bce = (y) => range(NL).reduce((s, c) => s - (y[c] * Math.log(Math.max(q[c], eps)) + (1 - y[c]) * Math.log(Math.max(1 - q[c], eps))), 0) / NL;
+    if (D.multi) {
+      const parts = [`\\overline{\\mathrm{BCE}}(\\mathbf{q}, \\mathbf{p}^T) = ${fx(bce(tp), 4)}`];
+      if (Array.isArray(g)) parts.push(`\\overline{\\mathrm{BCE}}(\\mathbf{q}, \\mathbf{y}) = ${fx(bce(range(NL).map((c) => (g.includes(c) ? 1 : 0))), 4)}`);
+      out.push(para("For this example and the trained student:"), tex(parts.join(", \\qquad ")));
+    } else {
+      const kl = range(NL).reduce((s, c) => s + (tp[c] > 0 ? tp[c] * Math.log(tp[c] / Math.max(q[c], eps)) : 0), 0);
+      const parts = [`\\mathrm{KL}(\\mathbf{p}^T \\,\\|\\, \\mathbf{q}) = ${fx(kl, 4)}`];
+      if (g !== null) parts.push(`-\\log q_{y} = ${fx(-Math.log(Math.max(q[g], eps)), 4)}`);
+      out.push(para("For this example and the trained student:"), tex(parts.join(", \\qquad ")));
+    }
+    return out;
+  }
+
+  // ---- start ----
+  palette();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { palette(); if (R) { drawOverview(R); render(); } });
+  const text = $("text"), go = $("go"), status = $("status");
+  $("samples").replaceChildren(...D.samples.map((s, i) => el("button", { className: "ghost", textContent: s.text.length > 40 ? s.text.slice(0, 37).trimEnd() + "..." : s.text,
+    title: s.text, onclick: () => { text.value = s.text; run(); } })));
+  text.value = D.samples[0]?.text ?? "";
+  let runId = 0;
+  async function run() {
+    const value = text.value.trim();
+    if (!value) return;
+    const id = ++runId;
+    go.disabled = true;
+    status.textContent = "Running the model...";
+    const r = await analyse(value);
+    if (id !== runId) return;
+    R = r;
+    ST.token = Math.min(ST.token, r.T - 1); ST.key = Math.min(ST.key, r.T - 1); ST.label = r.top;
+    katex = await katexReady;
+    drawOverview(r);
+    render();
+    const answer = D.multi ? r.p.map((x, i) => [x, i]).filter(([x]) => x >= 0.5).map(([, i]) => name(i)).join(", ") || "no label" : name(r.top);
+    status.textContent = `The model answers "${answer}" (${r.T} tokens, ${r.ms.toFixed(0)} ms in your browser).`;
+    go.disabled = false;
+    document.body.dataset.ready = "1";
+  }
+  go.onclick = run;
+  text.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) run(); });
+  try {
+    tok = await AutoTokenizer.from_pretrained(D.model);
+    model = await AutoModel.from_pretrained(D.model, { dtype: D.dtype });
+  } catch (e) {
+    status.textContent = `The model did not load: ${e.message}`;
+    throw e;
+  }
+  go.disabled = false;
+  if (text.value) await run(); else status.textContent = "Type a text and run the model.";
+</script>
+</body>
+</html>
