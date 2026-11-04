@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 
 SURFACE_FORMS = ("lowercase", "capitalised", "uppercase")
+LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"  # option letters of a lettered prompt
 
 
 def label_name(label_id: str) -> str:
@@ -33,23 +34,33 @@ class Task:
     answers: tuple[str, str] = ("yes", "no")  # the teacher's answers to a multi-label question
 
     def render(
-        self, text: str, examples: list[tuple[str, int]] | None = None, label: str | None = None
+        self,
+        text: str,
+        examples: list[tuple[str, int]] | None = None,
+        label: str | None = None,
+        lettered: bool = False,
     ) -> str:
         """The user message for one input text. ``examples`` are (text, label index) pairs shown in place of
-        {examples}; without them the {examples} line is removed. ``label`` fills {label} (multi-label)."""
+        {examples}; without them the {examples} line is removed. ``label`` fills {label} (multi-label).
+        ``lettered``: the labels are options A, B, C, ... (examples answer with the letter) and the message
+        ends with an instruction to answer with the letter (for hosted API teachers)."""
         descs = self.descriptions or [None] * len(self.labels)
+        marks = [f"{c}." for c in LETTERS[: len(self.labels)]] if lettered else ["-"] * len(self.labels)
         options = "\n".join(
-            f"- {v}: {d}" if d else f"- {v}" for v, d in zip(self.verbalisations, descs, strict=True)
+            f"{m} {v}: {d}" if d else f"{m} {v}"
+            for m, v, d in zip(marks, self.verbalisations, descs, strict=True)
         )
         prompt = self.prompt.replace("{labels}", options)
         if examples:
-            shots = "\n".join(f'- "{" ".join(t.split())}" -> {self.verbalisations[y]}' for t, y in examples)
+            answer = LETTERS if lettered else self.verbalisations
+            shots = "\n".join(f'- "{" ".join(t.split())}" -> {answer[y]}' for t, y in examples)
             prompt = prompt.replace("{examples}", "\nExamples:\n" + shots)
         else:
             prompt = prompt.replace("{examples}\n", "").replace("{examples}", "")
         if label is not None:
             prompt = prompt.replace("{label}", label)
-        return prompt.replace("{text}", text)
+        prompt = prompt.replace("{text}", text)
+        return prompt + "\nAnswer with the letter of one option." if lettered else prompt
 
     def to_dict(self) -> dict:
         labels = {}

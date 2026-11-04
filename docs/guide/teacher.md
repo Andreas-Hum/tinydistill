@@ -43,6 +43,38 @@ tinydistill label task.yaml --data train.csv --teacher Qwen/Qwen2.5-7B-Instruct 
   --vllm-url http://127.0.0.1:8000/v1 --out run
 ```
 
+## Hosted APIs
+
+A hosted OpenAI-compatible chat API (OpenAI, DeepInfra, Together, a local llama.cpp server, ...) can be the
+teacher too. `--api-url` is the API's base URL and `--teacher` the model's name there; the API key is read from
+the environment variable named by `--api-key-env` (default `OPENAI_API_KEY`). If that variable is unset, no key
+is sent, as a local server needs none. Only the variable's name is written to `meta.json`; the key never
+appears in the run directory, the cache or error messages.
+
+```sh
+export OPENAI_API_KEY=...
+tinydistill label task.yaml --data train.csv --teacher gpt-4o-mini \
+  --api-url https://api.openai.com/v1 --out run
+```
+
+Such APIs return no log-probabilities for the prompt, only the top 20 for the first generated token, so the
+exact scoring of every label name is not possible. Instead the labels are shown as lettered options (`A. name`,
+`B. name: description`, ...), few-shot examples answer with the letter, the message ends with "Answer with the
+letter of one option.", and each label's score is the log-probability of its letter as the first answer token
+(`A`, ` A` and `a` all count). A letter is one token in every tokenizer, so this is exact, but:
+
+- only single-label tasks with at most 20 labels work; for more labels or multi-label tasks use a local or
+  vLLM teacher (`--shortlist` is for local teachers only);
+- a letter that is not among the 20 returned tokens gets the smallest returned log-probability, an upper
+  bound on its true value;
+- the prompt should not ask for the label name, or the model may not answer with a letter at all.
+
+Rate limits (HTTP 429), server errors and timeouts are retried with back-off. `eval` times the teacher by
+calling the API again on the test texts; `--skip-teacher-bench` avoids that.
+
+Every text is sent to the API provider: check their data policy before labelling anything personal or
+confidential.
+
 ## Labelling speed
 
 The part of the prompt before the text is run once and cached; each text then needs one forward pass that

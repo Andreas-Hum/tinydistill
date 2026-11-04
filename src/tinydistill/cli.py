@@ -97,7 +97,7 @@ def cmd_label(a: argparse.Namespace) -> None:
     keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
     for name in _teachers(a.teacher):  # one teacher in memory at a time
         quick = None
-        if not a.vllm_url:
+        if not a.vllm_url and not a.api_url:  # a server's tokenizer and setup are not known locally
             quick = quick_key(
                 name, task, a.device, a.load_4bit, examples, a.shortlist, a.shortlist_model, a.shortlist_keep
             )
@@ -126,6 +126,8 @@ def cmd_label(a: argparse.Namespace) -> None:
             a.shortlist,
             a.shortlist_model,
             a.shortlist_keep,
+            a.api_url,
+            a.api_key_env,
         )
         fingerprints.append(scorer.fingerprint())
         device = str(scorer.device)
@@ -183,6 +185,8 @@ def cmd_label(a: argparse.Namespace) -> None:
             "label_texts_scored": scored,
             "teacher_tokens": a.teacher_tokens,
             "vllm_url": a.vllm_url,
+            "api_url": a.api_url,
+            "api_key_env": a.api_key_env,  # the variable's name; the key itself is never written
             "shortlist": a.shortlist,
             "shortlist_model": a.shortlist_model,
             "shortlist_keep": a.shortlist_keep,
@@ -416,6 +420,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
     devices = [d for d in (a.teacher_devices or meta.get("teacher_device", "cpu")).split(",") if d]
     if meta.get("vllm_url"):
         devices = ["vllm"]  # the teacher runs on the server
+    elif meta.get("api_url"):
+        devices = ["api"]
     n_students = sum(len(_seed_dirs(run, name)) for name, *_ in VARIANTS)
     n_onnx = sum((run / "onnx" / f).exists() for f in ("model.onnx", "model.int8.onnx"))
     bar = Progress(
@@ -453,6 +459,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                     meta.get("shortlist"),
                     meta.get("shortlist_model"),
                     meta.get("shortlist_keep"),
+                    meta.get("api_url"),
+                    meta.get("api_key_env", "OPENAI_API_KEY"),
                 )
                 if hasattr(scorer, "model"):  # a local model (not a vLLM server)
                     row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
@@ -647,6 +655,8 @@ def _run_teacher(run: Path, device: str):
             meta.get("shortlist"),
             meta.get("shortlist_model"),
             meta.get("shortlist_keep"),
+            meta.get("api_url"),
+            meta.get("api_key_env", "OPENAI_API_KEY"),
         )
         for t in meta.get("teachers") or [meta["teacher"]]
     ]
@@ -968,6 +978,19 @@ def build_parser() -> argparse.ArgumentParser:
     label.add_argument(
         "--vllm-url",
         help="score with this vLLM server (OpenAI API base, e.g. http://host:8000/v1), not a local model",
+    )
+    label.add_argument(
+        "--api-url",
+        help="score with a hosted OpenAI-compatible chat API (base URL, e.g. https://api.openai.com/v1; "
+        "--teacher names the model there): the labels are shown as options A, B, C, ... and scored by "
+        "the answer letter's log-probability; single-label tasks with at most 20 labels",
+    )
+    label.add_argument(
+        "--api-key-env",
+        default="OPENAI_API_KEY",
+        metavar="VAR",
+        help="environment variable holding the API key for --api-url (default OPENAI_API_KEY; "
+        "unset: no key is sent, as for a local server)",
     )
     label.add_argument(
         "--shortlist",

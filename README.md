@@ -227,6 +227,12 @@ labelling: start it with `vllm serve MODEL --enable-prefix-caching` and pass `--
 with `--teacher MODEL`. Only the tokenizer is loaded locally; every continuation is scored exactly from the
 server's prompt log-probabilities, so the soft labels are the same as with the local model.
 
+A **hosted API** (OpenAI, DeepInfra, Together, a llama.cpp server, ...) works too: `--api-url
+https://api.openai.com/v1 --teacher MODEL`, with the key in `OPENAI_API_KEY` (or the variable named by
+`--api-key-env`). Such APIs give only the top 20 log-probabilities of the first answer token, so the labels are
+shown as options A, B, C, ... and scored by the answer letter: single-label tasks with at most 20 labels. The
+texts are sent to the provider, so check their data policy.
+
 **Many labels.** With hundreds or thousands of labels, scoring every one for every text gets slow.
 `label --shortlist K` first compares each text with the label names (and descriptions) using a small
 sentence-embedding model (`--shortlist-model`, MiniLM by default) and has the teacher score only the K most

@@ -6,6 +6,10 @@
   `predict`, `predict_proba`, `describe`, `score`, `save` and `Distiller.load`, with `get_params` and
   `set_params` for scikit-learn tools (without depending on scikit-learn). With `cache_dir` it shares the
   teacher's score cache with `tinydistill label --cache-dir`.
+- Hosted API teachers: `label --api-url URL --teacher MODEL` scores with an OpenAI-compatible chat API
+  (OpenAI, DeepInfra, Together, a llama.cpp server, ...). The labels are shown as lettered options and scored
+  by the answer letter's log-probability (single-label tasks, at most 20 labels); the key comes from the
+  environment variable named by `--api-key-env` and is never written to disk.
 - Documentation site at https://andreas-hum.github.io/tinydistill/ (MkDocs): getting started, a guide per
   topic, how it works, benchmarks, and a command-line and Python API reference generated from the code. The
   live demo moved to https://andreas-hum.github.io/tinydistill/demo/.
