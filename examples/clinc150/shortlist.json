@@ -1,0 +1,38 @@
+[
+  {
+    "run": "clinc150-7b-full",
+    "scored": "every label (151)",
+    "label_minutes": 95.03333333333333,
+    "texts_labelled": 20748,
+    "teacher_accuracy": 0.5643636363636364,
+    "teacher_in_scope": 0.666,
+    "teacher_out_of_scope": 0.107,
+    "shortlist_recall": null,
+    "teacher_latency_ms": 261.72123449941864,
+    "student_accuracy": 0.5587272727272727
+  },
+  {
+    "run": "clinc150-7b-shortlist20",
+    "scored": "`--shortlist 20`",
+    "label_minutes": 14.841666666666667,
+    "texts_labelled": 20236,
+    "teacher_accuracy": 0.5547272727272727,
+    "teacher_in_scope": 0.6735555555555556,
+    "teacher_out_of_scope": 0.02,
+    "shortlist_recall": 0.8027272727272727,
+    "teacher_latency_ms": 72.8164555002877,
+    "student_accuracy": 0.5552727272727273
+  },
+  {
+    "run": "clinc150-7b-shortlist20-keep-oos",
+    "scored": "`--shortlist 20 --shortlist-keep oos`",
+    "label_minutes": 15.126666666666667,
+    "texts_labelled": 20748,
+    "teacher_accuracy": 0.5812727272727273,
+    "teacher_in_scope": 0.6715555555555556,
+    "teacher_out_of_scope": 0.175,
+    "shortlist_recall": 0.968,
+    "teacher_latency_ms": 87.3591054987628,
+    "student_accuracy": 0.5738181818181818
+  }
+]

@@ -19,4 +19,5 @@ for run in clinc150-7b-shortlist20 clinc150-7b-full clinc150-7b-shortlist20-keep
 done
 tinydistill compare runs/clinc150-7b-full runs/clinc150-7b-shortlist20 runs/clinc150-7b-shortlist20-keep-oos \
   > examples/clinc150/teachers.md
+python examples/clinc150/summary.py  # labelling time, in and out of scope, shortlist recall
 python examples/update_readme.py

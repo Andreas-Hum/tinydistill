@@ -118,6 +118,62 @@ With the same encoder, distillation is about 1.6 points more accurate than SetFi
 is itself more accurate than the 7B teacher here. With few labels and no GPU, SetFit is a good choice; with
 unlabelled texts and an LLM that already does the task well, distillation gets more out of them.
 
+## CLINC150: many labels
+
+Requests to a voice assistant: 150 intents plus "out of scope"
+([CLINC150](https://huggingface.co/datasets/clinc/clinc_oos), CC BY 3.0), reproduced by
+[`examples/clinc150/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/clinc150/run.sh). With 151 labels, scoring every label for every
+text is the expensive part, so the teacher labels the data three ways:
+
+<!-- results: clinc150/shortlist.md -->
+| Teacher scores | Labelling time | Teacher accuracy | In scope | Out of scope | Gold label scored | Teacher latency (GPU) | Student accuracy (int8, CPU) |
+|---|---|---|---|---|---|---|---|
+| every label (151) | 95 min | 0.564 | 0.666 | 0.107 | 100% | 262 ms | 0.559 |
+| `--shortlist 20` | 15 min | 0.555 | 0.674 | 0.020 | 80.3% | 73 ms | 0.555 |
+| `--shortlist 20 --shortlist-keep oos` | 15 min | 0.581 | 0.672 | 0.175 | 96.8% | 87 ms | 0.574 |
+
+CLINC150 (plus), 5,500 test texts of which 1,000 are out of scope; `Qwen/Qwen2.5-7B-Instruct` in 4 bit, zero-shot, labelling about 20,748 training and test texts on one GPU. Gold label scored: the share of test texts whose gold label the teacher scored at all.
+<!-- /results -->
+
+`--shortlist 20` labels six times faster and loses little on in-scope requests: their gold label is among the
+20 most similar labels for 96% of them. But "out of scope" resembles no particular request, so it is almost
+never shortlisted, and the teacher can no longer choose it. Scoring it for every text as well
+(`--shortlist-keep oos`) fixes that, and is then more accurate than scoring every label, at the same speed as
+the plain shortlist: with fewer competing labels, the teacher picks "out of scope" more often when it is right.
+A zero-shot teacher still recognises few out-of-scope requests; the same student trained on all gold labels
+reaches 0.87 ([`clinc150-7b-full.md`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/clinc150/clinc150-7b-full.md)).
+
+## AG News: the task file depends on the teacher
+
+News articles in four topics ([AG News](https://huggingface.co/datasets/fancyzhx/ag_news)), the example in the
+"your own task" notebook. With short descriptions of the labels in the prompt, `Qwen/Qwen2.5-1.5B-Instruct`
+answered "world" for 93% of the test articles. `tinydistill tune` compares versions of the task file on 200
+gold-labelled training texts before anything is labelled:
+
+<!-- results: ag-news/tune-1.5b.md -->
+| Teacher | Prompt | Few-shot examples per class | Dev accuracy | Dev macro-F1 | Seconds per text |
+|---|---|---|---|---|---|
+| `Qwen/Qwen2.5-1.5B-Instruct` | task.yaml | 0 | 0.815 | 0.818 | 1.474 |
+| `Qwen/Qwen2.5-1.5B-Instruct` | narrow-world.yaml | 0 | 0.315 | 0.246 | 1.462 |
+| `Qwen/Qwen2.5-1.5B-Instruct` | with-descriptions.yaml | 0 | 0.315 | 0.243 | 1.417 |
+
+Scored on 200 gold-labelled training texts held out from the few-shot examples (not the test set), best first; timed on a CPU.
+<!-- /results -->
+
+The 7B teacher prefers the opposite, narrower descriptions:
+
+<!-- results: ag-news/tune-7b.md -->
+| Teacher | Prompt | Few-shot examples per class | Dev accuracy | Dev macro-F1 | Seconds per text |
+|---|---|---|---|---|---|
+| `Qwen/Qwen2.5-7B-Instruct` (4-bit) | narrow-world.yaml | 0 | 0.785 | 0.804 | 0.016 |
+| `Qwen/Qwen2.5-7B-Instruct` (4-bit) | task.yaml | 0 | 0.640 | 0.655 | 0.018 |
+
+Scored on the same 200 gold-labelled training texts as tune-1.5b.md, best first; timed on the GPU.
+<!-- /results -->
+
+So the same task file can suit one teacher and fail another, and a check on a few hundred labelled texts
+finds out before hours of labelling; the notebook now does this and uses the winner.
+
 ## Financial tweets: an easier task
 
 Sentiment of financial news tweets, 3 classes

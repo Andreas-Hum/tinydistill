@@ -1,0 +1,18 @@
+[
+  {
+    "teacher": "Qwen/Qwen2.5-7B-Instruct",
+    "prompt": "narrow-world.yaml",
+    "few_shot": 0,
+    "accuracy": 0.785,
+    "macro_f1": 0.8041334325396825,
+    "seconds_per_text": 0.015831547225025132
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-7B-Instruct",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.64,
+    "macro_f1": 0.6553207837111026,
+    "seconds_per_text": 0.017784898959980637
+  }
+]
