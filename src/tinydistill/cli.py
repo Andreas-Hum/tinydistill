@@ -304,7 +304,7 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     if reason:  # each scored text's reasoning, one entry per member (for analyse)
         with (run / "reasoning.jsonl").open("w", encoding="utf-8") as f:
             for split, spec, limit in splits:
-                for w in iter_unique(texts_of(spec, limit)):
+                for w in iter_unique(texts_of(split, spec, limit)):
                     why = [c.reasoning.get(text_hash(w)) for c in caches]
                     f.write(json.dumps({"split": split, "text": w, "reasoning": why}) + "\n")
     _meta(
