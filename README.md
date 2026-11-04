@@ -391,6 +391,8 @@ The teacher answers every label's question in the same forward pass, and a label
 log P(yes) − log P(no) over the surface forms of both answers (`answers: [yes, no]` changes them). The student
 gets a multi-label head trained against the teacher's per-label probabilities, and the results show exact-match
 accuracy, macro-F1 and micro-F1, with 0.5 as the cut-off. Gold labels can be lists or strings like `a|b`.
+A multi-label student has a yes/no decision per label to learn and needs more epochs: on GoEmotions, 10 were
+too few and `--epochs 30 --val-share 0.05` brought it close to its teacher.
 Few-shot examples and the cascade are for single-label tasks.
 
 For labels with an order, such as 1 to 5 stars, add `ordinal: true`: the results then also show the mean
