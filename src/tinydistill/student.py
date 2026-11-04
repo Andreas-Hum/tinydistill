@@ -110,13 +110,16 @@ def train_student(
     patience: int = 3,
     chunk_tokens: int | None = None,
     chunk_stride: int | None = None,
+    init_head: list[str] | None = None,
 ) -> int:
     """Train and save the student; returns the epoch whose model is saved. With ``val_share`` > 0 that share
     of the texts is held out (texts without gold labels when there is a teacher), the loss on them is measured
     after every epoch, the epoch with the lowest one is kept, and training stops after ``patience`` epochs
     without improvement. Otherwise every epoch is used and the last one is kept. ``chunk_tokens`` and
     ``chunk_stride`` (the texts are windows of long documents, see :func:`windows`) are saved with the model,
-    which then reads every input in such windows; ``max_length`` is raised to fit a window if needed."""
+    which then reads every input in such windows; ``max_length`` is raised to fit a window if needed.
+    ``init_head``: one text per label (its name, and description), to start the classifier from them with
+    :func:`init_head_from_names`."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
     if static := encoder_of(model_name):
@@ -143,6 +146,9 @@ def train_student(
     if chunk_tokens and max_length < chunk_tokens + tok.num_special_tokens_to_add():
         max_length = chunk_tokens + tok.num_special_tokens_to_add()
         log(f"max_length raised to {max_length}: a window of {chunk_tokens} tokens plus special tokens")
+    if init_head:
+        init_head_from_names(model, tok, init_head, max_length=max_length)
+        log("classifier initialised from the label names")
     gold = gold or [None] * len(texts)
     if multi_label:  # multi-hot gold, and which texts have it
         has_gold = torch.tensor([g is not None for g in gold])
@@ -237,6 +243,37 @@ def train_student(
         encoding="utf-8",
     )
     return kept
+
+
+@torch.no_grad()
+def init_head_from_names(model, tok, names: list[str], scale: float = 10.0, max_length: int = 128) -> None:
+    """Label-aware initialisation of the classifier's final linear layer: row c becomes the student's own
+    representation of ``names[c]``, the input that layer receives for that text (the pooled sentence of a
+    transformer student, the mean token vector of the static one), length-normalised and divided by the
+    names' mean norm times ``scale``; the bias is zero. A text then scores each label about ``scale`` times
+    its cosine similarity to the label's name, so the untrained student already ranks labels by it."""
+    n = model.config.num_labels
+    found = [m for m in model.modules() if isinstance(m, torch.nn.Linear) and m.out_features == n]
+    if len(names) != n or not found:
+        raise ValueError(
+            f"cannot initialise the head: {len(names)} names, {n} labels, linear head found: {bool(found)}"
+        )
+    head = found[-1]  # the classifier is the last module registered (BERT, RoBERTa/MPNet, ModernBERT, static)
+    seen: list[torch.Tensor] = []
+    hook = head.register_forward_hook(lambda _m, args, _out: seen.append(args[0]))
+    was_training = model.training
+    model.eval()
+    try:
+        enc = tok(names, padding=True, truncation=True, max_length=max_length, return_tensors="pt")
+        dev = head.weight.device
+        model(**{k: v.to(dev) for k, v in enc.items()})
+    finally:
+        hook.remove()
+        model.train(was_training)
+    f = seen[0].float()
+    head.weight.copy_(F.normalize(f, dim=-1) * (scale / f.norm(dim=-1).mean().clamp_min(1e-9)))
+    if head.bias is not None:
+        head.bias.zero_()
 
 
 def load_student(path: Path, device: str = "cpu"):

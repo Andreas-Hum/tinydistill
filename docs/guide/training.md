@@ -18,11 +18,41 @@ tinydistill train run --student sentence-transformers/all-MiniLM-L6-v2 --epochs 
 | `sentence-transformers/all-MiniLM-L12-v2` | 34 MB | about 3 ms |
 | `sentence-transformers/all-mpnet-base-v2` | 110 MB | about 7 ms |
 | `answerdotai/ModernBERT-base` | 151 MB | about 10 ms |
+| `jhu-clsp/ettin-encoder-17m` | 17 MB | about 0.7 ms |
+| `jhu-clsp/ettin-encoder-32m` | 33 MB | about 1.5 ms |
+| `jhu-clsp/mmBERT-small` (multilingual) | 142 MB | about 5 ms |
 | `static` (below) | 8 MB | about 0.1 ms |
+| `static:minishlab/potion-base-8M` (below) | 8 MB | about 0.05 ms |
+| `static:minishlab/potion-multilingual-128M` (below, multilingual) | 128 MB | about 0.07 ms |
+
+Ettin (English) and mmBERT (multilingual, over 1,800 languages) are ModernBERT encoders and train, export
+and run as any other student. Their rows and the potion rows come from `examples/students-cpu/measure.py`
+(`encoders.json`: 20 training steps, then the int8 model through `Predictor` at batch 1 on short texts, 2 CPU
+threads; MiniLM-L6 measured 0.85 ms in the same run). That checks that they work; their accuracy as students
+has not been measured. mmBERT is large for its speed because of its 256,000-token vocabulary.
 
 On Banking77, MiniLM-L6 and ModernBERT trained for 20 epochs and mpnet trained for 5 reached about the same
 accuracy (0.813, 0.815 and 0.814; [Benchmarks](../results.md#banking77-the-hard-case)), so the smallest is the
 one to deploy there.
+
+## Starting from the label names
+
+`--init-head names` sets the classifier's starting weights from the label names instead of at random: each
+label's row is the student's own representation of its name (the verbalisation, plus the description if the
+task has one), as the classifier receives it, normalised and scaled so that a text scores each label about 10
+times its cosine similarity to the name; the bias starts at zero. Before any training the student already
+ranks labels by how close a text is to their names, and training then proceeds as usual. It works for BERT,
+RoBERTa/MPNet and ModernBERT students and the static student, and is off by default. It changes only the
+starting point, not the loss.
+
+```sh
+tinydistill train run --init-head names
+```
+
+The representation is whatever the classifier reads: the first token through the pooler for BERT-style
+students, the first token through a dense layer for RoBERTa and MPNet, the mean of all tokens through a dense
+layer and norm for ModernBERT, Ettin and mmBERT, and the mean token vector for the static student. For a
+multi-label task the start ranks the labels but does not yet decide which apply.
 
 ## Long texts
 
@@ -102,4 +132,14 @@ at a higher learning rate:
 
 ```sh
 tinydistill train run --student static --epochs 20 --lr 1e-3
+```
+
+`static:<encoder>` also takes a [Model2Vec](https://github.com/MinishLab/model2vec) model, such as
+`minishlab/potion-base-8M` (English) or `minishlab/potion-multilingual-128M`. Its token vectors are read from
+the model's files and used as they are (no `model2vec` package needed), so the student starts from vectors
+trained for sentence embeddings rather than from the encoder's single-token outputs. The student averages every
+token the tokenizer returns, including `[CLS]` and `[SEP]`, where Model2Vec drops them; training adjusts for it.
+
+```sh
+tinydistill train run --student static:minishlab/potion-base-8M --epochs 20 --lr 1e-3
 ```
