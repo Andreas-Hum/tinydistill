@@ -37,6 +37,27 @@ model writes itself, scored on labelled examples, is the idea of APE ([Zhou et a
 2022](https://arxiv.org/abs/2211.01910)). The dev split is small, so a rewrite that wins by a few texts may not
 be better; check the winner on more data before relying on it.
 
+### Search over several rounds
+
+With `--rounds R`, each later round starts from the best instruction so far and shows the teacher up to 8 dev
+texts it got wrong, each with the correct label and the teacher's answer (long texts cut to 300 characters). The
+teacher writes N rewrites meant to fix those mistakes; the same placeholder check applies, and an instruction
+already tried is not scored again. The search stops after R rounds, or earlier when a round finds nothing
+better.
+
+```sh
+tinydistill tune task.yaml --data train.csv --dev-size 400 --few-shot 0 --propose 4 --rounds 4 --out tune
+```
+
+To keep the search from fitting the texts it shows, the dev split is cut in two halves (seeded with `--seed`).
+Mistakes are shown only from one half, and every candidate, those of round 1 included, is scored only on the
+other. So every score in the report, the chosen instruction's too, is on texts the rewrites were not written
+for. The teacher still labels the whole split for each candidate, to find its mistakes, so a candidate costs
+as much as without rounds. Round 2's candidates are named `tune-r2-1.yaml`, ..., the report gives each
+instruction's round, and `tune-best.yaml` is the best of all rounds. A larger `--dev-size` helps here, since
+only half of it is scored. Rewriting the prompt from its own mistakes is the idea of GEPA ([Agrawal et al.,
+2025](https://arxiv.org/abs/2507.19457)) and of the iterative variant of APE.
+
 ## See where it goes wrong: analyse
 
 `tinydistill analyse RUN` writes `RUN/analysis.html` with each label's scores for teacher and student, the most
