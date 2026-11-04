@@ -75,6 +75,30 @@ calling the API again on the test texts; `--skip-teacher-bench` avoids that.
 Every text is sent to the API provider: check their data policy before labelling anything personal or
 confidential.
 
+### APIs without log-probabilities
+
+Some APIs and models return no log-probabilities at all. For them, `--api-samples N` (N at least 2) asks for N
+answers per text at temperature `--api-temperature` (default 0.7), and each label's soft label is its share of
+the answers, in the spirit of self-consistency (Wang et al. 2022,
+[arXiv 2203.11171](https://arxiv.org/abs/2203.11171)). There is no smoothing: a label no answer chose gets
+probability (practically) 0.
+
+```sh
+tinydistill label task.yaml --data train.csv --teacher some-model \
+  --api-url https://api.example.com/v1 --api-samples 10 --out run
+```
+
+- It costs N times the requests: N answers per text, in one request with `n: N` where the API supports it,
+  otherwise in N requests.
+- The soft labels are coarse with small N: 5 answers give probabilities in steps of 1/5. Use the
+  log-probability scoring above whenever the API offers it.
+- An answer counts when it begins with an option letter standing alone: `B`, `B. negative`, `(B)`, `**B**`,
+  `Answer: B` and `The answer is B` all count for B, and case is ignored. A letter followed by a word does not
+  count, so "A dog barked" is not option A. Answers without a letter are left out; if none of a text's answers
+  has one, every label gets the same score and the run warns.
+- N and the temperature are part of the cache fingerprint and are written to `meta.json`, so `eval` and
+  `predict --cascade` use the same teacher.
+
 ## Labelling speed
 
 The part of the prompt before the text is run once and cached; each text then needs one forward pass that

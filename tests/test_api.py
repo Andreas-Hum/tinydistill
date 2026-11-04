@@ -2,6 +2,7 @@
 endpoint (top log-probabilities of the first answer token). No real network calls."""
 
 import json
+import math
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -25,16 +26,26 @@ def top(*pairs):
     }
 
 
-def default_answer(content: str) -> dict:
-    """Option A for texts with a positive word, B otherwise."""
-    text = content.split("Review: ", 1)[1].split("\n", 1)[0]
+def replies(*texts):
+    """A chat completion without log-probabilities, one choice per reply."""
+    return {"choices": [{"message": {"role": "assistant", "content": t}} for t in texts]}
+
+
+def default_answer(body: dict, n: str = "honour") -> dict:
+    """Option A for texts with a positive word, B otherwise: top log-probabilities when asked for them, else
+    sampled replies (n="honour": as many as "n" asks; "ignore": always one; "refuse": HTTP 400 when "n" is
+    sent)."""
+    text = body["messages"][0]["content"].split("Review: ", 1)[1].split("\n", 1)[0]
     good = any(w in text for w in ("good", "great", "fine"))
-    return top(("A", -0.2 if good else -2.0), (" B", -2.0 if good else -0.2), ("The", -5.0))
+    if body.get("logprobs"):
+        return top(("A", -0.2 if good else -2.0), (" B", -2.0 if good else -0.2), ("The", -5.0))
+    k = body.get("n", 1) if n == "honour" else 1
+    return replies(*((["A.", " (A)", "B"] if good else ["Answer: B", "B", "A"]) * k)[:k])
 
 
 @pytest.fixture
 def api():
-    state = {"queue": [], "requests": []}
+    state = {"queue": [], "requests": [], "n": "honour"}
     lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
@@ -42,11 +53,12 @@ def api():
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             with lock:
                 state["requests"].append((self.path, dict(self.headers), body))
-                status, payload = (
-                    state["queue"].pop(0)
-                    if state["queue"]
-                    else (200, default_answer(body["messages"][0]["content"]))
-                )
+                if state["queue"]:
+                    status, payload = state["queue"].pop(0)
+                elif state["n"] == "refuse" and "n" in body:
+                    status, payload = 400, {"error": {"message": "n must be 1"}}
+                else:
+                    status, payload = 200, default_answer(body, state["n"])
             data = json.dumps(payload).encode()
             self.send_response(status)
             self.send_header("Content-Length", str(len(data)))
@@ -229,3 +241,89 @@ def test_a_warning_when_the_model_does_not_answer_with_a_letter(api, task):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert scorer.score("nice") == [-0.5, -0.5, -0.5]
+
+
+def test_sampled_answers_give_shares_without_logprobs(api, task):
+    url, state = api
+    scorer = ApiScorer(url, "m", task, api_key_env=KEY_ENV, workers=1, samples=6, temperature=0.9)
+    good, bad = scorer.score_many(["good", "bad"])
+    assert good == pytest.approx([math.log(4 / 6), math.log(2 / 6), teacher_mod.NOT_SCORED])
+    assert bad == pytest.approx([math.log(2 / 6), math.log(4 / 6), teacher_mod.NOT_SCORED])
+    assert len(state["requests"]) == 2  # one request with "n" per text
+    body = state["requests"][0][2]
+    assert (
+        body["n"] == 6
+        and body["temperature"] == 0.9
+        and "logprobs" not in body
+        and "top_logprobs" not in body
+    )
+    assert body["max_tokens"] == teacher_mod.API_SAMPLE_TOKENS
+    json.dumps(good)  # NOT_SCORED is valid JSON, unlike -inf
+
+
+@pytest.mark.parametrize("mode", ["ignore", "refuse"])
+def test_one_request_per_answer_when_n_is_ignored_or_refused(api, task, mode):
+    url, state = api
+    state["n"] = mode
+    scorer = ApiScorer(url, "m", task, api_key_env=KEY_ENV, workers=1, samples=3)
+    assert scorer.score("good") == [0.0, teacher_mod.NOT_SCORED, teacher_mod.NOT_SCORED]  # "A." every time
+    sent = [body for _, _, body in state["requests"]]
+    assert "n" in sent[0] and all("n" not in b for b in sent[1:])
+    assert len(sent) == (3 if mode == "ignore" else 4)  # a refused "n" costs one request ...
+    scorer.score("good")
+    assert len(state["requests"]) - len(sent) == 3  # ... once: it is not sent again
+
+
+@pytest.mark.parametrize(
+    "reply, letter",
+    [
+        ("B", "B"),
+        (" b \n", "B"),
+        ("B. negative", "B"),
+        ("(B)", "B"),
+        ("[C]", "C"),
+        ("**A**", "A"),
+        ("A: very positive", "A"),
+        ("Answer: B", "B"),
+        ("The answer is C.", "C"),
+        ("A\nbecause it is nice", "A"),
+        ("A dog barked", None),  # "A" followed by a word is the article, not an option
+        ("Answer: A dog", None),
+        ("I think B", None),
+        ("D.", None),  # not one of the three options
+        ("Bad", None),
+        ("", None),
+    ],
+)
+def test_the_answer_letter_must_stand_alone(task, reply, letter):
+    assert ApiScorer("http://127.0.0.1:1/v1", "m", task, samples=2)._letter(reply) == letter
+
+
+def test_a_warning_when_no_sampled_answer_has_a_letter(api, task):
+    url, state = api
+    scorer = ApiScorer(url, "chatty-model", task, api_key_env=KEY_ENV, workers=1, samples=2)
+    state["queue"] += [(200, replies("A dog", "Sure!")), (200, replies("hmm", "B"))]
+    with pytest.warns(UserWarning, match="1 of 2 texts: none of chatty-model's 2 sampled answers began"):
+        blind, one = scorer.score_many(["x", "y"])
+    assert blind == pytest.approx([-math.log(3)] * 3)
+    assert one == [
+        teacher_mod.NOT_SCORED,
+        0.0,
+        teacher_mod.NOT_SCORED,
+    ]  # a reply without a letter is left out
+
+
+def test_sampling_settings_change_the_fingerprint_and_are_checked(task):
+    url = "http://127.0.0.1:1/v1"
+    prints = {
+        ApiScorer(url, "m", task).fingerprint(),
+        ApiScorer(url, "m", task, samples=5).fingerprint(),
+        ApiScorer(url, "m", task, samples=10).fingerprint(),
+        ApiScorer(url, "m", task, samples=5, temperature=1.0).fingerprint(),
+    }
+    assert len(prints) == 4
+    assert ApiScorer(url, "m", task, temperature=1.0).fingerprint() == ApiScorer(url, "m", task).fingerprint()
+    with pytest.raises(SystemExit, match="at least 2"):
+        ApiScorer(url, "m", task, samples=1)
+    with pytest.raises(SystemExit, match="--api-url"):
+        load_teacher("m", task, api_samples=5)

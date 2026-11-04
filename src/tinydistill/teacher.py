@@ -529,6 +529,7 @@ class VLLMScorer(_Prompt):
 API_LABELS = 20  # hosted APIs return the top 20 log-probabilities of the first answer token
 API_ATTEMPTS = 5  # tries per request on rate limits (HTTP 429), server errors (5xx) and timeouts
 API_WAIT = 1.0  # seconds before the first retry; doubled after each
+API_SAMPLE_TOKENS = 10  # reply length with --api-samples: enough to tell "A." from "A dog", cheap
 
 
 class ApiScorer:
@@ -539,7 +540,11 @@ class ApiScorer:
     (A, B, C, ...) and a label's score is the log-probability of its letter as the first answer token. A
     letter is one token in every tokenizer, so this is exact for single-label tasks with up to 20 labels and
     needs no local tokenizer. The API key is read from the environment variable ``api_key_env`` at each
-    request and never stored, logged or fingerprinted; without it no Authorization header is sent."""
+    request and never stored, logged or fingerprinted; without it no Authorization header is sent.
+
+    For APIs without log-probabilities, ``samples`` N (at least 2) asks for N answers at ``temperature``
+    instead, and a label's score is the log of its share of the answers that begin with an option letter (see
+    ``_letter``); a label no answer chose gets NOT_SCORED."""
 
     def __init__(
         self,
@@ -550,7 +555,11 @@ class ApiScorer:
         api_key_env: str = "OPENAI_API_KEY",
         workers: int = 8,
         timeout: float = 120,
+        samples: int | None = None,
+        temperature: float = 0.7,
     ):
+        if samples is not None and (samples < 2 or temperature <= 0):
+            raise SystemExit("--api-samples needs at least 2 samples and --api-temperature above 0")
         if task.multi_label:
             raise SystemExit("--api-url works for single-label tasks; use a local or vLLM teacher")
         if len(task.labels) > API_LABELS:
@@ -561,6 +570,8 @@ class ApiScorer:
             )
         self.url, self.model_name, self.task, self.examples = url.rstrip("/"), model, task, examples or []
         self.api_key_env, self.workers, self.timeout = api_key_env, workers, timeout
+        self.samples, self.temperature = samples or 0, temperature  # samples 0: log-probability scoring
+        self._n_works = True  # the server accepts "n" (several answers per request); False once it refused it
         self.device = "api"
         self.letters = LETTERS[: len(task.labels)]
         self._blind: list[str] = []
@@ -568,7 +579,7 @@ class ApiScorer:
         self.host = f"{parts.hostname}:{parts.port}" if parts.port else str(parts.hostname)
 
     def fingerprint(self) -> str:
-        key = {
+        key: dict[str, Any] = {
             "model": self.model_name,
             "api": self.host,
             "prompt": self.task.render(_SENTINEL, self.examples, lettered=True),
@@ -576,6 +587,8 @@ class ApiScorer:
             "labels": self.task.verbalisations,
             "scheme": "letters-v1",
         }
+        if self.samples:
+            key |= {"scheme": "letters-samples-v1", "samples": self.samples, "temperature": self.temperature}
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
     def _post(self, body: dict) -> dict:
@@ -609,7 +622,58 @@ class ApiScorer:
                 last = str(getattr(e, "reason", e))
         raise SystemExit(f"the API at {self.host} failed {API_ATTEMPTS} times (last: {last})")
 
+    def _letter(self, reply: str) -> str | None:
+        """The option letter a sampled reply answers with, or None. The letter must stand alone at the start,
+        after optional whitespace, "(", "[", "*" and "Answer:"/"The answer is", and be followed by ".", ")",
+        ":", "]", "*" or the end of a line: "B", "B. negative", "(B)", "**B**" and "Answer: B" are B, but "A
+        dog barked" is no letter, since A followed by a word is the English article. Case is ignored."""
+        import re
+
+        m = re.match(
+            r"\s*(?:(?:the\s+)?answer(?:\s+is)?\s*:?\s*)?[(\[*]*([a-z])(?:[.):\]*]|[ \t]*(?:\n|$))",
+            reply,
+            re.I,
+        )
+        c = m.group(1).upper() if m else None
+        return c if c and c in self.letters else None
+
+    def _sampled(self, text: str) -> list[float]:
+        import math
+
+        body = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": self.task.render(text, self.examples, lettered=True)}],
+            "max_tokens": API_SAMPLE_TOKENS,
+            "temperature": self.temperature,
+        }
+
+        def ask(extra: dict) -> list[str]:
+            choices = self._post(body | extra).get("choices") or []
+            if not choices:
+                raise SystemExit(f"the API at {self.host} returned no answer for {self.model_name}")
+            return [(c.get("message") or {}).get("content") or "" for c in choices]
+
+        replies: list[str] = []
+        if self._n_works:
+            try:
+                replies = ask({"n": self.samples})
+            except SystemExit as e:  # the server refused "n" (or the request: then the next one fails too)
+                if "answered HTTP" not in str(e):
+                    raise
+                self._n_works = False
+        while len(replies) < self.samples:  # "n" refused or fewer answers than asked: one request per answer
+            replies += ask({})
+        letters = [c for c in map(self._letter, replies[: self.samples]) if c]
+        if not letters:
+            self._blind.append(text)
+            return [-math.log(len(self.letters))] * len(self.letters)
+        return [
+            math.log(letters.count(c) / len(letters)) if c in letters else NOT_SCORED for c in self.letters
+        ]
+
     def _one(self, text: str) -> list[float]:
+        if self.samples:
+            return self._sampled(text)
         content = self.task.render(text, self.examples, lettered=True)
         out = self._post(
             {
@@ -648,12 +712,16 @@ class ApiScorer:
         self._blind = []
         with ThreadPoolExecutor(self.workers) as pool:
             rows = list(pool.map(self._one, texts))
-        blind = len(self._blind)  # texts with no option letter among the returned tokens
+        blind = len(self._blind)  # texts with no option letter among the returned tokens or answers
         if blind:
+            what = (
+                f"none of {self.model_name}'s {self.samples} sampled answers began with an option letter"
+                if self.samples
+                else f"{self.model_name}'s first answer token was not an option letter"
+            )
             warnings.warn(
-                f"{blind} of {len(texts)} texts: {self.model_name}'s first answer token was not an option "
-                "letter, so every label got the same score; make the prompt ask for the letter only (see the "
-                "docs on hosted APIs)",
+                f"{blind} of {len(texts)} texts: {what}, so every label got the same score; make the prompt "
+                "ask for the letter only (see the docs on hosted APIs)",
                 stacklevel=2,
             )
         return rows
@@ -690,17 +758,24 @@ def load_teacher(
     shortlist_keep: list[str] | None = None,
     api_url: str | None = None,
     api_key_env: str = "OPENAI_API_KEY",
+    api_samples: int | None = None,
+    api_temperature: float = 0.7,
 ) -> LabelScorer | VLLMScorer | ApiScorer:
     """A local teacher, or with ``vllm_url`` the same model served by vLLM, or with ``api_url`` the model
     ``name`` at a hosted OpenAI-compatible chat API (key in the environment variable ``api_key_env``); then
     ``device`` is not used. ``shortlist`` K: score only the K labels most similar to each text (for tasks with
-    very many labels)."""
+    very many labels). ``api_samples`` N: the API teacher samples N answers at ``api_temperature`` instead of
+    reading log-probabilities."""
+    if api_samples and not api_url:
+        raise SystemExit("--api-samples works with --api-url")
     if api_url:
         if vllm_url:
             raise SystemExit("use either --vllm-url or --api-url, not both")
         if shortlist:
             raise SystemExit("--shortlist works with a local teacher, not --api-url")
-        return ApiScorer(api_url, name, task, examples, api_key_env)
+        return ApiScorer(
+            api_url, name, task, examples, api_key_env, samples=api_samples, temperature=api_temperature
+        )
     tok = AutoTokenizer.from_pretrained(name)
     if vllm_url:
         if shortlist:
