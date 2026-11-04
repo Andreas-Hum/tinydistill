@@ -176,11 +176,15 @@ jobs:
           pip install -e .
           npm install --no-save playwright@1.64.1
           npx playwright install --with-deps chromium
-      - run: python tests/browser/build_tiny_site.py site
-      - name: Open the page in Chromium
+      - run: |
+          python tests/browser/build_tiny_site.py site
+          python tests/browser/build_tiny_site.py site-multi --multi
+      - name: Open the pages in Chromium
         run: |
           python -m http.server 8000 --bind 127.0.0.1 -d site &
+          python -m http.server 8001 --bind 127.0.0.1 -d site-multi &
           node tests/browser/check_page.mjs http://127.0.0.1:8000/ page.png
+          NO_EXPLAIN=1 node tests/browser/check_page.mjs http://127.0.0.1:8001/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
         with:

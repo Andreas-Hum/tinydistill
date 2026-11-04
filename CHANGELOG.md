@@ -4,6 +4,15 @@
 
 - `refresh` trains the new student with the run's own training settings (as `improve` does) instead of the
   defaults; a training flag given with another value than its default still wins.
+- `web`: the page leads with a card of teacher against student (model, size, time per text, test accuracy;
+  from `results.json`, with the student's time measured in the browser), classifies as you type (no Classify
+  button), and highlights the words that support the answer under it. It holds up to 200 test texts with
+  their gold and teacher labels, for "Random test text" and "Check it yourself" (accuracy or macro-F1,
+  agreement with the teacher and milliseconds per text on that sample, in the browser). Example buttons show
+  their text. Also a searchable list of labels, a note when no label reaches 50%, download progress, and
+  "Show the math", which adds each step's formula with the current text's numbers (KaTeX, loaded on first
+  use). "Inside the model" is folded under "How does it work?". When the student alone is at least as
+  accurate as the teacher, the cascade step says sending texts to the teacher does not help.
 - `run --budget N [--rounds R]`: the teacher labels only N training texts, in R rounds (default 4): N/R at
   random, then in each round the N/R unlabelled texts the student trained so far is least sure of (highest
   entropy; multi-label, mean binary entropy), retraining after each round. For paid API teachers. Training

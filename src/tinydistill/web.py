@@ -14,8 +14,11 @@ import tempfile
 from pathlib import Path
 
 TRANSFORMERS_JS = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1"
+KATEX = "https://cdn.jsdelivr.net/npm/katex@0.16.22"  # loaded only when a visitor turns on "Show the math"
+BUNDLE = 200  # test texts in the page, for "Random test text" and "Check it yourself"
+BUNDLE_CHARS = 150_000  # ...as long as their texts stay under this many characters in all
 
-PAGE = """<!doctype html>
+PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -51,15 +54,37 @@ PAGE = """<!doctype html>
            background: var(--accent); color: #fff; }
   button.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
   button.ghost[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  button.sample { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   button:disabled { opacity: .5; cursor: progress; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   #status { color: var(--muted); font-size: .92rem; }
+  .card { margin: 18px 0 22px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+          background: var(--card); }
+  .card table { font-size: .95rem; }
+  .card th { text-align: left; font-weight: 650; padding: 4px 6px; }
+  .card th.t, .card td.t { color: var(--teacher); }
+  .card td { overflow-wrap: anywhere; }
+  .card td:first-child { color: var(--muted); width: 28%; }
+  .card .note { margin: 6px 6px 0; font-size: .85rem; }
   .answer { margin: 24px 0 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
   .answer .big { font-size: 1.45rem; font-weight: 650; }
   .answer .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .answer .bars { margin-top: 10px; }
+  #unsure { margin: 8px 0 0; color: var(--teacher); }
+  progress { width: 100%; accent-color: var(--accent); }
+  ul.verdict { list-style: none; padding: 0; margin: 12px 0 0; }
+  ul.verdict li { margin-bottom: 2px; }
   .flow { display: flex; gap: 6px; flex-wrap: wrap; margin: 14px 0 0; font-size: .85rem; }
   .flow span { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted);
                transition: background .25s, color .25s, border-color .25s; }
   .flow span.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  details.fold { margin: 32px 0 0; }
+  details.fold > summary { font-size: 1.15rem; font-weight: 650; cursor: pointer; }
+  input[type=search] { width: 100%; padding: 7px 10px; margin: 10px 0 8px; font: inherit; color: inherit;
+                       background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+  ul.labels { columns: 2 220px; margin: 0; padding-left: 20px; font-size: .93rem; }
+  .math { margin-top: 10px; overflow-x: auto; }
+  .math .katex-display { margin: 6px 0; overflow-x: auto; overflow-y: hidden; }
   ol.steps { list-style: none; padding: 0; margin: 16px 0 0; counter-reset: step; }
   ol.steps > li { position: relative; padding: 0 0 26px 44px; counter-increment: step;
                   opacity: .25; transition: opacity .35s; }
@@ -99,7 +124,7 @@ PAGE = """<!doctype html>
   .spectrum { display: flex; align-items: flex-end; gap: 1px; height: 64px; margin-top: 12px; }
   .spectrum div { flex: 1; background: var(--accent); min-height: 1px; border-radius: 1px 1px 0 0; }
   .words { line-height: 2.1; font-size: 1.02rem; }
-  .words span { padding: 2px 3px; border-radius: 4px; }
+  .words span, .words mark { padding: 2px 3px; border-radius: 4px; color: inherit; }
   .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .85rem; color: var(--muted); margin-top: 8px; }
   .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
   .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -110,7 +135,7 @@ PAGE = """<!doctype html>
   .verdict { font-weight: 650; }
   footer { margin-top: 40px; color: var(--muted); font-size: .9rem; }
   a { color: var(--accent); }
-  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
 <body>
@@ -118,30 +143,57 @@ PAGE = """<!doctype html>
   <h1>__TITLE__</h1>
   <p class="sub">A __SIZE__ MB model distilled from a large language model with tinydistill. It runs in your
     browser, and nothing you type leaves this page. __SUMMARY__</p>
+  __CARD__
   <label for="text">Text</label>
   <textarea id="text" placeholder="Type a message">__FIRST__</textarea>
+  <p class="note" style="margin:4px 0 0">The answer updates as you type.</p>
   <div class="row">
-    <button id="go" disabled>Classify</button>
     __SAMPLES__
-    <button class="ghost" id="slow" aria-pressed="false" title="Step through the model one stage at a time">Slow motion</button>
   </div>
-  <div class="answer" aria-live="polite">
-    <div class="big" id="answer">Loading the model...</div>
+  <div class="row">
+    <button class="ghost" id="random">Random test text</button>
+    <button class="ghost" id="replay">Show the steps</button>
+  </div>
+  <div class="answer">
+    <div id="loading"><p id="load-text" style="margin:0 0 6px">Loading the model...</p>
+      <progress id="progress" aria-label="Model download"></progress></div>
+    <div class="big" id="answer" aria-live="polite"></div>
     <div class="meta" id="status"></div>
+    <p id="unsure" hidden></p>
+    <ol class="bars" id="top3"></ol>
+    <p class="note" id="reason-note" style="margin:12px 0 2px"></p>
+    <div class="words" id="reason"></div>
+    <div id="verdict"></div>
     <div class="flow" aria-hidden="true">
       <span>text</span><span>tokens</span><span>layers</span><span>classifier</span><span>probabilities</span>
     </div>
   </div>
 
-  <h2>Inside the model</h2>
-  <p class="note">Every step below is computed by the model in this page as it classifies your text. Change the
-    text or pick an example and watch the steps fill in.</p>
+  <section id="check-it">
+    <h2>Check it yourself</h2>
+    <p class="note" id="check-note"></p>
+    <button id="check">Run them</button>
+    <p id="check-out" aria-live="polite" style="margin-top:10px"></p>
+  </section>
+
+  <details class="fold" id="all-labels"><summary>All __NLABELS__ labels</summary>
+    <input type="search" id="label-q" placeholder="Search the labels" aria-label="Search the labels">
+    <ul class="labels" id="label-list"></ul></details>
+
+  <details class="fold" id="inside"><summary>How does it work?</summary>
+  <p class="note" style="margin-top:8px">Every step below is computed by the model in this page as it classifies
+    your text. "Show the steps" plays them in order; slow motion plays them slowly every time.</p>
+  <div class="row" style="margin-top:0">
+    <button class="ghost" id="slow" aria-pressed="false" title="Step through the model one stage at a time">Slow motion</button>
+    <button class="ghost" id="math" aria-pressed="false">Show the math</button>
+  </div>
   <ol class="steps" id="steps">
     <li id="s-tok"><div class="step-head"><h3>The tokenizer splits the text</h3><span class="ms"></span></div>
       <p class="note">The model never sees letters or words, only pieces from a fixed vocabulary of __VOCAB__.
         Rare words are split into several pieces (marked with a blue edge); hover a piece for its number.
         <i>[CLS]</i> is added at the start: the classifier reads the model's output at that position.</p>
-      <div class="box"><div class="chips" id="tokens"></div></div></li>
+      <div class="box"><div class="chips" id="tokens"></div></div>
+      <div class="math" id="m-tok" hidden></div></li>
     <li id="s-layers"><div class="step-head"><h3>Layer by layer</h3><span class="ms"></span></div>
       <p class="note">The pieces pass through __LAYERS__ transformer layers. Each layer lets every piece look at the
         others and update itself. If we stop after a layer and apply the final classifier, we see what the model
@@ -152,14 +204,16 @@ PAGE = """<!doctype html>
         layer's attention heads. Darker means more. Pick a layer. <i>[CLS]</i> and <i>[SEP]</i> often collect
         much of the attention as a resting place, so compare the word pieces with each other.</p>
       <div class="row" id="att-layers" style="margin-top:0"></div>
-      <div class="box"><div class="chips" id="attention"></div></div></li>
+      <div class="box"><div class="chips" id="attention"></div></div>
+      <div class="math" id="m-att" hidden></div></li>
     <li id="s-out"><div class="step-head"><h3>From scores to probabilities</h3><span class="ms"></span></div>
       <p class="note">The classifier gives one score per label (__NLABELS__ labels) and a __ACTIVATION__ turns them
         into probabilities. The top five are below; the strip shows all of them, largest first. The small
         probabilities on other labels are what distillation passes on: the teacher's soft labels tell the
         student which labels are similar, not just which one is right.</p>
       <div class="box"><ol class="bars" id="top"></ol><div class="spectrum" id="spectrum"
-        role="img" aria-label="Probabilities of all labels, largest first"></div></div></li>
+        role="img" aria-label="Probabilities of all labels, largest first"></div></div>
+      <div class="math" id="m-out" hidden></div></li>
     <li id="s-why"><div class="step-head"><h3>Which words matter</h3><span class="ms"></span></div>
       <p class="note">Each word is removed in turn and the model runs again on what is left. Words whose removal
         lowers the probability of <b id="why-label"></b> support it; words whose removal raises it count against
@@ -169,13 +223,15 @@ PAGE = """<!doctype html>
           <span><i style="background:rgba(var(--neg),.7)"></i>counts against it</span></div></div></li>
     <li id="s-teacher"><div class="step-head"><h3>Teacher and student</h3></div>
       <p class="note">The student learned to imitate the soft labels of __TEACHER__. The teacher is far too large to
-        run here, but its saved soft labels for the examples are in this page.</p>
-      <div class="box" id="teacher"></div></li>
+        run here, but its saved soft labels for the test texts are in this page.</p>
+      <div class="box" id="teacher"></div>
+      <div class="math" id="m-teacher" hidden></div></li>
     <li id="s-cascade"><div class="step-head"><h3>When to ask the teacher</h3></div>
       <p class="note">In a cascade the student answers and passes the texts it is least sure about to the teacher.
         The slider sets how many; accuracy and the confidence threshold are measured on the held-out test set.</p>
       <div class="box" id="cascade"></div></li>
   </ol>
+  </details>
   <footer>Made with <a href="https://github.com/Andreas-Hum/tinydistill">tinydistill</a> and
     <a href="https://github.com/huggingface/transformers.js">transformers.js</a>. __NOTE__</footer>
 </main>
@@ -185,6 +241,8 @@ PAGE = """<!doctype html>
   env.allowLocalModels = true;  // the model files sit next to this page
   env.allowRemoteModels = false;
   env.localModelPath = "./";
+  const KATEX = "__KATEX__";
+  const LOW = 0.5;  // under this top probability the page says the text may fit none of the labels
   const D = JSON.parse(document.getElementById("data").textContent);
   const $ = (id) => document.getElementById(id);
   const el = (tag, props = {}, ...kids) => {
@@ -193,11 +251,49 @@ PAGE = """<!doctype html>
     return e;
   };
   const name = (i) => D.labels[i].replaceAll("_", " ");
+  const names = (list) => (list.length ? list.map(name).join(", ") : "none of the labels");
   const pct = (x) => (100 * x).toFixed(x >= 0.995 || x < 0.001 ? 0 : 1) + "%";
+  const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---- what works before the model is loaded ----
+  const labelList = $("label-list");
+  labelList.append(...D.labels.map((_, i) => el("li", { textContent: name(i) })));
+  $("label-q").oninput = (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    for (const li of labelList.children) li.hidden = !li.textContent.toLowerCase().includes(q);
+  };
+  const N = D.samples.length;
+  $("check-it").hidden = $("random").hidden = !N;
+  $("check").textContent = `Run the ${N} test texts`;
+  $("check-note").textContent = `This page holds ${N} texts from the test set` +
+    (D.n_test ? ` (of ${D.n_test})` : "") + ", picked to cover every label, so they are a sample, not the full " +
+    "test set. The button runs each one through the model in your browser and compares its answers with the " +
+    "correct labels and with the teacher's.";
+  $("unsure").textContent = `The model is not sure: no label reaches ${pct(LOW)}, so this text may fit none ` +
+    `of the ${D.labels.length} labels.`;
 
   // ---- core: the model and what it computes (no page elements here) ----
-  const tok = await AutoTokenizer.from_pretrained(D.model);
-  const model = await AutoModel.from_pretrained(D.model, { dtype: D.dtype });
+  const loaded = {};
+  const progress_callback = (e) => {  // download progress of each file, summed
+    if (e.status !== "progress" || !e.total) return;
+    loaded[e.file] = [e.loaded, e.total];
+    let a = 0, b = 0;
+    for (const [x, y] of Object.values(loaded)) { a += x; b += y; }
+    $("progress").max = b; $("progress").value = a;
+    $("load-text").textContent = `Downloading the model: ${(a / 1e6).toFixed(1)} of ${(b / 1e6).toFixed(1)} MB`;
+  };
+  const [tok, model] = await Promise.all([
+    AutoTokenizer.from_pretrained(D.model, { progress_callback }),
+    AutoModel.from_pretrained(D.model, { dtype: D.dtype, progress_callback }),
+  ]);
+  $("loading").hidden = true;
+  let queue = Promise.resolve();
+  const call = (enc) => {  // one model call at a time; resolves to [outputs, milliseconds]
+    const p = queue.then(async () => { const t = performance.now(), o = await model(enc); return [o, performance.now() - t]; });
+    queue = p.catch(() => {});
+    return p;
+  };
   const softmax = (z) => { const m = Math.max(...z), e = z.map((x) => Math.exp(x - m)), s = e.reduce((a, b) => a + b);
                            return e.map((x) => x / s); };
   const toProbs = (z) => D.multi ? z.map((x) => 1 / (1 + Math.exp(-x))) : softmax(z);
@@ -206,6 +302,9 @@ PAGE = """<!doctype html>
   const split = (row, k) => Array.from({ length: row.length / k }, (_, i) => row.slice(i * k, (i + 1) * k));
   const argmax = (xs) => xs.reduce((b, x, i) => (x > xs[b] ? i : b), 0);
   const encode = (texts) => tok(texts, { padding: true, truncation: true, max_length: D.max_length });
+  // the answer as a list of labels: the top one, or (multi-label) every label over 50%
+  const chosen = (p) => D.multi ? p.flatMap((x, i) => (x > 0.5 ? [i] : [])) : [argmax(p)];
+  const times = [];  // milliseconds per text in this browser
 
   async function analyse(text) {
     const t0 = performance.now();
@@ -213,31 +312,40 @@ PAGE = """<!doctype html>
     const ids = Array.from(enc.input_ids.data, Number);
     const tokens = tok.model.convert_ids_to_tokens(ids);
     const t1 = performance.now();
-    const out = await model(enc);
-    const t2 = performance.now();
-    const p = toProbs(rowsOf(out.logits)[0]);
-    const top = argmax(p);
+    const [out, ms] = await call(enc);
+    const z = rowsOf(out.logits)[0], p = toProbs(z), top = argmax(p);
     const layers = out.layer_logits ? split(rowsOf(out.layer_logits)[0], D.labels.length).map(toProbs) : null;
     const attention = out.cls_attention ? split(rowsOf(out.cls_attention)[0], ids.length) : null;
-    const words = text.trim().split(/\\s+/).filter(Boolean).slice(0, 60);
+    times.push(t1 - t0 + ms);
+    return { text, tokens, ids, z, p, top, pred: chosen(p), layers, attention, words: null, effect: null,
+             ms: { tokenize: t1 - t0, model: ms } };
+  }
+
+  async function effects(r) {  // remove each word in turn: one batch of texts
+    const words = r.text.trim().split(/\s+/).filter(Boolean).slice(0, 60);
+    const t = performance.now();
     let effect = [];
-    if (words.length > 1) {  // remove each word in turn: one batch of texts
-      const o = await model(encode(words.map((_, i) => words.filter((_, j) => j !== i).join(" "))));
-      effect = rowsOf(o.logits).map((z) => p[top] - toProbs(z)[top]);
+    if (words.length > 1) {
+      const [o] = await call(encode(words.map((_, i) => words.filter((_, j) => j !== i).join(" "))));
+      effect = rowsOf(o.logits).map((z) => r.p[r.top] - toProbs(z)[r.top]);
     }
-    const t3 = performance.now();
-    return { tokens, ids, p, top, layers, attention, words, effect,
-             ms: { tokenize: t1 - t0, model: t2 - t1, words: t3 - t2 } };
+    Object.assign(r, { words, effect });
+    r.ms.words = performance.now() - t;
   }
   // ---- end of core ----
 
-  const text = $("text"), go = $("go"), status = $("status");
-  let current = null, attLayer = null, runId = 0;
+  const sampleOf = (t) => D.samples.find((s) => s.text === t);
+  const dense = (pairs) => { const p = Array(D.labels.length).fill(0); for (const [i, x] of pairs) p[i] = x; return p; };
+  const goldOf = (s) => (s && s.gold !== null && s.gold !== undefined ? [s.gold].flat() : null);
+  const same = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+  const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+  const text = $("text");
+  let current = null, attLayer = null, runId = 0, slow = false, math = false, katex = null;
 
-  function bars(list, probs, teacher = false, gold = null) {
+  function bars(list, probs, teacher = false, gold = []) {
     const ol = el("ol", { className: "bars" + (teacher ? " teacher" : "") });
     for (const i of list) {
-      const li = el("li", { className: i === gold ? "gold" : "" },
+      const li = el("li", { className: gold.includes(i) ? "gold" : "" },
         el("div", { className: "fill", style: `width:${(probs[i] * 100).toFixed(1)}%` }),
         el("span", { textContent: name(i) }), el("span", { className: "p", textContent: pct(probs[i]) }));
       ol.append(li);
@@ -246,9 +354,48 @@ PAGE = """<!doctype html>
   }
   const topk = (p, k) => p.map((x, i) => [x, i]).sort((a, b) => b[0] - a[0]).slice(0, k).map(([, i]) => i);
 
+  function showSpeed() {
+    const live = $("live-ms");
+    if (live && times.length) live.textContent = `${median(times).toFixed(1)} ms in this browser`;
+  }
+
+  function showAnswer(r) {
+    $("answer").textContent = names(r.pred);
+    $("status").textContent = `${pct(r.p[r.top])} confident, ${(r.ms.tokenize + r.ms.model).toFixed(0)} ms in your browser`;
+    $("unsure").hidden = r.p[r.top] >= LOW;
+    $("top3").replaceChildren(...bars(topk(r.p, 3), r.p).children);
+    showSpeed();
+    showReason(r);
+    showVerdict(r);
+  }
+
+  function showReason(r) {  // the text again, with the words that support the answer highlighted
+    const note = $("reason-note"), box = $("reason");
+    if (!r.effect) { note.textContent = "Finding the words that support the answer..."; box.textContent = r.text; return; }
+    if (r.words.length < 2) { note.textContent = "Type two or more words to see which ones support the answer."; box.textContent = r.text; return; }
+    note.textContent = `Why: the highlighted words support "${name(r.top)}" (darker means more).`;
+    const m = Math.max(1e-9, ...r.effect);
+    box.replaceChildren(...r.words.flatMap((w, i) => {
+      const e = r.effect[i] ?? 0;
+      return [e > 0 ? el("mark", { textContent: w, title: `removing it: -${pct(e)}`,
+                                   style: `background:rgba(var(--pos),${(0.15 + 0.6 * e / m).toFixed(2)})` }) : w, " "];
+    }));
+  }
+
+  function showVerdict(r) {  // for a test text: the student, the teacher and the gold label
+    const s = sampleOf(r.text), gold = goldOf(s), box = $("verdict");
+    if (!gold) { box.replaceChildren(); return; }
+    const mark = (pred) => (same(pred, gold) ? "correct" : "wrong");
+    const item = (who, what) => el("li", {}, el("b", { textContent: who + ": " }), what);
+    box.replaceChildren(el("ul", { className: "verdict" },
+      item("Student (this page)", `${names(r.pred)}, ${mark(r.pred)}`),
+      s.teacher ? item("Teacher", `${names(chosen(dense(s.teacher)))}, ${mark(chosen(dense(s.teacher)))}`) : "",
+      item("Gold label", names(gold))));
+  }
+
   function showTokens(r) {
     $("tokens").replaceChildren(...r.tokens.map((t, i) => {
-      const special = /^\\[.*\\]$|^<.*>$/.test(t), cont = t.startsWith("##");
+      const special = /^\[.*\]$|^<.*>$/.test(t), cont = t.startsWith("##");
       return el("span", { className: "chip" + (special ? " special" : "") + (cont ? " cont" : ""),
                           title: `token ${r.ids[i]}`, textContent: cont ? t.slice(2) : t });
     }));
@@ -281,7 +428,7 @@ PAGE = """<!doctype html>
     box.replaceChildren(...r.attention.map((_, l) => {
       const b = el("button", { className: "ghost", textContent: `layer ${l + 1}` });
       b.setAttribute("aria-pressed", String(l === attLayer));
-      b.onclick = () => { attLayer = l; showAttention(current); };
+      b.onclick = () => { attLayer = l; showAttention(current); showMath(current); };
       return b;
     }));
     const a = r.attention[attLayer], m = Math.max(...a.slice(1)) || 1;  // scale without [CLS] itself
@@ -304,6 +451,7 @@ PAGE = """<!doctype html>
 
   function showWords(r) {
     $("why-label").textContent = name(r.top);
+    if (!r.effect) { $("words").textContent = "Computed once you stop typing."; $("s-why").querySelector(".ms").textContent = ""; return; }
     const m = Math.max(1e-9, ...r.effect.map(Math.abs));
     $("words").replaceChildren(...r.words.flatMap((w, i) => {
       const e = r.effect[i] ?? 0, a = Math.abs(e) / m;
@@ -316,30 +464,34 @@ PAGE = """<!doctype html>
   }
 
   function showTeacher(r) {
-    const box = $("teacher"), sample = D.samples.find((s) => s.text === text.value);
+    const box = $("teacher"), sample = sampleOf(r.text);
     if (!sample || !sample.teacher) {
       box.replaceChildren(el("p", { className: "note", style: "margin:0",
-        textContent: "Pick one of the examples to compare the student with the teacher's soft labels for it." }));
+        textContent: "Pick an example or a random test text to compare the student with the teacher's soft labels for it." }));
       return;
     }
-    const tp = Array(D.labels.length).fill(0);
-    for (const [i, x] of sample.teacher) tp[i] = x;
-    const agree = argmax(tp) === r.top;
+    const tp = dense(sample.teacher), gold = goldOf(sample) ?? [];
+    const agree = same(chosen(tp), r.pred);
     box.replaceChildren(
       el("div", { className: "cols" },
-        el("div", {}, el("h3", { className: "t", textContent: "Teacher (LLM)" }), bars(topk(tp, 5), tp, true, sample.gold)),
-        el("div", {}, el("h3", { textContent: "Student (this page)" }), bars(topk(r.p, 5), r.p, false, sample.gold))),
+        el("div", {}, el("h3", { className: "t", textContent: "Teacher (LLM)" }), bars(topk(tp, 5), tp, true, gold)),
+        el("div", {}, el("h3", { textContent: "Student (this page)" }), bars(topk(r.p, 5), r.p, false, gold))),
       el("p", { className: "note", style: "margin:10px 0 0", textContent:
-        (agree ? "They agree on the top label." : "They disagree on the top label.") +
-        (sample.gold !== null ? ` The correct label is "${name(sample.gold)}".` : "") }));
+        (agree ? "They agree on the answer." : "They disagree on the answer.") +
+        (gold.length ? ` The correct answer is "${names(gold)}".` : "") }));
   }
 
   function showCascade(r) {
     const box = $("cascade");
     if (!D.cascade || D.multi) { $("s-cascade").hidden = true; return; }
-    const pts = D.cascade, slider = el("input", { type: "range", min: 0, max: pts.length - 1, step: 1,
-      value: Math.min(2, pts.length - 1) });
+    const pts = D.cascade, first = pts[0], last = pts[pts.length - 1];
+    const slider = el("input", { type: "range", min: 0, max: pts.length - 1, step: 1, value: Math.min(2, pts.length - 1) });
     slider.setAttribute("aria-label", "Share of texts sent to the teacher");
+    // the first point is the student alone, the last the teacher alone
+    const alone = first.share_to_teacher === 0 && last.share_to_teacher === 1 && first.accuracy >= last.accuracy
+      ? el("p", { style: "margin:0 0 8px", textContent: `Here the student alone (${pct(first.accuracy)} accurate) ` +
+          `is at least as accurate as the teacher alone (${pct(last.accuracy)}), so sending texts to the teacher does not help.` })
+      : "";
     const line = el("p", { style: "margin:8px 0 0" }), mine = el("p", { className: "verdict", style: "margin:8px 0 0" });
     const update = () => {
       const c = pts[slider.value], conf = r.p[r.top];
@@ -350,46 +502,192 @@ PAGE = """<!doctype html>
         : `The student answers this text itself (${pct(conf)} confident).`;
     };
     slider.oninput = update; update();
-    box.replaceChildren(slider, line, mine);
+    box.replaceChildren(alone, slider, line, mine);
   }
 
-  const steps = ["s-tok", "s-layers", "s-att", "s-out", "s-why", "s-teacher", "s-cascade"];
-  const flow = [...document.querySelectorAll(".flow span")];
-  const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
-  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // ---- "Show the math": each step's formula with this text's numbers (KaTeX, loaded on first use) ----
+  const ESC = { "\\": "\\textbackslash{}", "^": "\\textasciicircum{}", "~": "\\textasciitilde{}" };
+  const T = (s) => "\\text{" + s.replace(/[\\{}$&#^_%~]/g, (c) => ESC[c] ?? "\\" + c) + "}";
+  const f = (x, d = 3) => (x === 0 || (Math.abs(x) >= 1e-3 && Math.abs(x) < 1e6) ? x.toFixed(d) : x.toExponential(2))
+    .replace(/e\+?(-?\d+)$/, "\\times 10^{$1}");
+  function put(id, items) {  // TeX strings become formulas; {note} becomes a line of text
+    $(id).replaceChildren(...items.map((x) => {
+      if (typeof x !== "string") return el("p", { className: "note", textContent: x.note });
+      const d = el("div");
+      katex.render(x, d, { displayMode: true, throwOnError: false });
+      return d;
+    }));
+  }
 
-  async function run() {
-    if (!text.value.trim()) return;
-    const id = ++runId;
-    go.disabled = true;
-    for (const s of steps) $(s).classList.remove("done");
-    for (const f of flow) f.classList.remove("on");
-    const r = await analyse(text.value);
-    if (id !== runId) return;
-    current = r;
-    const conf = r.p[r.top];
-    $("answer").textContent = name(r.top);
-    status.textContent = `${pct(conf)} confident, ${(r.ms.tokenize + r.ms.model).toFixed(0)} ms in your browser`;
-    // replay the steps in order, so the page shows how the input flows through the model
-    const show = [showTokens, showLayers, showAttention, showOutput, showWords, showTeacher, showCascade];
+  function showMath(r) {
+    if (!math || !katex || !r) return;
+    const C = D.config, d = C.hidden_size, H = C.num_attention_heads, K = D.labels.length, n = r.ids.length;
+    const type = C.model_type ?? "";
+    // embeddings: RoBERTa-style models count positions from the padding id + 1; ModernBERT has none (rotary)
+    const off = /roberta|camembert|mpnet/.test(type) ? (C.pad_token_id ?? 1) + 1 : 0;
+    const pos = type !== "modernbert", seg = (C.type_vocab_size ?? 0) > 0;
+    const emb = (id, i) => `E_{${id}}` + (pos ? ` + P_{${i}}` : "") + (seg ? " + T_{0}" : "");
+    const first = r.ids.slice(0, 4).map((id, i) => String.raw`x_{${i}} &= \mathrm{LayerNorm}\big(${emb(id, i + off)}\big) && ${T(r.tokens[i])}`);
+    put("m-tok", [
+      String.raw`\mathrm{ids} = (${r.ids.slice(0, 16).join(",\\ ")}${n > 16 ? String.raw`,\ \dots` : ""})`,
+      String.raw`x_i = \mathrm{LayerNorm}\big(${emb(String.raw`\mathrm{id}_i`, off ? `i+${off}` : "i")}\big),\quad E \in \mathbb{R}^{${C.vocab_size ?? "V"} \times ${d ?? "d"}}`,
+      String.raw`\begin{aligned}${first.join(String.raw`\\`)}${n > 4 ? String.raw`\\ &\ \vdots` : ""}\end{aligned}`,
+      { note: "E is the embedding table, one row per vocabulary piece: each id picks its row" +
+        (pos ? "; P adds the position" : "; the position enters inside attention (rotary embeddings)") +
+        (seg ? " and T the segment" : "") + "." },
+    ]);
+
+    const dk = d && H ? d / H : null;
+    const att = [String.raw`\mathrm{head}_h(x_0) = \operatorname{softmax}\!\Big(\frac{q^{h}_{0}\,(K^{h})^{\top}}{\sqrt{d_k}}${type === "mpnet" ? " + b^{h}_{0}" : ""}\Big)\,V^{h},\quad h = 1,\dots,${H ?? "H"},\quad d_k = \frac{d}{H}` + (dk ? ` = \\frac{${d}}{${H}} = ${dk}` : "")];
+    if (r.attention) {
+      const a = r.attention[attLayer ?? r.attention.length - 1];
+      att.push(String.raw`\bar{\alpha}^{(${(attLayer ?? r.attention.length - 1) + 1})}_{0} = \frac{1}{${H ?? "H"}}\sum_{h} \operatorname{softmax}(\cdot) = \big(` +
+        a.slice(0, 10).map((x, i) => String.raw`\underset{${T(r.tokens[i].replace(/^##/, ""))}}{${f(x)}}`).join(",\\ ") +
+        (a.length > 10 ? String.raw`,\ \dots` : "") + String.raw`\big)`);
+      att.push({ note: "q₀ is the [CLS] row of Q = xW_Q; K = xW_K and V = xW_V. The weights shown are the heads' softmax rows for [CLS], averaged, in the layer picked above." });
+    }
+    put("m-att", att);
+
+    const tops = topk(r.p, 3), tanh = /^(bert|roberta|xlm-roberta|camembert|mpnet)$/.test(type);
+    const out = [
+      String.raw`z = W\,${tanh ? String.raw`\tanh\big(W_p\, h_{0} + b_p\big)` : "g(h)"} + b,\quad W \in \mathbb{R}^{${K} \times ${d ?? "d"}}`,
+      String.raw`\begin{aligned}` + tops.map((i) => String.raw`z_{${T(name(i))}} &= ${f(r.z[i])}`).join(String.raw`\\`) + String.raw`\end{aligned}`,
+      { note: tanh ? "h₀ is the last layer's output at [CLS]; W_p and b_p are the pooling layer, W and b the classifier."
+                   : "g is the model's pooling head; W and b are the classifier." },
+    ];
+    if (D.multi) {
+      out.push(String.raw`p_i = \sigma(z_i) = \frac{1}{1 + e^{-z_i}}`,
+        String.raw`\begin{aligned}` + tops.map((i) => String.raw`p_{${T(name(i))}} &= \frac{1}{1 + e^{-(${f(r.z[i])})}} = ${f(r.p[i])}`).join(String.raw`\\`) + String.raw`\end{aligned}`,
+        { note: "Each label gets its own probability; every label over 0.5 is part of the answer." });
+    } else {
+      const S = r.z.reduce((a, x) => a + Math.exp(x), 0);
+      out.push(String.raw`p_i = \frac{e^{z_i}}{\sum_{j=1}^{${K}} e^{z_j}},\qquad \sum_{j=1}^{${K}} e^{z_j} = ${f(S)}`,
+        String.raw`\begin{aligned}` + tops.map((i) => String.raw`p_{${T(name(i))}} &= \frac{e^{${f(r.z[i])}}}{${f(S)}} = \frac{${f(Math.exp(r.z[i]))}}{${f(S)}} = ${f(r.p[i])}`).join(String.raw`\\`) + String.raw`\end{aligned}`);
+    }
+    put("m-out", out);
+
+    const lam = D.ce_weight, s = sampleOf(r.text), gold = goldOf(s);
+    const dist = D.multi
+      ? [String.raw`\mathcal{L} = \frac{1}{${K}}\sum_{i=1}^{${K}} \mathrm{BCE}(p^{T}_i, q_i) + \lambda\,\frac{1}{${K}}\sum_{i=1}^{${K}} \mathrm{BCE}(y_i, q_i),\quad q_i = \sigma(z_i)`,
+         String.raw`\mathrm{BCE}(t, q) = -\big(t \log q + (1 - t)\log(1 - q)\big)` + (lam !== null ? String.raw`,\quad \lambda = ${lam}` : "")]
+      : [String.raw`\mathcal{L} = \underbrace{\sum_{i=1}^{${K}} p^{T}_i \log\frac{p^{T}_i}{q_i}}_{\mathrm{KL}(p^{T}\,\|\,q)} + \lambda\,\big(-\log q_{y}\big)` + (lam !== null ? String.raw`,\quad \lambda = ${lam}` : "")];
+    dist.push({ note: "This is the loss the student was trained with. pᵀ is the teacher's probabilities (its soft labels), q the student's, y the gold label. " +
+      "Both terms are averaged over a batch of training texts; the second counts only texts with a gold label" +
+      (lam === 0 ? ", and its weight λ is 0 in this run, so the student learned from the teacher alone." : ".") });
+    if (s && s.teacher) {
+      const terms = s.teacher.filter(([, x]) => x > 0);
+      const mass = terms.reduce((a, [, x]) => a + x, 0);
+      if (D.multi) {
+        const bce = (t, q) => -(t * Math.log(Math.max(q, 1e-12)) + (1 - t) * Math.log(Math.max(1 - q, 1e-12)));
+        dist.push(String.raw`\begin{aligned}` + terms.slice(0, 3).map(([i, x]) =>
+          String.raw`\mathrm{BCE}(p^{T}_{${T(name(i))}}, q) &= \mathrm{BCE}(${f(x)}, ${f(r.p[i])}) = ${f(bce(x, r.p[i]))}`).join(String.raw`\\`) + String.raw`\end{aligned}`,
+          { note: "For this test text, three of the labels; the page stores the teacher's probabilities of its top labels only, so the sum over all labels is not shown." });
+      } else {
+        const kl = terms.map(([i, x]) => x * Math.log(x / Math.max(r.p[i], 1e-300)));
+        dist.push(String.raw`\mathrm{KL} \approx ` + terms.slice(0, 3).map(([i, x]) => String.raw`${f(x)} \log\frac{${f(x)}}{${f(r.p[i])}}`).join(" + ") +
+          (terms.length > 3 ? String.raw` + \cdots` : "") + ` = ${f(kl.reduce((a, b) => a + b, 0))}`,
+          { note: `For this test text: the sum over the ${terms.length} labels the page stores the teacher's probabilities for ` +
+            `(${pct(mass)} of them), with q the student's answer above.` });
+        if (gold) dist.push(String.raw`-\log q_{y} = -\log ${f(r.p[gold[0]])} = ${f(-Math.log(Math.max(r.p[gold[0]], 1e-300)))}`);
+      }
+    } else dist.push({ note: "Pick an example or a random test text to see the KL term for it, computed here." });
+    put("m-teacher", dist);
+  }
+
+  async function loadKatex() {
+    document.head.append(el("link", { rel: "stylesheet", href: `${KATEX}/dist/katex.min.css` }));
+    return (await import(`${KATEX}/dist/katex.mjs`)).default;
+  }
+
+  // ---- running it ----
+  const steps = ["s-tok", "s-layers", "s-att", "s-out", "s-why", "s-teacher", "s-cascade"];
+  const show = [showTokens, showLayers, showAttention, showOutput, showWords, showTeacher, showCascade];
+  const flow = [...document.querySelectorAll(".flow span")];
+
+  async function showSteps(r, animate, id) {  // all at once, or one after another to show the flow
+    for (const s of steps) $(s).classList.toggle("done", !animate);
+    for (const x of flow) x.classList.toggle("on", !animate);
     for (let i = 0; i < steps.length; i++) {
       show[i](r);
+      if (!animate) continue;
       $(steps[i]).classList.add("done");
       if (flow[i]) flow[i].classList.add("on");
       if (i === 3) flow[4].classList.add("on");
       if (!reduced || slow) await sleep(slow ? 900 : 140);
       if (id !== runId) return;
     }
-    go.disabled = false;
+    showMath(r);
   }
 
-  let slow = false;
-  $("slow").onclick = () => { slow = !slow; $("slow").setAttribute("aria-pressed", String(slow)); if (slow) run(); };
-  go.onclick = run;
-  text.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) run(); });
-  for (const b of document.querySelectorAll("button.sample")) b.onclick = () => { text.value = b.dataset.text; run(); };
-  go.disabled = false;
-  run();
+  async function classify(animate = false) {
+    const value = text.value;
+    if (!value.trim()) return;
+    const id = ++runId;
+    const r = await analyse(value);
+    if (id !== runId) return;
+    current = r;
+    showAnswer(r);
+    await showSteps(r, animate || slow, id);
+    await sleep(400);  // which words matter takes one more run per word: wait until typing has settled
+    if (id !== runId) return;
+    await effects(r);
+    if (id !== runId) return;
+    showReason(r);
+    showWords(r);
+  }
+
+  let timer = null;
+  text.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => classify(), 150); });
+  for (const b of document.querySelectorAll("button.sample")) b.onclick = () => { text.value = b.dataset.text; classify(); };
+  $("random").onclick = () => { text.value = D.samples[Math.floor(Math.random() * N)].text; classify(); };
+  $("replay").onclick = () => {
+    $("inside").open = true;
+    $("inside").scrollIntoView({ behavior: reduced ? "auto" : "smooth" });
+    classify(true);
+  };
+  $("slow").onclick = () => { slow = !slow; $("slow").setAttribute("aria-pressed", String(slow)); if (slow) classify(true); };
+  $("math").onclick = async () => {
+    math = !math;
+    $("math").setAttribute("aria-pressed", String(math));
+    for (const m of document.querySelectorAll(".math")) m.hidden = !math;
+    if (math && !katex) {
+      try { katex = await loadKatex(); } catch (e) { $("m-tok").textContent = `Could not load KaTeX: ${e}`; return; }
+    }
+    showMath(current);
+  };
+
+  $("check").onclick = async () => {  // every bundled test text through the model, with running scores
+    const btn = $("check"), out = $("check-out");
+    btn.disabled = true;
+    const preds = [], golds = [];
+    let agree = 0, compared = 0, ms = 0;
+    for (const [k, s] of D.samples.entries()) {
+      const r = await analyse(s.text), gold = goldOf(s);
+      ms += r.ms.tokenize + r.ms.model;
+      if (gold) { preds.push(r.pred); golds.push(gold); }
+      if (s.teacher) { compared++; agree += same(r.pred, chosen(dense(s.teacher))); }
+      const right = preds.filter((p, j) => same(p, golds[j])).length;
+      out.textContent = `${k + 1 < N ? "So far" : "Done"}, ${k + 1} of ${N} test texts: ` + [
+        golds.length && !D.multi ? `accuracy ${pct(right / golds.length)} (${right} of ${golds.length} correct)` : "",
+        golds.length && D.multi ? `macro-F1 ${macroF1(preds, golds).toFixed(3)}` : "",
+        compared ? `agreement with the teacher ${pct(agree / compared)}` : "",
+        `${(ms / (k + 1)).toFixed(1)} ms per text in this browser`,
+      ].filter(Boolean).join(", ") + ".";
+      showSpeed();
+    }
+    btn.disabled = false;
+  };
+  function macroF1(preds, golds) {  // as tinydistill's multilabel_metrics: mean F1 over the labels that occur
+    const c = D.labels.map(() => [0, 0, 0]);  // true positives, false positives, false negatives
+    preds.forEach((p, k) => {
+      for (const i of p) c[i][golds[k].includes(i) ? 0 : 1]++;
+      for (const i of golds[k]) if (!p.includes(i)) c[i][2]++;
+    });
+    const f1 = c.filter(([t, a, b]) => t + a + b).map(([t, a, b]) => (t ? (2 * t) / (2 * t + a + b) : 0));
+    return f1.length ? f1.reduce((a, b) => a + b) / f1.length : NaN;
+  }
+
+  classify();
 </script>
 </body>
 </html>
@@ -410,6 +708,22 @@ def _samples(rows: list[dict], n: int) -> list[dict]:
     return picked
 
 
+def _bundle(rows: list[dict], n: int = BUNDLE, chars: int = BUNDLE_CHARS) -> tuple[list[dict], int]:
+    """Up to n test rows for the page: first one per gold label (``_samples``), then rows from across the
+    file, while their texts stay under ``chars`` characters in all. Also returns how many of the first kind
+    there are."""
+    first = _samples(rows, n)
+    picked: list[dict] = []
+    seen: set[int] = set()
+    size = 0
+    for r in first + rows[:: max(1, len(rows) // n)] + rows:
+        if len(picked) < n and id(r) not in seen and size + len(r["text"]) <= chars:
+            picked.append(r)
+            seen.add(id(r))
+            size += len(r["text"])
+    return picked, sum(id(r) in seen for r in first)
+
+
 def _teacher_probs(scores: list[float], multi: bool, k: int = 10) -> list[list]:
     """The teacher's top-k label probabilities as [index, probability] pairs (scores are log-probabilities,
     or log-odds for multi-label)."""
@@ -422,13 +736,19 @@ def _teacher_probs(scores: list[float], multi: bool, k: int = 10) -> list[list]:
     return [[i, round(p[i], 4)] for i in sorted(range(len(p)), key=lambda i: -p[i])[:k]]
 
 
+def _rows(res: dict | None, deployed: str) -> tuple[dict | None, dict | None]:
+    """The deployed student's row of results.json and the teacher's (its GPU row when there is one)."""
+    models = (res or {}).get("models", [])
+    student = next((m for m in models if m["role"] == "student" and deployed in m["name"]), None)
+    teachers = [m for m in models if m["role"] == "teacher"]
+    gpu = [m for m in teachers if str(m.get("device", "")).startswith("cuda") and m.get("latency_ms_b1")]
+    return student, (gpu + teachers or [None])[0]
+
+
 def _summary(res: dict | None, deployed: str) -> str:
     """One sentence on quality, from the run's results.json (never typed by hand)."""
-    if not res:
-        return ""
-    row = next((m for m in res["models"] if m["role"] == "student" and deployed in m["name"]), None)
-    teacher = next((m for m in res["models"] if m["role"] == "teacher"), None)
-    if not row or row.get("accuracy") is None:
+    row, teacher = _rows(res, deployed)
+    if not res or not row or row.get("accuracy") is None:
         return ""
     return (
         f"Test accuracy {row['accuracy']:.3f} on {res['data']['n_test']} held-out texts. "
@@ -438,13 +758,60 @@ def _summary(res: dict | None, deployed: str) -> str:
     )
 
 
+def _card(res: dict | None, deployed: str, multi: bool) -> str:
+    """Teacher against student, side by side: model, size, time per text and test score, all from the run's
+    results.json; the student's time is measured in the visitor's browser. A missing number leaves its cell
+    empty, and a row with no numbers is left out."""
+    student, teacher = _rows(res, deployed)
+    if not res or not student:
+        return ""
+    teacher = teacher or {}
+    key, metric = ("macro_f1", "Test macro-F1") if multi else ("accuracy", "Test accuracy")
+
+    def size(row: dict) -> str:
+        mb = row.get("size_mb")
+        return (
+            "" if mb is None else f"{mb / 1000:.1f} GB" if mb >= 1000 else f"{mb:.{0 if mb >= 10 else 1}f} MB"
+        )
+
+    def score(row: dict) -> str:
+        return "" if row.get(key) is None else f"{row[key]:.1%}"
+
+    ms = teacher.get("latency_ms_b1") if str(teacher.get("device", "")).startswith("cuda") else None
+    how = teacher.get("name", "").removeprefix("teacher, ")
+    rows = [
+        ("Model", f"{res.get('teacher') or ''}" + (f" ({how})" if how else ""), res.get("student") or ""),
+        ("Size", size(teacher), size(student)),
+        ("Time per text", "" if ms is None else f"{ms:.0f} ms on a GPU", None),
+        (metric, score(teacher), score(student)),
+    ]
+    body = "".join(
+        f"<tr><td>{h}</td><td class='t'>{html.escape(t)}</td><td>"
+        + (html.escape(s) if s is not None else '<span id="live-ms">measured as you type</span>')
+        + "</td></tr>"
+        for h, t, s in rows
+        if t or s != ""
+    )
+    return (
+        '<section class="card" aria-label="Teacher and student"><table><tr><th></th>'
+        '<th class="t">Teacher (LLM)</th><th>Student (this page)</th></tr>'
+        f"{body}</table><p class='note'>From the run's results on its held-out test texts; the student's time "
+        "is measured in your browser.</p></section>"
+    )
+
+
+def _short(text: str, n: int = 40) -> str:
+    return text if len(text) <= n else text[: n - 3].rstrip() + "..."
+
+
 def build_site(
     onnx_dir: Path, out: Path, title: str | None = None, samples: int = 6, note: str | None = None
 ) -> Path:
     """Write ``out/index.html`` and ``out/model-<hash>/`` (config, tokenizer, ONNX) for transformers.js. When the run's
     PyTorch student is next to the export, the page's model also returns each layer's answer and the
-    attention of the first token, for the "Inside the model" view. ``note`` is an extra line for the footer,
-    such as the dataset's licence."""
+    attention of the first token, for the "Inside the model" view. ``samples`` example buttons (one per gold
+    label); the page also holds up to ``BUNDLE`` test texts with their gold and teacher labels. ``note`` is an
+    extra line for the footer, such as the dataset's licence."""
     from .export import export_explain
     from .static import is_static
 
@@ -490,10 +857,13 @@ def build_site(
         if (run / "results.json").exists()
         else None
     )
-    rows = []
+    rows: list[dict] = []
+    n_first = 0
     if (run / "test.jsonl").exists():
         with (run / "test.jsonl").open(encoding="utf-8") as fh:
-            rows = _samples([json.loads(line) for line in fh if line.strip()], samples)
+            rows, n_first = _bundle([json.loads(line) for line in fh if line.strip()])
+    ce_weight = ((res or {}).get("training") or {}).get("ce_weight")
+    deployed = "int8" if int8 else "fp32"
     data = {
         "labels": labels,
         "multi": multi,
@@ -503,12 +873,25 @@ def build_site(
         "samples": [
             {
                 "text": r["text"],
-                "gold": r.get("gold") if not multi else None,
+                "gold": r.get("gold"),
                 "teacher": _teacher_probs(r["scores"], multi) if r.get("scores") else None,
             }
             for r in rows
         ],
+        "n_test": (res or {}).get("data", {}).get("n_test"),
         "cascade": (res or {}).get("cascade"),
+        "ce_weight": meta.get("ce_weight") if ce_weight is None else ce_weight,
+        "config": {
+            k: config.get(k)
+            for k in (
+                "model_type",
+                "hidden_size",
+                "num_attention_heads",
+                "vocab_size",
+                "type_vocab_size",
+                "pad_token_id",
+            )
+        },
     }
     vocab = json.loads((onnx_dir / "tokenizer.json").read_text(encoding="utf-8"))["model"].get("vocab", {})
     teacher_row = next((m for m in (res or {}).get("models", []) if m["role"] == "teacher"), None)
@@ -517,12 +900,14 @@ def build_site(
     )
     name = title or (meta.get("task") or run.name).replace("-", " ").replace("_", " ").title()
     buttons = "\n    ".join(
-        f'<button class="ghost sample" data-text="{html.escape(r["text"])}">Example {i + 1}</button>'
-        for i, r in enumerate(rows)
+        f'<button class="ghost sample" data-text="{html.escape(r["text"])}" '
+        f'title="{html.escape(r["text"])}">{html.escape(_short(r["text"]))}</button>'
+        for r in rows[: min(samples, n_first)]
     )
     page = (
         PAGE.replace("__TITLE__", html.escape(name))
         .replace("__SIZE__", f"{target.stat().st_size / 1e6:.0f}")
+        .replace("__CARD__", _card(res, deployed, multi))
         .replace("__FIRST__", html.escape(rows[0]["text"]) if rows else "")
         .replace("__SAMPLES__", buttons)
         .replace("__VOCAB__", f"{len(vocab):,} pieces" if vocab else "pieces")
@@ -531,7 +916,8 @@ def build_site(
         .replace("__ACTIVATION__", "sigmoid per label" if multi else "softmax")
         .replace("__TEACHER__", html.escape(teacher))
         .replace("__TRANSFORMERS_JS__", TRANSFORMERS_JS)
-        .replace("__SUMMARY__", html.escape(_summary(res, "int8" if int8 else "fp32")))
+        .replace("__KATEX__", KATEX)
+        .replace("__SUMMARY__", html.escape(_summary(res, deployed)))
         .replace("__NOTE__", html.escape(note or ""))
         .replace("__DATA__", json.dumps(data).replace("</", "<\\/"))
     )
