@@ -399,7 +399,8 @@ PAGE = """<!doctype html>
 def _samples(rows: list[dict], n: int) -> list[dict]:
     """Up to n test rows with different gold labels, taken from across the file (test files are often sorted
     by label, so the first rows would all show the same one)."""
-    picked, labels = [], set()
+    picked: list[dict] = []
+    labels: set[str] = set()
     step = max(1, len(rows) // (4 * n or 1))
     for r in rows[::step] + rows:
         key = json.dumps(r.get("gold"))
@@ -491,8 +492,8 @@ def build_site(
     )
     rows = []
     if (run / "test.jsonl").exists():
-        with (run / "test.jsonl").open(encoding="utf-8") as f:
-            rows = _samples([json.loads(line) for line in f if line.strip()], samples)
+        with (run / "test.jsonl").open(encoding="utf-8") as fh:
+            rows = _samples([json.loads(line) for line in fh if line.strip()], samples)
     data = {
         "labels": labels,
         "multi": multi,

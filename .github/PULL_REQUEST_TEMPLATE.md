@@ -21,7 +21,7 @@ first.
 
 - [ ] The change was discussed in an issue first (not needed for documentation or typo fixes)
 - [ ] Tests are added or updated
-- [ ] `ruff check .`, `ruff format --check .` and `pytest` pass
+- [ ] `ruff check .`, `ruff format --check .`, `mypy` and `pytest` pass
 - [ ] `docs/` and `CHANGELOG.md` are updated if behaviour or options changed
 - [ ] Any numbers added to the README or RESULTS come from saved result files, not typed by hand
 

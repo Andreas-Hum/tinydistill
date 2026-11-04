@@ -140,7 +140,7 @@ def confusions(run: str | Path, who: str = "student", labels: int = 12):
     plt = _plt()
     p = predictions(Path(run))
     names, gold, pred = p["task"].labels, p["gold"], p[who]
-    errors = Counter()
+    errors: Counter[int] = Counter()
     for g, x in zip(gold, pred, strict=True):
         if g != x:
             errors[g] += 1

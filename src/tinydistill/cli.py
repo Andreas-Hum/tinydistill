@@ -7,6 +7,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import yaml
 
@@ -78,7 +79,8 @@ def cmd_label(a: argparse.Namespace) -> None:
         rows = list(read_examples(a.data, task, a.limit))
         if not any(e.gold is not None for e in rows):
             raise SystemExit("--few-shot needs gold labels in the training data")
-        examples = few_shot_examples([e.text for e in rows], [e.gold for e in rows], a.few_shot, a.seed)
+        gold = cast(list[int | None], [e.gold for e in rows])  # single-label: load_task refuses multi-label
+        examples = few_shot_examples([e.text for e in rows], gold, a.few_shot, a.seed)
         with (run / "examples.jsonl").open("w", encoding="utf-8") as f:
             for text, y in examples:
                 f.write(json.dumps({"text": text, "gold": y}) + "\n")
@@ -158,16 +160,20 @@ def cmd_label(a: argparse.Namespace) -> None:
             torch.cuda.empty_cache()
 
     for split, spec, limit in splits:
-        rows = 0
+        n_rows = 0
         with (run / f"{split}.jsonl").open("w", encoding="utf-8") as f:
             for e in read_examples(spec, task, limit):
                 per = [c.get(e.text) for c in caches]
-                row = {"text": e.text, "gold": e.gold, "scores": combine_scores(per, task.multi_label)}
+                row: dict[str, Any] = {
+                    "text": e.text,
+                    "gold": e.gold,
+                    "scores": combine_scores(per, task.multi_label),
+                }
                 if len(per) > 1:
                     row["teacher_scores"] = per
                 f.write(json.dumps(row) + "\n")
-                rows += 1
-        log(f"{split}: {rows} texts")
+                n_rows += 1
+        log(f"{split}: {n_rows} texts")
     _meta(
         run,
         {
@@ -229,7 +235,8 @@ def cmd_train(a: argparse.Namespace) -> None:
     if a.gold_only and not (a.gold_per_class or a.gold_file):
         raise SystemExit("--gold-only needs --gold-per-class K or --gold-file FILE")
     pick = few_gold_sets if task.multi_label else few_gold
-    gold = pick(all_gold, a.gold_per_class, a.seed) if a.gold_per_class else None  # fixed by --seed
+    # per text: a label index, or (multi-label) a list of them; fixed by --seed
+    gold: list[Any] | None = pick(all_gold, a.gold_per_class, a.seed) if a.gold_per_class else None
     n_gold_file = 0
     if a.gold_file:  # labels a person added, e.g. to the texts `tinydistill suggest` picked
         from .data import read_examples
@@ -294,7 +301,7 @@ def cmd_train(a: argparse.Namespace) -> None:
                     task.labels,
                     out / "student-kgold",
                     a.student,
-                    [gold[j] for j in kgold],
+                    [g for g in gold or [] if g is not None],  # the labels of kgold
                     0.0,
                     *hp,
                     on_step=bar.update,
@@ -552,7 +559,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
 
     order = {"teacher": 0, "teacher member": 1, "student": 2, "baseline": 3, "upper bound": 4}
     models.sort(key=lambda m: order[m["role"]])  # deployable rows first, reference rows last
-    results = {
+    results: dict[str, Any] = {
         "task": task.name,
         "teacher": meta.get("teacher"),
         "student": meta.get("student"),
@@ -639,11 +646,11 @@ def _deployed(run: Path):
 
 def _run_teacher(run: Path, device: str):
     """The run's teacher (or ensemble), with its prompt and few-shot examples, for scoring new texts."""
-    from .teacher import Ensemble, load_teacher
+    from .teacher import Ensemble, Scorer, load_teacher
 
     meta, task = _meta(run), load_task(run / "task.yaml")
     examples = [(r["text"], r["gold"]) for r in _read_jsonl(run / "examples.jsonl")] or None
-    members = [
+    members: list[Scorer] = [
         load_teacher(
             t,
             task,
@@ -692,9 +699,12 @@ def cmd_serve(a: argparse.Namespace) -> None:
     from .export import Cascade, Predictor
     from .serve import make_server
 
-    model = Predictor(a.model)
-    if a.cascade:
-        model = Cascade(model, _run_teacher(Path(a.cascade), a.device), a.threshold, a.log)
+    student = Predictor(a.model)
+    model = (
+        Cascade(student, _run_teacher(Path(a.cascade), a.device), a.threshold, a.log)
+        if a.cascade
+        else student
+    )
     server = make_server(model, a.host, a.port)
     log(f"serving {a.model} on http://{a.host}:{server.server_port} (POST /predict, GET /health)")
     try:
@@ -727,13 +737,15 @@ def cmd_synth(a: argparse.Namespace) -> None:
     import torch
 
     from .synth import generator, synthesise
-    from .teacher import load_teacher
+    from .teacher import LabelScorer, load_teacher
 
     task = load_task(a.task)
     torch.manual_seed(a.seed)
     name = _teachers(a.teacher)[0]
     log(f"loading {name} to write example texts")
     scorer = load_teacher(name, task, a.device, a.load_4bit)  # its model and tokenizer write the texts
+    if not isinstance(scorer, LabelScorer):
+        raise SystemExit("synth needs a local teacher (not --vllm-url or --api-url)")
     n = synthesise(
         task, generator(scorer.model, scorer.tok, a.temperature), a.per_label, Path(a.out), log=log
     )

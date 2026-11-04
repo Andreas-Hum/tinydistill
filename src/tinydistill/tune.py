@@ -46,6 +46,8 @@ def tune(
     for name in teachers:  # one teacher in memory at a time
         log(f"loading teacher {name}")
         base = load_teacher(name, tasks[0][1], device, load_4bit)
+        if not isinstance(base, LabelScorer):
+            raise SystemExit("tune needs a local teacher (not --vllm-url or --api-url)")
         for prompt, task in tasks:
             for k in shots:
                 if k and (task.multi_label or "{examples}" not in task.prompt):
@@ -63,8 +65,8 @@ def tune(
                 scores = scorer.score_many(dev_texts)
                 seconds = (time.perf_counter() - t0) / len(dev_texts)
                 if task.multi_label:
-                    pred = [frozenset(i for i, x in enumerate(s) if x > 0) for s in scores]
-                    m = multilabel_metrics(pred, [frozenset(g) for g in dev_gold], len(task.labels))
+                    pred_sets = [frozenset(i for i, x in enumerate(s) if x > 0) for s in scores]
+                    m = multilabel_metrics(pred_sets, [frozenset(g) for g in dev_gold], len(task.labels))
                 else:
                     pred = [max(range(len(s)), key=s.__getitem__) for s in scores]
                     m = {"accuracy": accuracy(pred, dev_gold), "macro_f1": macro_f1(pred, dev_gold)}

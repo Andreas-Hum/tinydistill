@@ -6,7 +6,7 @@ import json
 import math
 import random
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import torch
@@ -95,7 +95,7 @@ def train_student(
     labels: list[str],
     out_dir: Path,
     model_name: str = DEFAULT_STUDENT,
-    gold: list[int | None] | None = None,
+    gold: Sequence[int | list[int] | None] | None = None,
     ce_weight: float = 0.0,
     epochs: int = 10,
     batch_size: int = 32,

@@ -21,13 +21,26 @@ import json
 import os
 from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple, Protocol
 from urllib.parse import urlsplit
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .task import LETTERS, Task
+
+
+class Scorer(Protocol):
+    """What every teacher (local, vLLM or hosted API) offers: label scores for texts."""
+
+    task: Task
+
+    def score_many(self, texts: list[str]) -> list[list[float]]: ...
+
+    def score(self, text: str) -> list[float]: ...
+
+    def fingerprint(self) -> str: ...
+
 
 _SENTINEL = "\x00TEXT\x00"
 _LABEL = "\x00LABEL\x00"
@@ -238,7 +251,7 @@ class LabelScorer(_Prompt):
         limit = getattr(getattr(model, "config", None), "max_position_embeddings", None)
         self._prepare(tokenizer, task, use_chat_template, surface_forms, examples, limit)
         self._build_tree()
-        self._prefix_cache = None
+        self._prefix_cache: Any = None  # the prompt prefix's KV cache (a transformers Cache)
 
     def _build_tree(self) -> None:
         """Prefix tree over the labels' input tokens (every label token except the last).
@@ -276,7 +289,7 @@ class LabelScorer(_Prompt):
             self._node_tokens, self._node_depth, self._node_anc, self._rows, self._targets, self._owner, None
         )
         # for shortlists: each continuation's scored tokens and the nodes they need
-        self._entries = [[] for _ in self.forms]
+        self._entries: list[list[int]] = [[] for _ in self.forms]
         for e, f in enumerate(owner):
             self._entries[f].append(e)
         self._rows_list = rows
@@ -332,7 +345,9 @@ class LabelScorer(_Prompt):
         ids = [self.text_ids(t) for t in texts]
         labels = self.shortlist(texts) if self.shortlist is not None else [None] * len(texts)
         views = [self._view(lab) for lab in labels]
-        out, pack, used = [], [], 0
+        out: list[torch.Tensor] = []
+        pack: list[tuple[list[int], _View]] = []
+        used = 0
         for x, view in zip(ids, views, strict=True):
             cost = len(x) + len(view.tokens)
             if pack and used + cost > self.max_tokens:
@@ -630,7 +645,7 @@ class ApiScorer:
         import warnings
         from concurrent.futures import ThreadPoolExecutor
 
-        self._blind: list[str] = []
+        self._blind = []
         with ThreadPoolExecutor(self.workers) as pool:
             rows = list(pool.map(self._one, texts))
         blind = len(self._blind)  # texts with no option letter among the returned tokens
@@ -650,7 +665,7 @@ class ApiScorer:
 class Ensemble:
     """Several teachers used as one: their label probabilities are averaged (as in labelling)."""
 
-    def __init__(self, members: list[LabelScorer]):
+    def __init__(self, members: list[Scorer]):
         self.members = members
 
     def score_many(self, texts: list[str]) -> list[list[float]]:
@@ -704,7 +719,7 @@ def load_teacher(
         kwargs["device_map"] = {"": device}
     else:
         kwargs["dtype"] = torch.bfloat16 if device == "cuda" else torch.float32
-    model = AutoModelForCausalLM.from_pretrained(name, **kwargs)
+    model: torch.nn.Module = AutoModelForCausalLM.from_pretrained(name, **kwargs)
     if not load_4bit:
         model.to(device)
     short = None
@@ -761,9 +776,7 @@ class ScoreCache:
                         continue
                     self.scores[row["h"]] = row["s"]
 
-    def fill(
-        self, scorer: LabelScorer, texts: Iterable[str], progress=None, batch: int = 64, on_read=None
-    ) -> int:
+    def fill(self, scorer: Scorer, texts: Iterable[str], progress=None, batch: int = 64, on_read=None) -> int:
         """Score every text not in the cache yet, ``batch`` texts at a time (the scorer packs them into
         forward passes). Returns how many were scored now."""
         n = 0

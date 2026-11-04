@@ -734,6 +734,14 @@ def test_tune_tries_every_setting_on_a_dev_split(tmp_path, capsys):
     assert "Best: `tinydistill run" in (tmp_path / "tune-1.5b.md").read_text(encoding="utf-8")
 
 
+def test_tune_needs_a_local_teacher(monkeypatch):
+    import tinydistill.tune
+
+    monkeypatch.setattr(tinydistill.tune, "load_teacher", lambda *a, **k: object())  # not a LabelScorer
+    with pytest.raises(SystemExit, match="needs a local teacher"):
+        tinydistill.tune.tune([("t", None)], ["a", "b"], [0, 1], ["m"], [0], 2, "cpu", False, 0, print)
+
+
 def test_cascade_log_then_refresh(tmp_path, capsys):
     (tmp_path / "task.yaml").write_text(TASK)
     write_jsonl(

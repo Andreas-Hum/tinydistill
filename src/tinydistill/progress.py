@@ -99,7 +99,7 @@ def _alive(pid: int) -> bool:
     if os.name == "nt":  # os.kill(pid, 0) would send Ctrl+C on Windows
         import ctypes
 
-        kernel32 = ctypes.windll.kernel32
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]  # windll exists only on Windows
         handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
         if not handle:
             return False

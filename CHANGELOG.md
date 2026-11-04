@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The package ships type information (`py.typed`) and is checked with mypy in CI.
 - `Distiller`: the pipeline as a scikit-learn style estimator, `Distiller("task.yaml").fit(texts)` then
   `predict`, `predict_proba`, `describe`, `score`, `save` and `Distiller.load`, with `get_params` and
   `set_params` for scikit-learn tools (without depending on scikit-learn). With `cache_dir` it shares the

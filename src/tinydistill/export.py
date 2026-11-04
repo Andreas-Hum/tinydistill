@@ -219,7 +219,7 @@ class Predictor:
     def describe(self, texts: list[str]) -> list[dict]:
         """Per text, as JSON-ready dicts: the label and its probability, or (multi-label) the labels and
         every label's probability."""
-        out = []
+        out: list[dict] = []
         for p in self.predict_proba(texts):
             if self.multi_label:
                 out.append(

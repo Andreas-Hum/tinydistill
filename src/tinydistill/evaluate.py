@@ -6,17 +6,18 @@ import os
 import platform
 import statistics
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Hashable, Sequence
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 
 import torch
 
 
-def accuracy(pred: Sequence[int], gold: Sequence[int]) -> float:
+def accuracy(pred: Sequence[object], gold: Sequence[object]) -> float:
     return sum(p == g for p, g in zip(pred, gold, strict=True)) / len(gold) if gold else float("nan")
 
 
-def macro_f1(pred: Sequence[int], gold: Sequence[int]) -> float:
+def macro_f1(pred: Sequence[Hashable], gold: Sequence[Hashable]) -> float:
     """Unweighted mean F1 over the classes that occur in gold or pred (as scikit-learn's 'macro')."""
     classes = set(gold) | set(pred)
     if not classes:
@@ -30,7 +31,9 @@ def macro_f1(pred: Sequence[int], gold: Sequence[int]) -> float:
     return sum(f1s) / len(f1s)
 
 
-def multilabel_metrics(pred: Sequence[set[int]], gold: Sequence[set[int]], labels: int) -> dict:
+def multilabel_metrics(
+    pred: Sequence[AbstractSet[int]], gold: Sequence[AbstractSet[int]], labels: int
+) -> dict:
     """Exact-match accuracy, macro-F1 (mean over labels) and micro-F1 for sets of labels."""
     tp = [0] * labels
     fp = [0] * labels
@@ -75,7 +78,7 @@ def time_calls(fn: Callable[[list[str]], object], texts: list[str], batch: int, 
     return statistics.median(times)
 
 
-def bench(fn: Callable[[list[str]], object], texts: list[str], reps1: int, reps32: int = 0) -> dict:
+def bench(fn: Callable[..., object], texts: list[str], reps1: int, reps32: int = 0) -> dict:
     """Latency at batch 1 and (if reps32 > 0) batch 32. Throughput comes from batch 32 when measured,
     otherwise from batch 1 (for models that process one text at a time)."""
     out = {"latency_ms_b1": time_calls(fn, texts, 1, reps1)}
@@ -263,7 +266,7 @@ def compare_table(runs: list[tuple[str, dict]]) -> str:
         if not rows:
             continue
         quality = rows[0]  # the PyTorch row carries the per-seed quality
-        teacher = next((m for m in res["models"] if m["role"] == "teacher"), {})
+        teacher: dict = next((m for m in res["models"] if m["role"] == "teacher"), {})
         onnx = [m for m in rows if "ONNX" in m["name"]]
         deployed = next((m for m in onnx if "int8" in m["name"]), onnx[0] if onnx else quality)
         lines.append(
@@ -281,9 +284,9 @@ def compare_table(runs: list[tuple[str, dict]]) -> str:
 
 def cascade_curve(
     confidence: Sequence[float],
-    student_pred: Sequence[int],
-    teacher_pred: Sequence[int],
-    gold: Sequence[int],
+    student_pred: Sequence[Hashable],
+    teacher_pred: Sequence[Hashable],
+    gold: Sequence[Hashable],
     shares: Sequence[float] = (0.0, 0.1, 0.2, 0.3, 0.5, 1.0),
 ) -> list[dict]:
     """Student-then-teacher cascade: for each share s, the s least confident texts (by the student's top
