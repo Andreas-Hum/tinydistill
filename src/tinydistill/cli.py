@@ -11,7 +11,7 @@ from typing import Any, cast
 
 import yaml
 
-from .task import load_task
+from .task import Task, load_task
 
 DEFAULT_TEACHER = "Qwen/Qwen2.5-1.5B-Instruct"
 
@@ -47,6 +47,48 @@ def _teachers(spec: str) -> list[str]:
     return [t.strip() for t in spec.split(",") if t.strip()]
 
 
+def _write_task(path: Path, task: Task) -> None:
+    path.write_text(yaml.safe_dump(task.to_dict(), sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+def _variants(task: Task, paths: list[str]) -> list[Task]:
+    """Other task files for the same task (other prompts): same label ids in the same order and the same
+    multi_label setting, so that their label scores can be averaged."""
+    variants = [load_task(p) for p in paths]
+    for p, v in zip(paths, variants, strict=True):
+        if v.labels != task.labels:
+            raise SystemExit(
+                f"{p} must have the task's label ids in the same order: {', '.join(task.labels)} "
+                f"(it has {', '.join(v.labels)})"
+            )
+        if v.multi_label != task.multi_label:
+            raise SystemExit(f"{p} must have the task's multi_label setting ({task.multi_label})")
+    return variants
+
+
+def _run_members(run: Path, meta: dict, task: Task, name: str, device: str, examples) -> list:
+    """One teacher of a run as it labelled: a scorer per prompt (the task's, then its variants)."""
+    from .teacher import load_teacher, prompt_members
+
+    scorer = load_teacher(
+        name,
+        task,
+        device,
+        meta.get("load_4bit", False),
+        meta.get("teacher_tokens", 2048),
+        examples,
+        meta.get("vllm_url"),
+        meta.get("shortlist"),
+        meta.get("shortlist_model"),
+        meta.get("shortlist_keep"),
+        meta.get("api_url"),
+        meta.get("api_key_env", "OPENAI_API_KEY"),
+        meta.get("api_samples"),
+        meta.get("api_temperature", 0.7),
+    )
+    return prompt_members(scorer, [load_task(run / f) for f in meta.get("prompts") or []])
+
+
 def cmd_label(a: argparse.Namespace) -> None:
     import gc
 
@@ -60,19 +102,27 @@ def cmd_label(a: argparse.Namespace) -> None:
         iter_unique,
         load_teacher,
         pick_device,
+        prompt_members,
         quick_key,
         text_hash,
     )
 
     task = load_task(a.task)
+    sources = [p.strip() for p in (a.prompts or "").split(",") if p.strip()]
+    variants = _variants(task, sources)
+    if variants and (a.vllm_url or a.api_url):
+        raise SystemExit("--prompts needs a local teacher, not --vllm-url or --api-url")
     run = Path(a.out)
     run.mkdir(parents=True, exist_ok=True)
-    (run / "task.yaml").write_text(
-        yaml.safe_dump(task.to_dict(), sort_keys=False, allow_unicode=True), encoding="utf-8"
-    )
+    _write_task(run / "task.yaml", task)
+    prompt_files = [f"prompt-{i}.yaml" for i in range(1, len(variants) + 1)]
+    for file, v in zip(prompt_files, variants, strict=True):
+        _write_task(run / file, v)
     examples = None
-    if a.few_shot and "{examples}" not in task.prompt:
-        raise SystemExit("--few-shot needs an {examples} line in the task's prompt")
+    if a.few_shot and any("{examples}" not in t.prompt for t in (task, *variants)):
+        raise SystemExit(
+            "--few-shot needs an {examples} line in the task's prompt (and in each --prompts file)"
+        )
     if a.few_shot:
         from .student import few_shot_examples
 
@@ -97,22 +147,26 @@ def cmd_label(a: argparse.Namespace) -> None:
     seconds, scored = 0.0, 0
     keys_file = cache_dir / "teacher-keys.json"  # quick key (tokenizer only) -> full fingerprint
     keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
-    for name in _teachers(a.teacher):  # one teacher in memory at a time
-        quick = None
+    for name in _teachers(a.teacher):  # one teacher in memory at a time, one member per prompt
+        quick: list[str | None] = [None] * (1 + len(variants))
         if not a.vllm_url and not a.api_url:  # a server's tokenizer and setup are not known locally
-            quick = quick_key(
-                name, task, a.device, a.load_4bit, examples, a.shortlist, a.shortlist_model, a.shortlist_keep
-            )
-            known = keys.get(quick)
-            cache = ScoreCache(cache_dir / f"teacher-{known}.jsonl") if known else None
-            if cache and all(
-                text_hash(e.text) in cache.scores
+            quick = [
+                quick_key(
+                    name, t, a.device, a.load_4bit, examples, a.shortlist, a.shortlist_model, a.shortlist_keep
+                )
+                for t in (task, *variants)
+            ]
+            known = [keys.get(q) for q in quick]
+            cached = [ScoreCache(cache_dir / f"teacher-{k}.jsonl") for k in known if k]
+            if len(cached) == len(known) and all(
+                text_hash(e.text) in c.scores
                 for _, spec, limit in splits
                 for e in read_examples(spec, task, limit, with_gold=False)
+                for c in cached
             ):
                 log(f"{name}: every text is in the cache, so the teacher is not loaded")
-                fingerprints.append(known)
-                caches.append(cache)
+                fingerprints.extend(cast(list[str], known))
+                caches.extend(cached)
                 device = pick_device(a.device)
                 device = "cuda:0" if device == "cuda" else device  # as a loaded model reports it
                 continue
@@ -133,30 +187,31 @@ def cmd_label(a: argparse.Namespace) -> None:
             a.api_samples,
             a.api_temperature,
         )
-        fingerprints.append(scorer.fingerprint())
         device = str(scorer.device)
-        if quick:
-            keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
-            keys[quick] = fingerprints[-1]
-            tmp = keys_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(keys, indent=1), encoding="utf-8")
-            tmp.replace(keys_file)
-        cache = ScoreCache(cache_dir / f"teacher-{fingerprints[-1]}.jsonl")
-        if cache.scores:
-            log(f"resuming: {len(cache.scores)} texts already scored")
-        for split, spec, limit in splits:
-            t0 = time.perf_counter()
-            bar = Progress(
-                f"label {split} ({name.split('/')[-1]})", count_rows(spec, limit), log, run / "status.json"
-            )
-            texts = iter_unique(e.text for e in read_examples(spec, task, limit, with_gold=False))
-            n = cache.fill(scorer, texts, on_read=bar.update)
-            bar.finish()
-            seconds += time.perf_counter() - t0
-            scored += n
-            log(f"{split}: {n} texts scored now by {name}, the rest from the cache")
-        caches.append(cache)
-        del scorer
+        members = prompt_members(scorer, variants)
+        for pi, (member, q) in enumerate(zip(members, quick, strict=True)):
+            who = name.split("/")[-1] + (f", prompt {pi}" if variants else "")  # prompt 0: the task's own
+            fingerprints.append(member.fingerprint())
+            if q:
+                keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
+                keys[q] = fingerprints[-1]
+                tmp = keys_file.with_suffix(".tmp")
+                tmp.write_text(json.dumps(keys, indent=1), encoding="utf-8")
+                tmp.replace(keys_file)
+            cache = ScoreCache(cache_dir / f"teacher-{fingerprints[-1]}.jsonl")
+            if cache.scores:
+                log(f"resuming: {len(cache.scores)} texts already scored")
+            for split, spec, limit in splits:
+                t0 = time.perf_counter()
+                bar = Progress(f"label {split} ({who})", count_rows(spec, limit), log, run / "status.json")
+                texts = iter_unique(e.text for e in read_examples(spec, task, limit, with_gold=False))
+                n = cache.fill(member, texts, on_read=bar.update)
+                bar.finish()
+                seconds += time.perf_counter() - t0
+                scored += n
+                log(f"{split}: {n} texts scored now by {who}, the rest from the cache")
+            caches.append(cache)
+        del scorer, members
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -181,6 +236,9 @@ def cmd_label(a: argparse.Namespace) -> None:
         {
             "teacher": a.teacher,
             "teachers": _teachers(a.teacher),
+            # variant task files copied into the run; the members are teachers x (task, *prompts)
+            "prompts": prompt_files,
+            "prompt_sources": sources,
             "few_shot": a.few_shot,
             "n_examples": len(examples or []),
             "load_4bit": a.load_4bit,
@@ -381,7 +439,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
     )
     from .export import Predictor
     from .student import load_student, student_logits
-    from .teacher import load_teacher
+    from .teacher import Ensemble, combine_scores
 
     run = Path(a.run)
     meta = _meta(run)
@@ -438,13 +496,21 @@ def cmd_eval(a: argparse.Namespace) -> None:
     bar = Progress(
         "eval", len(teachers) * len(devices) + n_students + n_onnx, log, run / "status.json", "steps", every=0
     )
-    prompt = (f"{meta['few_shot']}-shot" if meta.get("few_shot") else "zero-shot") + (
-        ", 4-bit" if meta.get("load_4bit") else ""
+    n_prompts = 1 + len(meta.get("prompts") or [])  # each teacher's members: one per prompt
+    prompt = (
+        (f"{meta['few_shot']}-shot" if meta.get("few_shot") else "zero-shot")
+        + (f", {n_prompts} prompts" if n_prompts > 1 else "")
+        + (", 4-bit" if meta.get("load_4bit") else "")
     )
     examples = [(r["text"], r["gold"]) for r in _read_jsonl(run / "examples.jsonl")] or None
     members: list[dict] = []
     for ti, name in enumerate(teachers):
-        own_scores = [r["teacher_scores"][ti] if len(teachers) > 1 else r["scores"] for r in labelled]
+        own_scores = [
+            combine_scores(r["teacher_scores"][ti * n_prompts : (ti + 1) * n_prompts], multi)
+            if len(teachers) > 1
+            else r["scores"]
+            for r in labelled
+        ]
         q = quality([decide(s) for s in own_scores], own_scores)
         q.pop("agreement", None)
         for dev in devices:
@@ -459,33 +525,20 @@ def cmd_eval(a: argparse.Namespace) -> None:
             }
             if not a.skip_teacher_bench:
                 log(f"benchmarking the teacher {name} on {dev}")
-                scorer = load_teacher(
-                    name,
-                    task,
-                    dev,
-                    meta.get("load_4bit", False),
-                    meta.get("teacher_tokens", 2048),
-                    examples,
-                    meta.get("vllm_url"),
-                    meta.get("shortlist"),
-                    meta.get("shortlist_model"),
-                    meta.get("shortlist_keep"),
-                    meta.get("api_url"),
-                    meta.get("api_key_env", "OPENAI_API_KEY"),
-                    meta.get("api_samples"),
-                    meta.get("api_temperature", 0.7),
-                )
+                scorers = _run_members(run, meta, task, name, dev, examples)
+                scorer = scorers[0]
                 if hasattr(scorer, "model"):  # a local model (not a vLLM server)
                     row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
                     row["size_mb"] = (
                         scorer.model.get_memory_footprint() / 1e6
                     )  # weights as loaded (e.g. 4-bit)
-                score = scorer.score_many  # several texts are packed into shared forward passes
+                # several texts are packed into shared forward passes; a prompt ensemble runs every prompt
+                score = (Ensemble(scorers) if len(scorers) > 1 else scorer).score_many
                 row.update(bench(score, bench_texts, a.teacher_reps))
                 if row["latency_ms_b1"] * 32 * 4 < 180_000:  # batch 32 only when it takes under three minutes
                     row["latency_ms_b32"] = time_calls(score, bench_texts, 32, 3)
                     row["throughput_per_s"] = 32 / (row["latency_ms_b32"] / 1000)
-                del scorer
+                del scorer, scorers, score
                 if dev.startswith("cuda"):
                     torch.cuda.empty_cache()
             members.append(row)
@@ -652,28 +705,14 @@ def _deployed(run: Path):
 
 def _run_teacher(run: Path, device: str):
     """The run's teacher (or ensemble), with its prompt and few-shot examples, for scoring new texts."""
-    from .teacher import Ensemble, Scorer, load_teacher
+    from .teacher import Ensemble, Scorer
 
     meta, task = _meta(run), load_task(run / "task.yaml")
     examples = [(r["text"], r["gold"]) for r in _read_jsonl(run / "examples.jsonl")] or None
     members: list[Scorer] = [
-        load_teacher(
-            t,
-            task,
-            device,
-            meta.get("load_4bit", False),
-            meta.get("teacher_tokens", 2048),
-            examples,
-            meta.get("vllm_url"),
-            meta.get("shortlist"),
-            meta.get("shortlist_model"),
-            meta.get("shortlist_keep"),
-            meta.get("api_url"),
-            meta.get("api_key_env", "OPENAI_API_KEY"),
-            meta.get("api_samples"),
-            meta.get("api_temperature", 0.7),
-        )
+        m
         for t in meta.get("teachers") or [meta["teacher"]]
+        for m in _run_members(run, meta, task, t, device, examples)
     ]
     return members[0] if len(members) == 1 else Ensemble(members)
 
@@ -828,13 +867,12 @@ def cmd_suggest(a: argparse.Namespace) -> None:
 def cmd_tune(a: argparse.Namespace) -> None:
     from .data import read_examples
     from .teacher import pick_device
-    from .tune import table, tune
+    from .tune import instructions, table, tune
 
     paths = [a.task, *a.prompt]
-    tasks = [(Path(p).name, load_task(p)) for p in paths]
-    if len({tuple(t.labels) for _, t in tasks}) > 1:
-        raise SystemExit("every --prompt file must have the same labels as the task")
-    rows = list(read_examples(a.data, tasks[0][1], a.limit))
+    task = load_task(a.task)
+    tasks = [(Path(p).name, t) for p, t in zip(paths, [task, *_variants(task, a.prompt)], strict=True)]
+    rows = list(read_examples(a.data, task, a.limit))
     texts, gold = [e.text for e in rows], [e.gold for e in rows]
     shots = [int(x) for x in a.few_shot.split(",")]
     results = tune(
@@ -848,10 +886,19 @@ def cmd_tune(a: argparse.Namespace) -> None:
         a.load_4bit,
         a.seed,
         log,
+        a.propose,
+        Path(a.out).name + "-",
     )
     n_dev = min(a.dev_size, sum(g not in (None, []) for g in gold))
     md = table(results, n_dev)
     best = results[0]
+    if a.propose:  # the candidates, and the best task file, next to OUT.md
+        for name, t in tasks[len(paths) :]:
+            _write_task(Path(a.out).with_name(name), t)
+            paths.append(str(Path(a.out).with_name(name)))
+        _write_task(Path(f"{a.out}-best.yaml"), dict(tasks)[best["prompt"]])
+        md += instructions(results, tasks)
+        log(f"wrote {len(tasks) - len(a.prompt) - 1} candidate task files and the best as {a.out}-best.yaml")
     task_path = next(p for p in paths if Path(p).name == best["prompt"])
     cmd = f"tinydistill run {task_path} --teacher {best['teacher']}" + (
         f" --few-shot {best['few_shot']}" if best["few_shot"] else ""
@@ -874,7 +921,13 @@ def cmd_refresh(a: argparse.Namespace) -> None:
             f"{a.log} has no logged texts: run predict or serve with --cascade RUN --log {a.log}"
         )
     dst.mkdir(parents=True, exist_ok=True)
-    for name in ("task.yaml", "meta.json", "examples.jsonl", "test.jsonl"):
+    for name in (
+        "task.yaml",
+        "meta.json",
+        "examples.jsonl",
+        "test.jsonl",
+        *(_meta(src).get("prompts") or []),
+    ):
         if (src / name).exists():
             shutil.copy(src / name, dst / name)
     rows = _read_jsonl(src / "train.jsonl")
@@ -986,6 +1039,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--teacher",
         default=DEFAULT_TEACHER,
         help="Hugging Face causal LM; several, comma-separated, are ensembled",
+    )
+    label.add_argument(
+        "--prompts",
+        metavar="FILES",
+        help="other task files (other prompts, same label ids in the same order), comma-separated: each "
+        "teacher also scores every text with each of them, and the label probabilities are averaged "
+        "(a prompt ensemble; local teachers only)",
     )
     label.add_argument(
         "--load-4bit", action="store_true", help="load the teacher in 4 bit (bitsandbytes, CUDA)"
@@ -1210,6 +1270,15 @@ def build_parser() -> argparse.ArgumentParser:
     tun.add_argument("--teacher", default=DEFAULT_TEACHER, help="one or more teachers, comma-separated")
     tun.add_argument("--few-shot", default="0,8", help="comma-separated values of K to try (0 = zero-shot)")
     tun.add_argument("--prompt", action="append", default=[], help="another task file to try (same labels)")
+    tun.add_argument(
+        "--propose",
+        type=int,
+        default=0,
+        metavar="N",
+        help="the (first) teacher writes N rewrites of the task's instruction; those that keep its "
+        "placeholders are tried too, as is the task without label descriptions. Writes each candidate as "
+        "OUT-<name>.yaml and the best task file as OUT-best.yaml",
+    )
     tun.add_argument("--dev-size", type=int, default=200, help="gold-labelled training texts to score")
     tun.add_argument("--limit", type=int, help="use only the first N training texts")
     tun.add_argument("--load-4bit", action="store_true", help="load teachers in 4 bit (bitsandbytes, CUDA)")

@@ -805,6 +805,29 @@ def load_teacher(
     return LabelScorer(model, tok, task, max_tokens=max_tokens, examples=examples, shortlist=short)
 
 
+def prompt_members(scorer: Scorer, variants: list[Task]) -> list[Scorer]:
+    """A prompt ensemble on one loaded model: ``scorer`` (the task's own prompt), then a scorer for each
+    variant task file (same labels, another prompt), sharing the model, few-shot examples and shortlist."""
+    if not variants:
+        return [scorer]
+    if not isinstance(scorer, LabelScorer):
+        raise SystemExit("prompt ensembles (--prompts) need a local teacher, not --vllm-url or --api-url")
+    return [
+        scorer,
+        *(
+            LabelScorer(
+                scorer.model,
+                scorer.tok,
+                t,
+                max_tokens=scorer.max_tokens,
+                examples=scorer.examples,
+                shortlist=scorer.shortlist,
+            )
+            for t in variants
+        ),
+    ]
+
+
 def quick_key(
     name: str,
     task: Task,

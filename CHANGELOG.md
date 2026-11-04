@@ -5,6 +5,16 @@
 - `label --api-url URL --api-samples N [--api-temperature T]`: for hosted APIs without log-probabilities, the
   teacher samples N answers per text (default temperature 0.7) and each label's soft label is its share of the
   answers whose first word is an option letter. N and T are part of the cache fingerprint and of `meta.json`.
+- Prompt ensembles: `label --prompts b.yaml,c.yaml` scores every text with the task's prompt and with each
+  variant task file (same label ids in the same order) on one loaded teacher, and averages the label
+  probabilities. With several teachers the members are every teacher with every prompt; each member has its
+  own score cache. The variants are copied into the run (`prompt-1.yaml`, ...) and recorded in `meta.json`, so
+  `eval` and the cascade use the same teacher. Local teachers only.
+- `tune --propose N`: the teacher writes N rewrites of the task's instruction; those that keep its placeholders
+  are scored on the dev split together with the task without label descriptions. Each candidate is written as
+  `OUT-<name>.yaml`, the best as `OUT-best.yaml`, and the report lists every instruction with its dev score.
+  `tune.json` rows now include the instruction.
+
 - ModernBERT students are tested (training, ONNX and int8 export). On Banking77, ModernBERT-base reached the
   accuracy of MiniLM-L6 at about eight times the latency.
 - Fix: the input length a student was trained with (`--max-length`) is stored with the model, and `Predictor`,

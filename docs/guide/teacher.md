@@ -30,6 +30,25 @@ tinydistill run task.yaml --data train.csv --test test.csv --load-4bit \
 `tinydistill compare RUN1 RUN2 ...` puts runs side by side. On financial tweets, an ensemble of three model
 families added about a point over the best single teacher.
 
+## Prompt ensembles
+
+`--prompts` takes other task files for the same task, comma-separated: the same label ids in the same order and
+the same `multi_label` setting, with another prompt (or other label names or descriptions). Each teacher is
+loaded once and scores every text with each prompt, and the soft labels are the mean of all members' label
+probabilities, exactly as for several teachers.
+
+```sh
+tinydistill label task.yaml --prompts task-b.yaml,task-c.yaml --data train.csv --out run
+```
+
+With several teachers the members are every teacher with every prompt. Each member has its own score cache, so
+running again with one more prompt scores only that one. The variants are copied into the run directory
+(`prompt-1.yaml`, ...) and listed in `meta.json`, so `eval` and the cascade (`predict` and `serve` with
+`--cascade`) rebuild the same teacher. Prompt ensembles need a local teacher, not `--vllm-url` or `--api-url`.
+Combining the answers of several prompts follows Ask Me Anything ([Arora et al.,
+2022](https://arxiv.org/abs/2210.02441)), which combines them with weak supervision; here the probabilities are
+averaged.
+
 ## A vLLM server
 
 A vLLM server can be the teacher instead of a local model, so a large model on a GPU cluster does the
