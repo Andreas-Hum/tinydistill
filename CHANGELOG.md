@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+
 - `run --budget N [--rounds R]`: the teacher labels only N training texts, in R rounds (default 4): N/R at
   random, then in each round the N/R unlabelled texts the student trained so far is least sure of (highest
   entropy; multi-label, mean binary entropy), retraining after each round. For paid API teachers. Training
@@ -10,7 +11,6 @@
   cost; scores nothing.
 - `analyse RUN --review OUT.csv`: a CSV of training texts for a person to check, the texts whose gold label the
   teacher contradicts (its most confident first), then for ensembles the texts its members disagree on most.
-
 - `improve RUN --rounds R --per-round N`: rounds of performance-guided distillation (PGKD, Di Palo et al.,
   2024). Each round finds the label pairs the student confuses most on a held-out share of the training texts
   (`--held-out`, default 0.1, against the teacher's labels; never the test set), has the teacher write N texts
