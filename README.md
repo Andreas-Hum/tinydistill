@@ -21,7 +21,7 @@ optimisation by distilling LLMs.
   <a href="https://andreas-hum.github.io/tinydistill/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/demo-dark.png">
-      <img alt="The live demo: a 23 MB Banking77 classifier running in the browser, showing the word pieces and what each layer of the model would answer" src="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/demo-light.png" width="640">
+      <img alt="The live demo: a 23 MB Banking77 classifier running in the browser, showing the word pieces and what each layer of the model would answer" src="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/demo-light.png" width="480">
     </picture>
   </a>
 </p>
