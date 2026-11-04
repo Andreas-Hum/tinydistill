@@ -62,6 +62,42 @@ and evaluates a new student on the same test set:
 tinydistill refresh RUN --log cascade.jsonl --out RUN2
 ```
 
+## Target the student's confusions: improve
+
+`improve` runs rounds of performance-guided distillation (PGKD, [Di Palo et al.,
+2024](https://arxiv.org/abs/2411.05045)): it finds the label pairs the student confuses most, has the teacher
+write texts of each that are easy to mistake for the other, labels them with the run's teacher and trains a new
+student with the run's training settings.
+
+```sh
+tinydistill improve RUN --rounds 3 --per-round 200
+```
+
+The confusions are found on a seeded share of the run's training texts (`--held-out`, default 0.1), held out of
+every round's training and compared with the teacher's labels, which are what the student learns. The test set
+is never used to choose anything: it is only reported. Round 0 is the run retrained without the held-out texts,
+so that every round is compared on texts it did not train on. Each round is a new run directory,
+`RUN-improve/round-k`, trained, exported and evaluated like a refresh; the run itself is left as it was.
+`improve` stops early when the agreement on the held-out texts does not improve, and writes a table of rounds
+(texts added, held-out agreement, test accuracy) to `RUN-improve/improve.md` and `improve.json`. Single-label
+runs with a local teacher only; it needs a GPU for real use, since the teacher writes text every round.
+
+## More varied synthetic texts: synth --vary
+
+Texts the teacher writes from the label alone are much alike ([No unlabelled data](no-data.md)). Conditioning
+each request on sampled attributes gives more varied texts than the label alone (AttrPrompt, [Yu et al.,
+2023](https://arxiv.org/abs/2306.15895)): with `--vary`, each request also names a length, a tone and a writer's
+situation, sampled with `--seed`. A task file can replace them with its own `attributes`
+([The task file](task-file.md#attributes-for-synthetic-texts)). `--dedup T` drops a text whose cosine similarity
+(MiniLM sentence embeddings) to a text kept earlier, or to one in `--data`, is T or more, and logs how many were
+dropped:
+
+```sh
+tinydistill synth task.yaml --per-label 500 --vary --dedup 0.95 --data real.csv --out texts.jsonl
+```
+
+Without the two flags, `synth` writes the same texts as before for a given seed.
+
 ## Follow a long run: status
 
 Long steps print their progress, speed and time left, and write them to `RUN/status.json`. From another

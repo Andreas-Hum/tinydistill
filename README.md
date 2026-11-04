@@ -127,6 +127,7 @@ Banking77 splits are sorted by intent, so a limited run only sees a few intents.
 | `tinydistill analyse RUN` | an error-analysis page: weakest labels, common confusions |
 | `tinydistill suggest RUN --n 200 --out to_label.jsonl` | the texts most worth labelling by hand next |
 | `tinydistill refresh RUN --log cascade.jsonl --out RUN2` | retrains with the texts the cascade sent to the teacher |
+| `tinydistill improve RUN --rounds 3 --per-round 200` | retrains with teacher-written texts for the student's confusions |
 | `tinydistill report RUN` | rebuilds `results.md` from `results.json` |
 
 Data can be `.csv`, `.jsonl` or `hf:<dataset>[:<config>]:<split>` (needs the `hf` extra). Useful options:

@@ -72,6 +72,20 @@ scored over its common surface forms: the name as written, lowercase, Capitalise
 without a leading space. `surface_forms` chooses which (`[lowercase, capitalised]` drops UPPERCASE, which
 tokenises into many pieces; `[]` scores the name as written only).
 
+## Attributes for synthetic texts
+
+`tinydistill synth --vary` names a length, a tone and a writer's situation in each request for texts
+([Improving a run](improving.md#more-varied-synthetic-texts-synth-vary)). An optional `attributes` mapping
+replaces these with your own: each request then names one value of each attribute, sampled with `--seed`.
+
+```yaml
+attributes:
+  channel: [email, chat message, phone call transcript]
+  customer: [new customer, long-time customer, small business]
+```
+
+Only `synth` reads it; labelling ignores it.
+
 ## Multi-label tasks
 
 When a text can have any number of labels, add `multi_label: true` and ask about one label at a time, with

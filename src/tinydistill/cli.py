@@ -869,10 +869,19 @@ def cmd_web(a: argparse.Namespace) -> None:
 def cmd_synth(a: argparse.Namespace) -> None:
     import torch
 
-    from .synth import generator, synthesise
+    from .synth import NearDuplicates, generator, load_attributes, synthesise
     from .teacher import LabelScorer, load_teacher
 
     task = load_task(a.task)
+    if a.data and a.dedup is None:
+        raise SystemExit("--data is for --dedup: texts too similar to its texts are dropped")
+    keep = None
+    if a.dedup is not None:
+        from .data import read_examples
+        from .shortlist import Embedder
+
+        existing = [e.text for e in read_examples(a.data, task, with_gold=False)] if a.data else []
+        keep = NearDuplicates(Embedder().embed, a.dedup, existing)
     torch.manual_seed(a.seed)
     name = _teachers(a.teacher)[0]
     log(f"loading {name} to write example texts")
@@ -880,8 +889,17 @@ def cmd_synth(a: argparse.Namespace) -> None:
     if not isinstance(scorer, LabelScorer):
         raise SystemExit("synth needs a local teacher (not --vllm-url or --api-url)")
     n = synthesise(
-        task, generator(scorer.model, scorer.tok, a.temperature), a.per_label, Path(a.out), log=log
+        task,
+        generator(scorer.model, scorer.tok, a.temperature),
+        a.per_label,
+        Path(a.out),
+        log=log,
+        attributes=load_attributes(a.task) if a.vary else None,
+        seed=a.seed,
+        keep=keep,
     )
+    if keep:
+        log(f"--dedup: dropped {keep.dropped} texts with a cosine similarity of {a.dedup} or more")
     log(f"wrote {n} texts to {a.out}; label them with `tinydistill run {a.task} --data {a.out} ...`")
 
 
@@ -995,17 +1013,10 @@ def cmd_tune(a: argparse.Namespace) -> None:
     log(f"best on the dev split: {cmd} --data {a.data} --out RUN")
 
 
-def cmd_refresh(a: argparse.Namespace) -> None:
+def _new_run(src: Path, dst: Path, train: list[dict]) -> None:
+    """A run directory with src's task, teacher settings, examples and test set, and these training rows."""
     import shutil
 
-    src, dst = Path(a.run), Path(a.out)
-    if dst.resolve() == src.resolve():
-        raise SystemExit("--out must be a new run directory")
-    logged = _read_jsonl(Path(a.log))
-    if not logged:
-        raise SystemExit(
-            f"{a.log} has no logged texts: run predict or serve with --cascade RUN --log {a.log}"
-        )
     dst.mkdir(parents=True, exist_ok=True)
     for name in (
         "task.yaml",
@@ -1016,15 +1027,27 @@ def cmd_refresh(a: argparse.Namespace) -> None:
     ):
         if (src / name).exists():
             shutil.copy(src / name, dst / name)
+    with (dst / "train.jsonl").open("w", encoding="utf-8") as f:
+        for r in train:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+
+def cmd_refresh(a: argparse.Namespace) -> None:
+    src, dst = Path(a.run), Path(a.out)
+    if dst.resolve() == src.resolve():
+        raise SystemExit("--out must be a new run directory")
+    logged = _read_jsonl(Path(a.log))
+    if not logged:
+        raise SystemExit(
+            f"{a.log} has no logged texts: run predict or serve with --cascade RUN --log {a.log}"
+        )
     rows = _read_jsonl(src / "train.jsonl")
     seen = {r["text"] for r in rows}
     added = [
         {"text": r["text"], "gold": None, "scores": r["scores"]} for r in logged if r["text"] not in seen
     ]
     added = list({r["text"]: r for r in added}.values())  # each logged text once
-    with (dst / "train.jsonl").open("w", encoding="utf-8") as f:
-        for r in rows + added:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    _new_run(src, dst, rows + added)
     _meta(dst, {"refreshed_from": str(src), "refresh_log": a.log, "refresh_added": len(added)})
     log(f"{dst}: {len(rows)} training texts from {src} plus {len(added)} the teacher answered in the cascade")
     a.run = str(dst)
@@ -1032,6 +1055,127 @@ def cmd_refresh(a: argparse.Namespace) -> None:
     cmd_export(a)
     cmd_eval(a)
     log(f"compare them with: tinydistill compare {src} {dst}")
+
+
+# the training settings of a run that improve trains every round with (from its meta.json)
+IMPROVE_KEYS = (
+    "student",
+    "epochs",
+    "val_share",
+    "patience",
+    "lr",
+    "batch_size",
+    "gold_per_class",
+    "gold_file",
+    "ce_weight",
+    "seeds",
+)
+
+
+def cmd_improve(a: argparse.Namespace) -> None:
+    import torch
+
+    from .evaluate import accuracy
+    from .improve import hold_out, jobs, table
+    from .student import load_student, student_logits
+    from .synth import generator, synthesise
+    from .teacher import LabelScorer
+
+    src = Path(a.run)
+    out = Path(a.out or f"{src}-improve")
+    task, meta = load_task(src / "task.yaml"), _meta(src)
+    if task.multi_label:
+        raise SystemExit("improve is for single-label tasks")
+    if meta.get("vllm_url") or meta.get("api_url"):
+        raise SystemExit("improve needs the run's teacher as a local model (not --vllm-url or --api-url)")
+    if not 0 < a.held_out < 1:
+        raise SystemExit("--held-out must be between 0 and 1")
+    rows = _read_jsonl(src / "train.jsonl")
+    if not rows:
+        raise SystemExit(f"{src}/train.jsonl is missing or empty")
+    held = hold_out(rows, a.held_out, a.seed)
+    train = [r for i, r in enumerate(rows) if i not in held]
+    val = [r for i, r in enumerate(rows) if i in held]
+    val_texts = [r["text"] for r in val]
+    target = [_argmax(r["scores"]) for r in val]  # the teacher's labels, what the student learns
+    out.mkdir(parents=True, exist_ok=True)
+    with (out / "held_out.jsonl").open("w", encoding="utf-8") as f:
+        for r in val:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    log(f"{len(val)} of {len(rows)} training texts are held out to find confusions and compare rounds")
+    # every train, export and eval default, then the run's training settings
+    defaults = vars(build_parser().parse_args(["refresh", str(src), "--log", "", "--out", ""]))
+    config = src / "student" / "config.json"
+    max_length = (
+        json.loads(config.read_text(encoding="utf-8")).get("tinydistill_max_length")
+        if config.exists()
+        else None
+    )
+    settings = {k: meta[k] for k in IMPROVE_KEYS if meta.get(k) is not None}
+    settings |= {"max_length": max_length} if max_length else {}
+    known = {r["text"] for r in rows} | {r["text"] for r in _read_jsonl(src / "test.jsonl")}
+    teacher: Any = None
+    generate: Any = None
+    pred: list[int] = []
+    rounds: list[dict] = []
+    for k in range(a.rounds + 1):
+        d, added = out / f"round-{k}", 0
+        if k:
+            js = jobs(task, val_texts, pred, target)
+            if not js:
+                log("the student agrees with the teacher on every held-out text: nothing to target")
+                break
+            if teacher is None:
+                # the teacher stays loaded while the students train
+                teacher = _run_teacher(src, a.device)
+                lm = getattr(teacher, "members", [teacher])[0]
+                if not isinstance(lm, LabelScorer):
+                    raise SystemExit("improve needs the run's teacher as a local model")
+                generate = generator(lm.model, lm.tok, a.temperature)
+            d.mkdir(parents=True, exist_ok=True)
+            torch.manual_seed(a.seed + k)
+            per = max(1, a.per_round // len(js))
+            log(f"round {k}: asking for {per} texts for each of {len(js)} confusions")
+            synthesise(task, generate, per, d / "synth.jsonl", log=log, seed=a.seed + k, jobs=js)
+            new = [r[task.text_field] for r in _read_jsonl(d / "synth.jsonl")]
+            new = list(dict.fromkeys(t for t in new if t not in known))
+            known |= set(new)
+            scores = teacher.score_many(new) if new else []
+            train = train + [{"text": t, "gold": None, "scores": s} for t, s in zip(new, scores, strict=True)]
+            added = len(new)
+        _new_run(src, d, train)
+        _meta(d, {"improved_from": str(src), "improve_round": k, "improve_added": added})
+        b = argparse.Namespace(
+            **defaults
+            | settings
+            | {"run": str(d), "device": a.device, "seed": a.seed, "threads": a.threads}
+            | {"int8": a.int8 or (src / "onnx" / "model.int8.onnx").exists(), "skip_teacher_bench": True}
+        )
+        cmd_train(b)
+        cmd_export(b)
+        cmd_eval(b)
+        model, tok = load_student(d / "student", "cpu")
+        pred = student_logits(model, tok, val_texts).argmax(-1).tolist()
+        results = json.loads((d / "results.json").read_text(encoding="utf-8"))
+        student = next(m for m in results["models"] if m["role"] == "student")
+        rounds.append(
+            {
+                "round": k,
+                "dir": str(d),
+                "added": added,
+                "train": len(train),
+                "n_held_out": len(val),
+                "held_out": accuracy(pred, target),
+                "test": student.get("accuracy"),
+            }
+        )
+        (out / "improve.json").write_text(json.dumps(rounds, indent=2), encoding="utf-8")
+        (out / "improve.md").write_text(table(rounds), encoding="utf-8")
+        log(f"round {k}: held-out agreement {rounds[-1]['held_out']:.3f}")
+        if k and rounds[-1]["held_out"] <= max(r["held_out"] for r in rounds[:-1]):
+            log("the held-out agreement did not improve: stopping")
+            break
+    print(table(rounds))
 
 
 def cmd_status(a: argparse.Namespace) -> None:
@@ -1363,6 +1507,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     syn.add_argument("--temperature", type=float, default=0.9)
     syn.add_argument("--load-4bit", action="store_true", help="load the model in 4 bit (bitsandbytes, CUDA)")
+    syn.add_argument(
+        "--vary",
+        action="store_true",
+        help="each request also names a length, a tone and a writer's situation, sampled with --seed (the "
+        "task file's `attributes:` mapping replaces these)",
+    )
+    syn.add_argument(
+        "--dedup",
+        type=float,
+        metavar="T",
+        help="drop texts whose cosine similarity (sentence embeddings, MiniLM) to a text kept earlier, or to "
+        "one in --data, is T or more (e.g. 0.95)",
+    )
+    syn.add_argument(
+        "--data", help="with --dedup: existing texts (e.g. the real data) the new ones must differ from"
+    )
     syn.set_defaults(fn=cmd_synth)
     ini = sub.add_parser("init", help="write a starter task file from a dataset's labels")
     ini.add_argument("data", help=".csv, .jsonl or hf:<dataset>[:<config>]:<split> with gold labels")
@@ -1410,6 +1570,27 @@ def build_parser() -> argparse.ArgumentParser:
     ref.add_argument("--log", required=True, help="the log written by predict/serve --cascade RUN --log FILE")
     ref.add_argument("--out", required=True, help="new run directory")
     ref.set_defaults(fn=cmd_refresh)
+    imp = sub.add_parser(
+        "improve",
+        parents=[run_dir, common],
+        help="rounds of teacher-written hard examples for the labels the student confuses (new runs)",
+    )
+    imp.add_argument("--rounds", type=int, default=3, help="rounds at most (default 3)")
+    imp.add_argument("--per-round", type=int, default=200, metavar="N", help="new texts asked for per round")
+    imp.add_argument(
+        "--held-out",
+        type=float,
+        default=0.1,
+        metavar="S",
+        help="share of the training texts held out to find the confusions and compare rounds, against the "
+        "teacher's labels (default 0.1; never the test set)",
+    )
+    imp.add_argument("--temperature", type=float, default=0.9, help="sampling temperature of the teacher")
+    imp.add_argument(
+        "--int8", action="store_true", help="also export int8 models (as the run did if it has one)"
+    )
+    imp.add_argument("--out", help="folder for the rounds (default: RUN-improve)")
+    imp.set_defaults(fn=cmd_improve)
     sug = sub.add_parser("suggest", parents=[run_dir], help="which training texts a person should label next")
     sug.add_argument("--n", type=int, default=100, help="how many texts")
     sug.add_argument("--out", default="to_label.jsonl", help="JSONL to write, with an empty label to fill in")
