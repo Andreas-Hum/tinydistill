@@ -37,6 +37,8 @@ tinydistill label task.yaml --data train.csv --teacher Qwen/Qwen2.5-7B-Instruct 
   per class, so the teacher sees no other gold labels.
 - The prompt needs `{examples}` before `{text}`. Only the part before `{examples}` is computed once; the
   examples are part of every text's tokens, so labelling is slower than with the same examples for all texts.
+- It cannot be used with `--chunk-tokens`: a window is not its document's text, so the document would be one
+  of its examples.
 - It works with local, vLLM and hosted API teachers. The examples it picks from are saved in the run
   (`examples.jsonl`), so `eval` and the cascade rebuild the same teacher.
 

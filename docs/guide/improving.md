@@ -121,7 +121,7 @@ Without `--budget` nothing changes.
 
 With a cascade, `predict --cascade RUN --log cascade.jsonl` (and `serve --cascade ... --log`) records every text
 passed to the teacher, with the teacher's scores. `refresh` adds them to the training texts and trains, exports
-and evaluates a new student on the same test set:
+and evaluates a new student on the same test set. Logged texts that are in the test set are not added:
 
 ```sh
 tinydistill refresh RUN --log cascade.jsonl --out RUN2

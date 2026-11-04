@@ -143,6 +143,9 @@ def tune(
         raise SystemExit("tune needs gold labels in the training data")
     if rounds > 1 and not n_propose:
         raise SystemExit("--rounds needs --propose N")
+    # rewrites keep the first task's placeholders, so these settings are all there is to score
+    if not any(k == 0 or (not t.multi_label and "{examples}" in t.prompt) for _, t in tasks for k in shots):
+        raise SystemExit("nothing to score: --few-shot values above 0 need an {examples} line in the prompt")
     # the shown half goes last: rows score dev[:n], the teacher sees mistakes in dev[n:]
     shown = set(random.Random(seed + 2).sample(dev, len(dev) // 2)) if rounds > 1 else set()
     dev = [i for i in dev if i not in shown] + sorted(shown)

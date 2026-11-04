@@ -51,6 +51,8 @@ def export_onnx(student_dir: Path, out_dir: Path, int8: bool = False, opset: int
         q = out_dir / "model.int8.onnx"
         quantize_dynamic(str(path), str(q), weight_type=QuantType.QInt8)
         written.append(q)
+    else:  # an earlier export's int8 model would be picked over this one
+        (out_dir / "model.int8.onnx").unlink(missing_ok=True)
     return written
 
 
