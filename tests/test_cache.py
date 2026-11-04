@@ -34,6 +34,17 @@ def test_interrupted_write_is_ignored(tmp_path):
     assert scorer.calls == ["c"]
 
 
+def test_a_row_written_after_an_interrupted_one_survives_a_reopen(tmp_path):
+    path = tmp_path / "cache.jsonl"
+    ScoreCache(path).fill(CountingScorer(), ["a"])
+    with path.open("a") as f:
+        f.write('{"h": "' + text_hash("b") + '", "s": [1.0')  # cut off mid-line
+    ScoreCache(path).fill(CountingScorer(), ["b"])
+    scorer = CountingScorer()
+    ScoreCache(path).fill(scorer, ["a", "b"])
+    assert scorer.calls == []
+
+
 def test_duplicates_are_scored_once():
     assert list(iter_unique(["x", "y", "x", "z", "y"])) == ["x", "y", "z"]
 

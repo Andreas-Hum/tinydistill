@@ -19,6 +19,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 import os
 from collections.abc import Iterable, Iterator
 from dataclasses import replace
@@ -157,6 +158,11 @@ class _Prompt:
         if not self.chat and tokenizer.bos_token_id is not None:
             ids = [tokenizer.bos_token_id, *ids]
         self.prefix_ids: list[int] = ids
+        if not ids:  # nothing for the scored text to follow: no cached prompt to start from
+            raise ValueError(
+                "the prompt has no tokens before {text} (no chat template and no BOS token); "
+                "put an instruction before {text}"
+            )
         if isinstance(max_positions, int) and len(ids) >= max_positions:
             raise ValueError(
                 f"the prompt has {len(ids)} tokens, more than the teacher's {max_positions}; "
@@ -552,10 +558,12 @@ def combine_scores(per_teacher: list[list[float]], multi_label: bool = False) ->
     teacher's softmax; multi-label, each label's sigmoid, returned as log-odds). One teacher is unchanged."""
     if len(per_teacher) == 1:
         return per_teacher[0]
+    # in log space, so that a label no teacher scored (NOT_SCORED) and very large log-odds stay finite
     scores = torch.tensor(per_teacher, dtype=torch.float64)
     if multi_label:
-        return torch.logit(scores.sigmoid().mean(0)).tolist()
-    return scores.softmax(-1).mean(0).log().tolist()
+        lsig = torch.nn.functional.logsigmoid
+        return (lsig(scores).logsumexp(0) - lsig(-scores).logsumexp(0)).tolist()
+    return (scores.log_softmax(-1).logsumexp(0) - math.log(len(per_teacher))).tolist()
 
 
 class VLLMScorer(_Prompt):
@@ -1146,9 +1154,11 @@ class ScoreCache:
         self.path = path
         self.scores: dict[str, list[float]] = {}
         self.reasoning: dict[str, str] = {}
+        self._cut = False  # the file ends in a line cut off by an interrupted run
         if path.exists():
             with path.open(encoding="utf-8") as f:
                 for line in f:
+                    self._cut = not line.endswith("\n")
                     try:
                         row = json.loads(line)
                     except json.JSONDecodeError:  # a line cut off by an interrupted run
@@ -1163,6 +1173,9 @@ class ScoreCache:
         n = 0
         pending: list[str] = []
         with self.path.open("a", encoding="utf-8") as f:
+            if self._cut:  # end the cut-off line, so that the next row is not appended to it
+                f.write("\n")
+                self._cut = False
 
             def flush() -> None:
                 nonlocal n
