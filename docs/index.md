@@ -55,14 +55,15 @@ clf.describe(["I still haven't received my new card", "My card got stolen"])
 ```mermaid
 flowchart LR
     A["Task prompt +<br/>unlabelled texts"] --> B["LLM teacher(s)<br/>Qwen · Mistral · Phi · ..."]
+    T["tune: check the<br/>task file"] -.-> B
     S["Synthetic texts<br/>(synth)"] -.-> B
-    V["vLLM server"] -.-> B
+    V["vLLM server ·<br/>hosted API"] -.-> B
     K["A few gold labels<br/>per class"] -.-> B
     K -.-> C
     B -- "soft labels<br/>(ensembled)" --> C["Small encoder<br/>student"]
     C --> D["ONNX / int8<br/>export"]
     D --> E["Fast CPU<br/>inference"]
-    D --> W["Browser · server ·<br/>Hugging Face Hub"]
+    D --> W["Browser · server · Hub ·<br/>Python (Distiller)"]
     E -.-> F["Cascade: unsure<br/>texts to the LLM"]
 ```
 
