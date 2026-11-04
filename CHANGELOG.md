@@ -86,6 +86,20 @@
   for bug reports. Contributing: a pull request template with a code agent policy, issue forms that ask for
   `tinydistill env` and a minimal reproduction, a check that labels likely automated pull requests for a
   maintainer to review, pre-commit hooks for ruff, Dependabot, and workflow actions pinned to commit SHAs.
+- Fix: labelling a run again without `--few-shot` (or without `--test`) left the earlier `examples.jsonl` (or
+  `test.jsonl`), so `eval` and the cascade showed the teacher examples it had not labelled with (or `eval`
+  reported on the earlier test labels). They are now removed.
+- Fix: `label --dry-run` wrote the task, prompt and example files into the run directory, changing the teacher
+  that `eval` and the cascade rebuild. A dry run now leaves the run as it was.
+- Fix: `label --few-shot-similar` with `--chunk-tokens` showed each window its own document, with its gold
+  label, as an example. The combination is refused.
+- Fix: `refresh` added logged texts that are in the test set to the training texts. They are left out.
+- Fix: `improve` trained without the run's `--init-head`.
+- Fix: `export` without `--int8` left an earlier int8 model, which `Predictor` and `predict` use first. It is
+  removed.
+- Fix: `tune` stopped with an IndexError when no setting could be scored (every `--few-shot` value above 0 and
+  no `{examples}` line), and recommended the wrong file when two task files had the same file name. Both are
+  refused with a message.
 
 ## 0.3.4 (2026-11-04)
 

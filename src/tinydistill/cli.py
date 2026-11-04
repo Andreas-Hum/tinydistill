@@ -121,12 +121,14 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     reason = a.reason_tokens if a.reason else 0
     if a.reason and a.reason_tokens < 1:
         raise SystemExit("--reason-tokens must be positive")
+    if a.few_shot_similar and a.chunk_tokens:
+        raise SystemExit(
+            "--few-shot-similar cannot be used with --chunk-tokens: a window is not its document's text, so "
+            "the document, with its gold label, would be among its examples"
+        )
     run = Path(a.out)
     run.mkdir(parents=True, exist_ok=True)
-    _write_task(run / "task.yaml", task)
     prompt_files = [f"prompt-{i}.yaml" for i in range(1, len(variants) + 1)]
-    for file, v in zip(prompt_files, variants, strict=True):
-        _write_task(run / file, v)
     examples = None
     flag = "--few-shot" if a.few_shot else "--few-shot-similar"
     for t in (task, *variants):
@@ -148,9 +150,6 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
         else:  # the pool for --few-shot-similar alone: every gold-labelled training text, once
             pairs = zip([e.text for e in rows], gold, strict=True)
             examples = list(dict.fromkeys((t, g) for t, g in pairs if g is not None))
-        with (run / "examples.jsonl").open("w", encoding="utf-8") as f:
-            for text, y in examples:
-                f.write(json.dumps({"text": text, "gold": y}) + "\n")
         if a.few_shot_similar:
             log(f"each text's prompt: its {a.few_shot_similar} most similar of {len(examples)} gold examples")
         else:
@@ -281,6 +280,17 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
         )
         return
 
+    # the run's files, written only now so that a dry run leaves the run as it was; none left from earlier
+    _write_task(run / "task.yaml", task)
+    for file, v in zip(prompt_files, variants, strict=True):
+        _write_task(run / file, v)
+    (run / "examples.jsonl").unlink(missing_ok=True)
+    if examples is not None:
+        with (run / "examples.jsonl").open("w", encoding="utf-8") as f:
+            for text, y in examples:
+                f.write(json.dumps({"text": text, "gold": y}) + "\n")
+    if not a.test:
+        (run / "test.jsonl").unlink(missing_ok=True)
     multi = task.multi_label
     for split, spec, limit in splits:
         n_rows = 0
@@ -1078,6 +1088,8 @@ def cmd_tune(a: argparse.Namespace) -> None:
     from .tune import instructions, table, tune
 
     paths = [a.task, *a.prompt]
+    if len({Path(p).name for p in paths}) < len(paths):  # the results name each prompt by its file name
+        raise SystemExit("the task file and every --prompt file need different file names")
     task = load_task(a.task)
     tasks = [(Path(p).name, t) for p, t in zip(paths, [task, *_variants(task, a.prompt)], strict=True)]
     rows = list(read_examples(a.data, task, a.limit))
@@ -1149,7 +1161,7 @@ def cmd_refresh(a: argparse.Namespace) -> None:
             f"{a.log} has no logged texts: run predict or serve with --cascade RUN --log {a.log}"
         )
     rows = _read_jsonl(src / "train.jsonl")
-    seen = {r["text"] for r in rows}
+    seen = {r["text"] for r in rows} | {r["text"] for r in _read_jsonl(src / "test.jsonl")}  # no test texts
     added = [
         {"text": r["text"], "gold": None, "scores": r["scores"]} for r in logged if r["text"] not in seen
     ]
@@ -1167,6 +1179,7 @@ def cmd_refresh(a: argparse.Namespace) -> None:
 # the training settings of a run that improve trains every round with (from its meta.json)
 IMPROVE_KEYS = (
     "student",
+    "init_head",
     "epochs",
     "val_share",
     "patience",

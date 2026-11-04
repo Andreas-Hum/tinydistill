@@ -120,3 +120,12 @@ def test_the_trained_input_length_travels_with_the_model(tmp_path):
         student_logits(model, tok, texts[:1]).numpy(),
         student_logits(model, tok, texts[:1], max_length=64).numpy(),
     )
+
+
+def test_export_without_int8_removes_an_old_int8_model(tmp_path):
+    model = AutoModelForSequenceClassification.from_pretrained(TINY_ENCODER, num_labels=2)
+    model.save_pretrained(tmp_path / "student")
+    AutoTokenizer.from_pretrained(TINY_ENCODER).save_pretrained(tmp_path / "student")
+    export_onnx(tmp_path / "student", tmp_path / "onnx", int8=True)
+    export_onnx(tmp_path / "student", tmp_path / "onnx")  # retrained and exported again, without --int8
+    assert not (tmp_path / "onnx" / "model.int8.onnx").exists()  # Predictor would pick the old model

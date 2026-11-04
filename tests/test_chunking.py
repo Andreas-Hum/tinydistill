@@ -1,6 +1,7 @@
 import json
 
 import numpy as np
+import pytest
 import torch
 from conftest import TINY_ENCODER, TINY_LM
 from test_cli import TASK, write_jsonl
@@ -112,3 +113,31 @@ def test_label_train_and_eval_with_windows(tmp_path, capsys):
     capsys.readouterr()
     main(["web", str(run / "onnx"), "--out", str(tmp_path / "site")])
     assert "the page reads only the first one" in capsys.readouterr().err
+
+
+def test_few_shot_similar_is_refused_with_windows(tmp_path):
+    # a window is not its own document's text, so the document and its gold label would be its examples
+    (tmp_path / "task.yaml").write_text(TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n"))
+    write_jsonl(tmp_path / "d.jsonl", [{"review": f"{LONG} {i}", "sentiment": "pos"} for i in range(2)])
+    args = [
+        "label",
+        str(tmp_path / "task.yaml"),
+        "--data",
+        str(tmp_path / "d.jsonl"),
+        "--out",
+        str(tmp_path / "r"),
+    ]
+    with pytest.raises(SystemExit, match="--chunk-tokens"):
+        main(
+            [
+                *args,
+                "--teacher",
+                TINY_LM,
+                "--chunk-tokens",
+                "16",
+                "--few-shot-similar",
+                "1",
+                "--device",
+                "cpu",
+            ]
+        )

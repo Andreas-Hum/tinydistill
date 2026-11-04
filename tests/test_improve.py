@@ -99,3 +99,26 @@ def test_improve_refuses_multi_label_runs(tmp_path):
     )
     with pytest.raises(SystemExit, match="single-label"):
         main(["improve", str(run)])
+
+
+def test_improve_trains_with_the_runs_init_head(tmp_path, monkeypatch):
+    from tinydistill import cli
+
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "task.yaml").write_text(TASK)
+    settings = {"student": TINY_ENCODER, "init_head": "names", "epochs": 2}
+    (run / "meta.json").write_text(json.dumps({"teacher": TINY_LM, **settings}))
+    write_jsonl(
+        run / "train.jsonl", [{"text": f"t {i}", "gold": None, "scores": [0.0, -1.0]} for i in range(8)]
+    )
+    trained = []
+
+    def train(a):
+        trained.append(vars(a))
+        raise SystemExit("trained")
+
+    monkeypatch.setattr(cli, "cmd_train", train)
+    with pytest.raises(SystemExit, match="trained"):
+        main(["improve", str(run), "--rounds", "0", "--device", "cpu"])
+    assert {k: trained[0][k] for k in settings} == settings

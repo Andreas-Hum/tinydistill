@@ -1172,3 +1172,76 @@ def test_analyse_review_lists_gold_contradictions_then_divided_ensembles(tmp_pat
     assert got[2]["gold"] == "" and got[2]["member_labels"] == "pos; neg; neu"
     assert "2 whose gold label the teacher contradicts, then 2 on which" in capsys.readouterr().err
     assert not (run / "analysis.html").exists()
+
+
+def _label_twice(tmp_path, first: list[str]):
+    """Label a run with the extra flags ``first``, then again into it without them; returns the run."""
+    (tmp_path / "task.yaml").write_text(TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n"))
+    words = ["good", "bad"]
+    rows = [
+        {"review": f"it was {w} {i}", "sentiment": ["pos", "neg"][j]}
+        for i in range(2)
+        for j, w in enumerate(words)
+    ]
+    write_jsonl(tmp_path / "d.jsonl", rows)
+    run = tmp_path / "run"
+    base = ["label", str(tmp_path / "task.yaml"), "--data", str(tmp_path / "d.jsonl"), "--out", str(run)]
+    base += ["--teacher", TINY_LM, "--device", "cpu"]
+    main([*base, *first])
+    main(base)
+    return run
+
+
+def test_label_without_few_shot_removes_the_old_examples(tmp_path):
+    from tinydistill.cli import _run_teacher
+
+    run = _label_twice(tmp_path, ["--few-shot", "1"])
+    meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
+    assert not (run / "examples.jsonl").exists()  # eval and the cascade would show them to the teacher
+    assert _run_teacher(run, "cpu").fingerprint() == meta["fingerprint"]
+
+
+def test_label_without_test_removes_the_old_test_set(tmp_path):
+    run = _label_twice(tmp_path, ["--test", str(tmp_path / "d.jsonl")])
+    assert not (run / "test.jsonl").exists()  # eval would report on the earlier teacher's test labels
+
+
+def test_refresh_never_trains_on_test_texts(tmp_path, monkeypatch):
+    from tinydistill import cli
+
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "task.yaml").write_text(TASK)
+    (run / "meta.json").write_text(json.dumps({"teacher": TINY_LM}))
+    write_jsonl(run / "train.jsonl", [{"text": "a training text", "gold": None, "scores": [0.0, -1.0]}])
+    write_jsonl(run / "test.jsonl", [{"text": "a test text", "gold": 0, "scores": [0.0, -1.0]}])
+    logged = [{"text": t, "scores": [0.0, -1.0]} for t in ("a test text", "a new text")]
+    write_jsonl(tmp_path / "log.jsonl", logged)
+    for step in ("cmd_train", "cmd_export", "cmd_eval"):
+        monkeypatch.setattr(cli, step, lambda a: None)
+    main(["refresh", str(run), "--log", str(tmp_path / "log.jsonl"), "--out", str(tmp_path / "new")])
+    lines = (tmp_path / "new" / "train.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line)["text"] for line in lines] == ["a training text", "a new text"]
+
+
+def _tune_data(tmp_path) -> str:
+    write_jsonl(
+        tmp_path / "d.jsonl", [{"review": f"x {i}", "sentiment": ["pos", "neg"][i % 2]} for i in range(4)]
+    )
+    return str(tmp_path / "d.jsonl")
+
+
+def test_tune_refuses_settings_it_cannot_score(tmp_path):
+    (tmp_path / "task.yaml").write_text(TASK)  # no {examples} line
+    args = ["tune", str(tmp_path / "task.yaml"), "--data", _tune_data(tmp_path), "--teacher", TINY_LM]
+    with pytest.raises(SystemExit, match="examples"):
+        main([*args, "--few-shot", "2", "--device", "cpu", "--out", str(tmp_path / "tune")])
+
+
+def test_tune_refuses_prompt_files_with_the_same_name(tmp_path):
+    for d in ("a", "b"):  # rows name a prompt by its file name, so the best could not be told apart
+        (tmp_path / d).mkdir()
+        (tmp_path / d / "task.yaml").write_text(TASK)
+    args = ["tune", str(tmp_path / "a" / "task.yaml"), "--prompt", str(tmp_path / "b" / "task.yaml")]
+    with pytest.raises(SystemExit, match="file names"):
+        main([*args, "--data", _tune_data(tmp_path), "--teacher", TINY_LM, "--out", str(tmp_path / "t")])

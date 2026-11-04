@@ -379,3 +379,29 @@ def test_dry_run_estimates_the_cost_and_scores_nothing(api, tmp_path, capsys):
     assert state["requests"] == []
     with pytest.raises(SystemExit, match="--api-url"):
         main(["label", str(tmp_path / "task.yaml"), "--data", "x.jsonl", "--out", str(run), "--dry-run"])
+
+
+def test_dry_run_leaves_the_run_as_it_was(api, tmp_path):
+    url, _ = api
+    (tmp_path / "task.yaml").write_text(TASK)
+    (tmp_path / "shots.yaml").write_text(TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n"))
+    rows = [{"review": f"this was {w}", "sentiment": s} for w, s in (("good", "pos"), ("bad", "neg"))]
+    (tmp_path / "d.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    run = tmp_path / "run"
+    base = ["--data", str(tmp_path / "d.jsonl"), "--teacher", "m", "--api-url", url, "--out", str(run)]
+    main(["label", str(tmp_path / "task.yaml"), *base, "--api-key-env", KEY_ENV])
+    files = {p.name: p.read_bytes() for p in run.iterdir()}
+    # the cost of a few-shot prompt: the run's task and examples must stay those it was labelled with
+    main(
+        [
+            "label",
+            str(tmp_path / "shots.yaml"),
+            *base,
+            "--api-key-env",
+            KEY_ENV,
+            "--few-shot",
+            "1",
+            "--dry-run",
+        ]
+    )
+    assert {p.name: p.read_bytes() for p in run.iterdir()} == files
