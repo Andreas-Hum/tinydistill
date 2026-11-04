@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 from conftest import TINY_ENCODER
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -85,6 +86,37 @@ def test_explain_export_matches_the_model(tmp_path):
     np.testing.assert_allclose(attention[0, :, : real[0]].sum(-1), 1, atol=1e-4)  # a distribution over tokens
     assert np.allclose(attention[0, :, real[0] :], 0, atol=1e-6)  # padding gets none
     assert export_explain(tmp_path / "student", tmp_path / "q", int8=True).name == "explain.int8.onnx"
+
+
+@pytest.mark.parametrize("arch", ["Bert", "DebertaV2", "Albert", "Electra", "MPNet", "Roberta"])
+def test_explain_head_gives_the_models_logits(arch):
+    """The head export_explain applies to each layer must give the model's own logits on the last layer, or
+    the web page (which runs explain.onnx as the model) answers differently from Predictor."""
+    import transformers
+
+    from tinydistill.export import _classifier_head
+
+    tok = AutoTokenizer.from_pretrained(TINY_ENCODER)
+    config = getattr(transformers, f"{arch}Config")(
+        vocab_size=len(tok),
+        hidden_size=32,
+        intermediate_size=37,
+        num_hidden_layers=2,
+        num_attention_heads=2,
+        max_position_embeddings=64,
+        num_labels=3,
+        pad_token_id=tok.pad_token_id,
+    )
+    torch.manual_seed(0)
+    model = getattr(transformers, f"{arch}ForSequenceClassification")(config).eval()
+    head = _classifier_head(model)
+    if head is None:
+        return  # no layer view for this model; the page runs the exported model itself
+    enc = tok(["a short one", "a much longer text than the first one"], padding=True, return_tensors="pt")
+    enc = {k: enc[k] for k in ("input_ids", "attention_mask")}
+    with torch.no_grad():
+        last = model.base_model(**enc).last_hidden_state
+        torch.testing.assert_close(head(last), model(**enc).logits)
 
 
 def test_int8_scores_do_not_depend_on_the_batch(tmp_path):

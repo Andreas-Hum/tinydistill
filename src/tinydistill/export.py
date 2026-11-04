@@ -61,7 +61,10 @@ def _classifier_head(model):
     if head is None or base is None or not hasattr(base, "encoder"):
         return None
     if isinstance(head, torch.nn.Linear):  # BERT style: the pooler reads the first token
-        pooler = getattr(base, "pooler", None)
+        # DeBERTa keeps its pooler next to the encoder, not in it
+        pooler = getattr(model, "pooler", None) or getattr(base, "pooler", None)
+        if isinstance(pooler, torch.nn.Linear):  # ALBERT: a bare dense layer, its activation kept apart
+            return None
         return (lambda h: head(pooler(h))) if pooler is not None else (lambda h: head(h[:, 0]))
     return head  # RoBERTa/MPNet style heads take the whole sequence and read its first token themselves
 
