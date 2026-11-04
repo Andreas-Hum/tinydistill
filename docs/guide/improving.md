@@ -18,6 +18,25 @@ that label descriptions made the 1.5B teacher collapse onto one label, before an
 
 --8<-- "examples/ag-news/tune-1.5b.md"
 
+### Let the teacher propose instructions
+
+`--propose N` has the (first) teacher write N rewrites of the task's instruction and scores them alongside the
+other task files. A rewrite is kept only if it has every placeholder of the original (`{labels}`, `{text}`,
+`{examples}` or `{label}`) exactly once and no other; `tune` logs how many were dropped. A version of the task
+with label names only (no descriptions) is always tried when the task has descriptions: on AG News that alone
+was the difference in the table above.
+
+```sh
+tinydistill tune task.yaml --data train.csv --dev-size 200 --few-shot 0 --propose 8 --out tune
+```
+
+Each candidate is written as a task file next to the report (`tune-1.yaml`, ..., `tune-names-only.yaml`), the
+best one as `tune-best.yaml`, and `tune.md` lists every instruction with its dev accuracy. The rewrites are
+sampled with `--seed`, so a rerun on the same machine proposes the same ones. Searching over instructions the
+model writes itself, scored on labelled examples, is the idea of APE ([Zhou et al.,
+2022](https://arxiv.org/abs/2211.01910)). The dev split is small, so a rewrite that wins by a few texts may not
+be better; check the winner on more data before relying on it.
+
 ## See where it goes wrong: analyse
 
 `tinydistill analyse RUN` writes `RUN/analysis.html` with each label's scores for teacher and student, the most
