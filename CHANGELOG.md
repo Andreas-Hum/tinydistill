@@ -86,6 +86,13 @@
   for bug reports. Contributing: a pull request template with a code agent policy, issue forms that ask for
   `tinydistill env` and a minimal reproduction, a check that labels likely automated pull requests for a
   maintainer to review, pre-commit hooks for ruff, Dependabot, and workflow actions pinned to commit SHAs.
+- Fix: the web page of a DeBERTa student skipped the model's pooler, so its answers differed from `predict`; it
+  now applies it. For ALBERT students, whose layer view failed, the page runs the plain exported model.
+- Fix: the cascade table in `eval` reports, for each threshold, what a cascade at that threshold does. When
+  student confidences tied at the threshold (often at 1.0), it counted texts as sent to the teacher that the
+  cascade keeps.
+- Fix: `Distiller.save` into a folder holding an earlier int8 model removes that file when the saved model has
+  none; before, `Predictor` and `Distiller.load` read the old int8 model.
 
 ## 0.3.4 (2026-11-04)
 
