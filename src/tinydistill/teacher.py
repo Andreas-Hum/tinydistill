@@ -18,14 +18,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import NamedTuple
+from urllib.parse import urlsplit
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from .task import Task
+from .task import LETTERS, Task
 
 _SENTINEL = "\x00TEXT\x00"
 _LABEL = "\x00LABEL\x00"
@@ -509,6 +511,128 @@ class VLLMScorer(_Prompt):
         return torch.tensor(rows, dtype=torch.float64).reshape(len(texts), len(self.forms))
 
 
+API_LABELS = 20  # hosted APIs return the top 20 log-probabilities of the first answer token
+API_ATTEMPTS = 5  # tries per request on rate limits (HTTP 429), server errors (5xx) and timeouts
+API_WAIT = 1.0  # seconds before the first retry; doubled after each
+
+
+class ApiScorer:
+    """A hosted OpenAI-compatible chat API (OpenAI, DeepInfra, Together, a llama.cpp server, ...) as teacher.
+
+    Such APIs return no prompt log-probabilities, only the top 20 log-probabilities of the first generated
+    token, so the multi-token scoring above is impossible. Instead the labels are shown as lettered options
+    (A, B, C, ...) and a label's score is the log-probability of its letter as the first answer token. A
+    letter is one token in every tokenizer, so this is exact for single-label tasks with up to 20 labels and
+    needs no local tokenizer. The API key is read from the environment variable ``api_key_env`` at each
+    request and never stored, logged or fingerprinted; without it no Authorization header is sent."""
+
+    def __init__(
+        self,
+        url: str,
+        model: str,
+        task: Task,
+        examples: list[tuple[str, int]] | None = None,
+        api_key_env: str = "OPENAI_API_KEY",
+        workers: int = 8,
+        timeout: float = 120,
+    ):
+        if task.multi_label:
+            raise SystemExit("--api-url works for single-label tasks; use a local or vLLM teacher")
+        if len(task.labels) > API_LABELS:
+            raise SystemExit(
+                f"--api-url scores at most {API_LABELS} labels (the API returns {API_LABELS} "
+                f"log-probabilities) and this task has {len(task.labels)}; use a local teacher "
+                "(with --shortlist for very many labels) or --vllm-url"
+            )
+        self.url, self.model_name, self.task, self.examples = url.rstrip("/"), model, task, examples or []
+        self.api_key_env, self.workers, self.timeout = api_key_env, workers, timeout
+        self.device = "api"
+        self.letters = LETTERS[: len(task.labels)]
+        parts = urlsplit(self.url)
+        self.host = f"{parts.hostname}:{parts.port}" if parts.port else str(parts.hostname)
+
+    def fingerprint(self) -> str:
+        key = {
+            "model": self.model_name,
+            "api": self.host,
+            "prompt": self.task.render(_SENTINEL, self.examples, lettered=True),
+            "letters": self.letters,
+            "labels": self.task.verbalisations,
+            "scheme": "letters-v1",
+        }
+        return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
+
+    def _post(self, body: dict) -> dict:
+        import time
+        import urllib.error
+        import urllib.request
+
+        key = os.environ.get(self.api_key_env)
+        headers = {"Content-Type": "application/json"} | ({"Authorization": f"Bearer {key}"} if key else {})
+        req = urllib.request.Request(
+            f"{self.url}/chat/completions", data=json.dumps(body).encode(), headers=headers
+        )
+        for attempt in range(API_ATTEMPTS):
+            if attempt:
+                time.sleep(API_WAIT * 2 ** (attempt - 1))
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                    return json.loads(r.read())
+            except urllib.error.HTTPError as e:
+                if e.code in (401, 403):
+                    raise SystemExit(
+                        f"the API at {self.host} refused the request (HTTP {e.code}): put the API key in the "
+                        f"environment variable {self.api_key_env}, or name another one with --api-key-env"
+                    ) from None
+                if e.code != 429 and e.code < 500:
+                    detail = e.read().decode("utf-8", "replace")[:500]
+                    detail = detail.replace(key, "***") if key else detail
+                    raise SystemExit(f"the API at {self.host} answered HTTP {e.code}: {detail}") from None
+                last = f"HTTP {e.code}"
+            except (urllib.error.URLError, TimeoutError) as e:
+                last = str(getattr(e, "reason", e))
+        raise SystemExit(f"the API at {self.host} failed {API_ATTEMPTS} times (last: {last})")
+
+    def _one(self, text: str) -> list[float]:
+        content = self.task.render(text, self.examples, lettered=True)
+        out = self._post(
+            {
+                "model": self.model_name,
+                "messages": [{"role": "user", "content": content}],
+                "max_tokens": 1,
+                "temperature": 0,
+                "logprobs": True,
+                "top_logprobs": API_LABELS,
+            }
+        )
+        try:
+            top = out["choices"][0]["logprobs"]["content"][0]["top_logprobs"]
+            lps = [(t["token"].strip().rstrip(".):").upper(), float(t["logprob"])) for t in top]
+        except (KeyError, IndexError, TypeError):
+            lps = []
+        if not lps:
+            raise SystemExit(
+                f"the API at {self.host} returned no top log-probabilities for {self.model_name}; "
+                "the model must support logprobs and top_logprobs"
+            )
+        best: dict[str, float] = {}
+        for tok, lp in lps:  # "A", " A" and "a" all count for option A
+            best[tok] = max(best.get(tok, -float("inf")), lp)
+        # A letter outside the returned top tokens is at most as likely as the least likely returned one:
+        # it gets that log-probability, an upper bound.
+        floor = min(lp for _, lp in lps)
+        return [best.get(c, floor) for c in self.letters]
+
+    def score_many(self, texts: list[str]) -> list[list[float]]:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(self.workers) as pool:
+            return list(pool.map(self._one, texts))
+
+    def score(self, text: str) -> list[float]:
+        return self.score_many([text])[0]
+
+
 class Ensemble:
     """Several teachers used as one: their label probabilities are averaged (as in labelling)."""
 
@@ -535,9 +659,19 @@ def load_teacher(
     shortlist: int | None = None,
     shortlist_model: str | None = None,
     shortlist_keep: list[str] | None = None,
-) -> LabelScorer | VLLMScorer:
-    """A local teacher, or with ``vllm_url`` the same model served by vLLM (then ``device`` is not used).
-    ``shortlist`` K: score only the K labels most similar to each text (for tasks with very many labels)."""
+    api_url: str | None = None,
+    api_key_env: str = "OPENAI_API_KEY",
+) -> LabelScorer | VLLMScorer | ApiScorer:
+    """A local teacher, or with ``vllm_url`` the same model served by vLLM, or with ``api_url`` the model
+    ``name`` at a hosted OpenAI-compatible chat API (key in the environment variable ``api_key_env``); then
+    ``device`` is not used. ``shortlist`` K: score only the K labels most similar to each text (for tasks with
+    very many labels)."""
+    if api_url:
+        if vllm_url:
+            raise SystemExit("use either --vllm-url or --api-url, not both")
+        if shortlist:
+            raise SystemExit("--shortlist works with a local teacher, not --api-url")
+        return ApiScorer(api_url, name, task, examples, api_key_env)
     tok = AutoTokenizer.from_pretrained(name)
     if vllm_url:
         if shortlist:
