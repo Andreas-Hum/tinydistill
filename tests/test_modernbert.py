@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from tinydistill.export import Predictor, export_explain, export_onnx
+from tinydistill.export import Predictor, export_explain, export_explorer, export_onnx
 from tinydistill.student import load_student, student_logits, train_student
 
 
@@ -41,3 +41,4 @@ def test_modernbert_student_trains_and_exports(tmp_path):
     np.testing.assert_allclose(Predictor(tmp_path / "onnx", int8=False).logits(texts[:4]), want, atol=1e-4)
     assert Predictor(tmp_path / "onnx").predict(texts[:4])  # the int8 model runs
     assert export_explain(tmp_path / "s", tmp_path / "explain") is None
+    assert export_explorer(tmp_path / "s", tmp_path / "explorer") is None  # nor the explainer page

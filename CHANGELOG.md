@@ -13,6 +13,13 @@
   "Show the math", which adds each step's formula with the current text's numbers (KaTeX, loaded on first
   use). "Inside the model" is folded under "How does it work?". When the student alone is at least as
   accurate as the teacher, the cascade step says sending texts to the teacher does not help.
+- `web` also writes `OUT/explainer/`, a guided walk through the student as it reads the visitor's text: an
+  overview of every stage drawn from the current run, then tokens and embeddings, every attention head of every
+  layer, what the classifier would answer after each layer, a PCA map of the token vectors per layer, the
+  classifier's terms, the probabilities and the training loss, each with its formula and current numbers
+  (KaTeX). It runs `explorer.onnx` (`export.export_explorer`: every head's attention, the hidden states and the
+  classifier's input as extra outputs) and reads at most 128 tokens. BERT-, RoBERTa- and MPNet-style students with
+  the run's `student/` folder; otherwise `web` says why it skipped the page. The main page is unchanged.
 - `run --budget N [--rounds R]`: the teacher labels only N training texts, in R rounds (default 4): N/R at
   random, then in each round the N/R unlabelled texts the student trained so far is least sure of (highest
   entropy; multi-label, mean binary entropy), retraining after each round. For paid API teachers. Training

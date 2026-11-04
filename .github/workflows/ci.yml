@@ -185,9 +185,13 @@ jobs:
           python -m http.server 8001 --bind 127.0.0.1 -d site-multi &
           node tests/browser/check_page.mjs http://127.0.0.1:8000/ page.png
           NO_EXPLAIN=1 node tests/browser/check_page.mjs http://127.0.0.1:8001/
+          node tests/browser/check_explainer.mjs http://127.0.0.1:8000/explainer/ \
+            http://127.0.0.1:8000/explainer-multi/ --shot explainer.png
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
         with:
           name: browser-screenshot
-          path: page.png
+          path: |
+            page.png
+            explainer.png
           if-no-files-found: ignore
