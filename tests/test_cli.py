@@ -239,6 +239,48 @@ def test_few_shot_teacher(tmp_path, capsys):
         encoding="utf-8"
     )
 
+
+def test_few_shot_similar_teacher(tmp_path, capsys):
+    from tinydistill.cli import _run_teacher
+
+    task = TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n")
+    (tmp_path / "task.yaml").write_text(task)
+    rows = [
+        {"review": f"it was {w} {i}", "sentiment": "pos" if j % 2 == 0 else "neg"}
+        for i in range(3)
+        for j, w in enumerate(["good", "bad", "great", "awful"])
+    ]
+    write_jsonl(tmp_path / "train.jsonl", rows)
+    write_jsonl(tmp_path / "test.jsonl", rows[:4])
+    run = tmp_path / "run"
+    main(
+        ["run", str(tmp_path / "task.yaml"), "--data", str(tmp_path / "train.jsonl")]
+        + ["--test", str(tmp_path / "test.jsonl"), "--out", str(run), "--teacher", TINY_LM]
+        + ["--student", TINY_ENCODER, "--epochs", "1", "--batch-size", "4", "--device", "cpu"]
+        + ["--reps", "2", "--teacher-reps", "2", "--few-shot-similar", "2", "--few-shot-model", TINY_ENCODER]
+    )
+    examples = [
+        json.loads(line) for line in (run / "examples.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [e["text"] for e in examples] == [r["review"] for r in rows]  # the pool: every gold training text
+    meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
+    assert meta["few_shot_similar"] == 2 and meta["few_shot_model"] == TINY_ENCODER
+    assert _run_teacher(run, "cpu").fingerprint() == meta["fingerprint"]  # the cascade's teacher is the same
+    results = json.loads((run / "results.json").read_text(encoding="utf-8"))
+    assert results["models"][0]["name"] == "teacher, 2 similar examples"
+    assert "each text the 2 most similar of 12 gold training examples" in (run / "results.md").read_text(
+        encoding="utf-8"
+    )
+    (tmp_path / "after.yaml").write_text(
+        task.replace("  {examples}\n", "").replace("{text}", "{text}\n  {examples}")
+    )
+    with pytest.raises(SystemExit, match="before"):
+        main(
+            ["label", str(tmp_path / "after.yaml"), "--data", str(tmp_path / "train.jsonl")]
+            + ["--teacher", TINY_LM, "--few-shot-similar", "2", "--out", str(tmp_path / "x")]
+        )
+    capsys.readouterr()
+
     (tmp_path / "plain.yaml").write_text(TASK)  # no {examples} line
     with pytest.raises(SystemExit, match="examples"):
         main(

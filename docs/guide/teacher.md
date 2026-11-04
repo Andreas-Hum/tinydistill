@@ -127,6 +127,12 @@ directory label each text only once, and a run whose texts are all cached does n
 With very many labels, see [Many labels](many-labels.md). For documents longer than the student reads,
 `--chunk-tokens` has the teacher score windows of each one; see [Long texts](training.md#long-texts).
 
+## Few-shot examples
+
+`label --few-shot K` shows the teacher K gold examples per class, the same for every text;
+`label --few-shot-similar M` shows each text the M gold examples most similar to it (Liu et al., 2021). See
+[A few gold labels](gold-labels.md#in-the-teachers-prompt).
+
 ## Compare setups before labelling
 
 `tinydistill tune` scores combinations of teacher, few-shot examples and prompt on a few hundred gold-labelled

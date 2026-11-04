@@ -21,6 +21,25 @@ On Banking77, 8 examples per class raised the 7B teacher from 0.629 to 0.783 acc
     worse than the zero-shot one. Compare both before relying on it (`tinydistill tune` or
     `tinydistill compare`).
 
+### Examples chosen per text
+
+`label --few-shot-similar M` shows each text its own examples: the M gold training examples most similar to it.
+Choosing in-context examples by similarity to the input rather than at random is the method of
+[Liu et al. (2021)](https://arxiv.org/abs/2101.06804). Similarity is the cosine of sentence embeddings from the
+same small model as `--shortlist` (MiniLM; `--few-shot-model` picks another). The examples are ordered from
+least to most similar, so the most similar one is next to the text. A text is never shown as its own example.
+
+```sh
+tinydistill label task.yaml --data train.csv --teacher Qwen/Qwen2.5-7B-Instruct --few-shot-similar 8 --out run
+```
+
+- Alone, it picks from every gold-labelled training text. With `--few-shot K` it picks from those K examples
+  per class, so the teacher sees no other gold labels.
+- The prompt needs `{examples}` before `{text}`. Only the part before `{examples}` is computed once; the
+  examples are part of every text's tokens, so labelling is slower than with the same examples for all texts.
+- It works with local, vLLM and hosted API teachers. The examples it picks from are saved in the run
+  (`examples.jsonl`), so `eval` and the cascade rebuild the same teacher.
+
 ## In the student's loss
 
 `train --gold-per-class K` adds a cross-entropy term on those gold labels to the distillation loss (weight

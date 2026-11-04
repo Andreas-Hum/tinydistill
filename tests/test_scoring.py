@@ -25,10 +25,10 @@ def logsumexp_by_label(scorer: LabelScorer, form_logps: list[float]) -> list[flo
 
 
 @torch.no_grad()
-def reference(scorer: LabelScorer, text: str) -> list[float]:
+def reference(scorer: LabelScorer, text: str, head: str = "") -> list[float]:
     """Hand computation: one full forward pass per continuation over prompt + continuation, no cache, then
     the sum of log p(token | everything before it) over the continuation's tokens."""
-    prompt = scorer.prefix_ids + scorer.text_ids(text)
+    prompt = scorer.prefix_ids + scorer.text_ids(text, head)
     out = []
     for form in scorer.forms:
         ids = torch.tensor([prompt + form])
@@ -394,3 +394,79 @@ def test_shortlist_keep_adds_catch_all_labels(task):
     assert kept.fingerprint() != plain.fingerprint() and "keep" not in plain.fingerprint()
     with pytest.raises(SystemExit, match="unknown label ids"):
         Shortlist(task, 1, TINY_ENCODER, keep=["nope"])
+
+
+SHOTS = "Is this review positive, negative or neutral?\n{labels}\n{examples}\n\nReview: {text}\nAnswer:"
+POOL = [("good film", 0), ("bad film", 1), ("great movie", 0), ("awful plot", 1), ("so-so, I guess", 2)]
+
+
+def test_fingerprints_without_similar_examples_are_unchanged(lm, task):
+    """Computed before --few-shot-similar existed: a change here would invalidate every score cache."""
+    from tinydistill.teacher import quick_key
+
+    model, tok = lm
+    shots = type(task)(**{**task.__dict__, "prompt": SHOTS})
+    ex = [("loved every minute", 0), ("dull and slow", 1)]
+    assert LabelScorer(model, tok, shots).fingerprint() == "ac0cb7ec91ad7f16"
+    assert LabelScorer(model, tok, shots, examples=ex).fingerprint() == "b526d1648fcf4ce3"
+    assert quick_key(TINY_LM, shots, "cpu", False) == "854e5033fb6a9e5a"
+    assert quick_key(TINY_LM, shots, "cpu", False, ex) == "dc63cf90d4cad23d"
+
+
+def test_retrieved_examples_are_the_most_similar_most_similar_last():
+    from tinydistill.shortlist import Retriever
+
+    r = Retriever(POOL, 3, TINY_ENCODER)
+    texts = ["a good movie", "terrible acting"]
+    sims = r.embed(texts) @ r.embed([t for t, _ in POOL]).T
+    for got, row in zip(r(texts), sims.tolist(), strict=True):
+        assert got == [POOL[j] for j in sorted(range(len(POOL)), key=row.__getitem__)[-3:]]
+
+
+def test_a_text_is_never_its_own_example():
+    from tinydistill.shortlist import Retriever
+
+    pool = [*POOL, ("good film", 0)]  # also as a duplicate
+    got = Retriever(pool, len(pool), TINY_ENCODER)(["good film", "unseen text"])
+    assert sorted(got[0]) == sorted(POOL[1:]) and sorted(got[1]) == sorted(pool)
+    assert Retriever([("good film", 0)], 2, TINY_ENCODER)(["good film"]) == [[]]
+
+
+@pytest.mark.parametrize("chat", [True, False])
+def test_similar_examples_score_as_the_full_prompt(lm, task, chat):
+    from tinydistill.shortlist import Retriever
+
+    model, tok = lm
+    shots = type(task)(**{**task.__dict__, "prompt": SHOTS})
+    r = Retriever(POOL, 2, TINY_ENCODER)
+    scorer = LabelScorer(model, tok, shots, use_chat_template=chat, max_tokens=10_000, similar=r)
+    texts = ["a good movie", "awful plot", ""]  # "awful plot" is in the pool
+    got = scorer.form_scores_many(texts)  # packed into one pass, each text with its own examples
+    prefixes = set()
+    for t, head, ex, row in zip(texts, scorer.heads(texts), r(texts), got, strict=True):
+        assert len(ex) == 2 and t not in {e for e, _ in ex}
+        assert row.tolist() == pytest.approx(reference(scorer, t, head), abs=1e-4)
+        full = shots.render(t, ex)  # the prompt with the text's own examples, written out in full
+        if chat:
+            full = tok.apply_chat_template(
+                [{"role": "user", "content": full}], tokenize=False, add_generation_prompt=True
+            )
+        rest = head + t + scorer.suffix  # what is not cached
+        assert full.endswith(rest) and ex[-1][0] in head
+        prefixes.add(full[: len(full) - len(rest)])
+    (prefix,) = prefixes  # the cached prefix is the same for every text and stops at {examples}
+    assert "Examples" not in prefix
+    bos = [] if scorer.chat or tok.bos_token_id is None else [tok.bos_token_id]
+    assert scorer.prefix_ids == bos + tok(prefix, add_special_tokens=False)["input_ids"]
+    plain = LabelScorer(model, tok, shots, use_chat_template=chat)
+    fewer = LabelScorer(model, tok, shots, use_chat_template=chat, similar=Retriever(POOL, 1, TINY_ENCODER))
+    assert len({scorer.fingerprint(), plain.fingerprint(), fewer.fingerprint()}) == 3
+
+
+def test_similar_examples_need_examples_before_text(lm, task):
+    from tinydistill.shortlist import Retriever
+
+    model, tok = lm
+    after = type(task)(**{**task.__dict__, "prompt": "{labels}\nReview: {text}\n{examples}\nAnswer:"})
+    with pytest.raises(ValueError, match="before"):
+        LabelScorer(model, tok, after, similar=Retriever(POOL, 2, TINY_ENCODER))
