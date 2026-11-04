@@ -72,6 +72,13 @@
   accuracy of MiniLM-L6 at about eight times the latency.
 - Fix: the input length a student was trained with (`--max-length`) is stored with the model, and `Predictor`,
   `eval` and the web page use it; before, they always cut inputs at 128 tokens.
+- Fix: an ensemble (teachers, `--prompts` or a document's windows) gave `-Infinity` to a label no member
+  scored (outside every `--shortlist`, or never sampled with `--api-samples`), and multi-label log-odds above
+  about 37 became `Infinity`; neither is valid JSON. The mean is now taken in log space and stays finite.
+- Fix: after an interrupted run left a cut-off line in a score cache, the next score was appended to that line
+  and lost when the cache was read again. The cut-off line is now ended first.
+- Fix: a prompt with no tokens before `{text}` (no chat template and no BOS token) failed with an internal
+  error; it is now refused with a message.
 - The package ships type information (`py.typed`) and is checked with mypy in CI.
 - `Distiller`: the pipeline as a scikit-learn style estimator, `Distiller("task.yaml").fit(texts)` then
   `predict`, `predict_proba`, `describe`, `score`, `save` and `Distiller.load`, with `get_params` and

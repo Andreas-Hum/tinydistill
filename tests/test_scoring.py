@@ -235,6 +235,17 @@ def test_a_prompt_longer_than_the_teacher_is_rejected(lm, task):
         LabelScorer(model, tok, shots, examples=many)
 
 
+def test_a_prompt_with_no_tokens_before_the_text_is_rejected(lm, task):
+    """Without a chat template and a BOS token, a prompt that starts with {text} leaves nothing to cache."""
+    model, tok = lm
+    tok = copy.deepcopy(tok)
+    tok.bos_token = None
+    assert tok.bos_token_id is None
+    first = type(task)(**{**task.__dict__, "prompt": "{text}\n{labels}\nAnswer:"})
+    with pytest.raises(ValueError, match="before {text}"):
+        LabelScorer(model, tok, first, use_chat_template=False).score("nice")
+
+
 @pytest.mark.parametrize(
     "arch", ["MistralForCausalLM", "PhiForCausalLM", "Gemma2ForCausalLM", "GPT2LMHeadModel"]
 )
@@ -313,6 +324,21 @@ def test_multi_label_ensemble_averages_per_label_probabilities():
     # label 1: p = 0.5 and 0.9 -> 0.7; label 2: p = 0.2 and 0.2 -> 0.2
     got = combine_scores([[0.0, math.log(0.25)], [math.log(9.0), math.log(0.25)]], multi_label=True)
     assert got == pytest.approx([math.log(0.7 / 0.3), math.log(0.25)], abs=1e-12)
+
+
+def test_ensembles_of_unscored_or_certain_labels_stay_finite():
+    """A label no member scored (outside every member's shortlist) and multi-label log-odds too large for
+    a probability in float64 give finite scores, so the label files stay valid JSON."""
+    import json
+
+    from tinydistill.teacher import combine_scores
+
+    got = combine_scores([[0.0, NOT_SCORED], [0.0, NOT_SCORED]])
+    assert got == pytest.approx([0.0, NOT_SCORED])
+    got = combine_scores([[40.0, -40.0], [50.0, -50.0]], multi_label=True)
+    odds = 40 + math.log(2) - math.log1p(math.exp(-10))  # P(no) = (e^-40 + e^-50) / 2, P(yes) ~ 1
+    assert got == pytest.approx([odds, -odds], abs=1e-9)
+    json.dumps(got, allow_nan=False)
 
 
 def test_end_of_turn_comes_from_the_chat_template(lm):
