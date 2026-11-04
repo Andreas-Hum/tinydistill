@@ -81,7 +81,8 @@ The part of the prompt before the text is run once and cached; each text then ne
 covers all labels together, and short texts are packed several to a pass (`--teacher-tokens`, default 2048
 tokens per pass). Scores are cached by text in `--cache-dir`: an interrupted run resumes, runs that share the
 directory label each text only once, and a run whose texts are all cached does not load the teacher at all.
-With very many labels, see [Many labels](many-labels.md).
+With very many labels, see [Many labels](many-labels.md). For documents longer than the student reads,
+`--chunk-tokens` has the teacher score windows of each one; see [Long texts](training.md#long-texts).
 
 ## Compare setups before labelling
 

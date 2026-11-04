@@ -26,13 +26,44 @@ one to deploy there.
 
 ## Long texts
 
-Inputs are cut to `--max-length` tokens (default 128), which suits short messages. For longer texts raise it, and
-consider ModernBERT, which reads up to 8,192 tokens; BERT-style students read at most 512. The length is stored
-with the model, so `predict`, `serve` and the web page cut inputs the same way.
+Inputs are cut to `--max-length` tokens (default 128), which suits short messages. Past that, the student never
+sees the rest of a text. There are two ways to handle longer texts.
+
+**Read more tokens.** Raise `--max-length`, and consider ModernBERT, which reads up to 8,192 tokens; BERT-style
+students read at most 512. The length is stored with the model, so `predict`, `serve` and the web page cut
+inputs the same way. Attention costs grow with the square of the length.
 
 ```sh
 tinydistill train run --student answerdotai/ModernBERT-base --max-length 1024
 ```
+
+**Read in windows.** `label --chunk-tokens T` cuts every text longer than T tokens into overlapping windows of T
+tokens, `--chunk-stride S` apart (default T // 2, so each token is in about two windows; S = T for no overlap).
+The windows are decoded back to text and the teacher scores each one as an ordinary text. The tokens are the
+student's: `--chunk-tokenizer` names the student (default: the default student; `run` uses its `--student`),
+and `train` warns if its `--student` is a different one.
+
+```sh
+tinydistill label task.yaml --data docs.jsonl --test test.jsonl --out run --chunk-tokens 256 \
+  --chunk-tokenizer answerdotai/ModernBERT-base
+tinydistill train run --student answerdotai/ModernBERT-base
+```
+
+- `train.jsonl` holds one row per window, with the document's gold label and `doc`, the document's row number
+  in the data. The student trains on the windows.
+- `test.jsonl` holds one row per document. Its teacher scores are the log of the mean of its windows'
+  probabilities (multi-label: of each label's probability), as an ensemble of teachers is combined.
+- `train` stores T and S with the model (`tinydistill_chunk_tokens`, `tinydistill_chunk_stride` in
+  `config.json`) and raises `--max-length` to T plus the special tokens if it is shorter.
+- `Predictor`, and through it `predict`, `serve`, the cascade and `Distiller`, cut each input into the same
+  windows, run them, and return one row per input: the mean of the windows' probabilities. In a cascade the
+  teacher scores the windows too. `eval` therefore reports document-level quality.
+- A text of at most T tokens is a single window and is scored exactly as without the flag.
+- The web page reads only the first window of a text; `web` warns about it.
+
+A window that starts inside a word can come to a token or two more than T when it is read again; they are cut
+at `--max-length`, the same way in training and prediction. `--gold-file` matches whole texts, so it does not
+reach the windows of a long document.
 
 ## How long to train
 

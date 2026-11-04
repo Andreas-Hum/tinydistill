@@ -232,6 +232,12 @@ def markdown_table(results: dict) -> str:
                 else "."
             )
         )
+    if tr.get("chunk_tokens"):
+        trained += (
+            f" Texts longer than {tr['chunk_tokens']} tokens are read in windows of that many tokens, "
+            f"{tr.get('chunk_stride')} apart: the training texts are windows, and a test text's prediction "
+            "is the mean of its windows' probabilities."
+        )
     if (tr.get("seeds") or 1) > 1:
         trained += (
             f" Values with ± are the mean and standard deviation over {tr['seeds']} training seeds; "
