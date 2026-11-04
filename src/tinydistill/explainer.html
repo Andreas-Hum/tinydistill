@@ -876,7 +876,7 @@
   palette();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { palette(); if (R) { drawOverview(R); render(); } });
   const text = $("text"), go = $("go"), status = $("status");
-  $("samples").replaceChildren(...D.samples.map((s, i) => el("button", { className: "ghost", textContent: `Example ${i + 1}`,
+  $("samples").replaceChildren(...D.samples.map((s, i) => el("button", { className: "ghost", textContent: s.text.length > 40 ? s.text.slice(0, 37).trimEnd() + "..." : s.text,
     title: s.text, onclick: () => { text.value = s.text; run(); } })));
   text.value = D.samples[0]?.text ?? "";
   let runId = 0;
