@@ -14,7 +14,6 @@
   are scored on the dev split together with the task without label descriptions. Each candidate is written as
   `OUT-<name>.yaml`, the best as `OUT-best.yaml`, and the report lists every instruction with its dev score.
   `tune.json` rows now include the instruction.
-
 - ModernBERT students are tested (training, ONNX and int8 export). On Banking77, ModernBERT-base reached the
   accuracy of MiniLM-L6 at about eight times the latency.
 - Fix: the input length a student was trained with (`--max-length`) is stored with the model, and `Predictor`,
