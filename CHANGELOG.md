@@ -14,6 +14,12 @@
   are scored on the dev split together with the task without label descriptions. Each candidate is written as
   `OUT-<name>.yaml`, the best as `OUT-best.yaml`, and the report lists every instruction with its dev score.
   `tune.json` rows now include the instruction.
+- Long documents: `label --chunk-tokens T [--chunk-stride S]` cuts texts longer than T tokens of the student's
+  tokenizer (`--chunk-tokenizer`) into overlapping windows, S tokens apart (default T // 2). The teacher scores
+  every window and the student trains on them; a test document's teacher scores are the mean of its windows'
+  probabilities. T and S are stored with the model, and `Predictor`, `predict`, `serve`, the cascade, `eval`
+  and `Distiller` read every input in the same windows and average their probabilities, one row per input.
+  The web page reads only the first window. Without the flag nothing changes.
 - ModernBERT students are tested (training, ONNX and int8 export). On Banking77, ModernBERT-base reached the
   accuracy of MiniLM-L6 at about eight times the latency.
 - Fix: the input length a student was trained with (`--max-length`) is stored with the model, and `Predictor`,

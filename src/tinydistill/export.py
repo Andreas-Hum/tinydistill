@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from .student import load_student
+from .student import by_windows, load_student, windows
 
 
 class _Logits(torch.nn.Module):
@@ -183,14 +183,32 @@ class Predictor:
         )
         self.multi_label = config.get("problem_type") == "multi_label_classification"
         self.max_length: int = max_length or config.get("tinydistill_max_length") or 128
+        # a model trained on windows of long documents reads every input in the same windows
+        self.chunk_tokens: int | None = config.get("tinydistill_chunk_tokens")
+        self.chunk_stride: int | None = config.get("tinydistill_chunk_stride")
         self.file = file
         self.int8 = int8
 
     def logits(self, texts: list[str], batch_size: int | None = None) -> np.ndarray:
         """Label scores per text. The int8 model runs one text at a time by default: its dynamic quantisation
         scales activations over the whole batch, so in a batch a text's scores would depend on the other texts
-        (on a CPU this costs little throughput). The fp32 model runs 32 texts at a time."""
+        (on a CPU this costs little throughput). The fp32 model runs 32 texts at a time. A model trained on
+        windows of long documents (``chunk_tokens``) scores each text's windows and returns, per text, the log
+        of the mean of their probabilities (multi-label: of each label's sigmoid, as log-odds), so
+        ``predict_proba`` gives the mean of the windows' probabilities."""
         batch_size = batch_size or (1 if self.int8 else 32)
+        if self.chunk_tokens and texts:
+            run = lambda w: self._logits(w, batch_size).tolist()  # noqa: E731
+            return np.asarray(by_windows(run, texts, self.cut, self.multi_label), dtype=np.float32)
+        return self._logits(texts, batch_size)
+
+    def cut(self, text: str) -> list[str]:
+        """The windows the model reads ``text`` in: the text itself unless it was trained on windows."""
+        if not self.chunk_tokens:
+            return [text]
+        return windows(self.tok, text, self.chunk_tokens, self.chunk_stride)
+
+    def _logits(self, texts: list[str], batch_size: int) -> np.ndarray:
         out = []
         for b in range(0, len(texts), batch_size):
             enc = self.tok(
@@ -259,13 +277,9 @@ class Cascade:
         ]
         unsure = [i for i, p in enumerate(probs) if p.max() < self.threshold]
         if unsure:
-            answered = self.teacher.score_many([texts[i] for i in unsure])
-            if self.log:
-                with self.log.open("a", encoding="utf-8") as f:
-                    for i, scores in zip(unsure, answered, strict=True):
-                        f.write(json.dumps({"text": texts[i], "scores": scores}, ensure_ascii=False) + "\n")
+            answered = by_windows(self._ask, [texts[i] for i in unsure], self.student.cut)
             for i, scores in zip(unsure, answered, strict=True):
-                s = np.asarray(scores, dtype=np.float64)
+                s: np.ndarray = np.asarray(scores, dtype=np.float64)
                 p = np.exp(s - s.max())
                 p /= p.sum()
                 out[i] = {
@@ -274,3 +288,12 @@ class Cascade:
                     "by": "teacher",
                 }
         return out
+
+    def _ask(self, texts: list[str]) -> list[list[float]]:
+        """The teacher's scores (of a long document's windows, as the student reads it), logged if asked."""
+        answered = self.teacher.score_many(texts)
+        if self.log:
+            with self.log.open("a", encoding="utf-8") as f:
+                for text, scores in zip(texts, answered, strict=True):
+                    f.write(json.dumps({"text": text, "scores": scores}, ensure_ascii=False) + "\n")
+        return answered

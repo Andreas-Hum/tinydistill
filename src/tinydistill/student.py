@@ -108,11 +108,15 @@ def train_student(
     on_step: Callable[[], None] | None = None,
     val_share: float = 0.0,
     patience: int = 3,
+    chunk_tokens: int | None = None,
+    chunk_stride: int | None = None,
 ) -> int:
     """Train and save the student; returns the epoch whose model is saved. With ``val_share`` > 0 that share
     of the texts is held out (texts without gold labels when there is a teacher), the loss on them is measured
     after every epoch, the epoch with the lowest one is kept, and training stops after ``patience`` epochs
-    without improvement. Otherwise every epoch is used and the last one is kept."""
+    without improvement. Otherwise every epoch is used and the last one is kept. ``chunk_tokens`` and
+    ``chunk_stride`` (the texts are windows of long documents, see :func:`windows`) are saved with the model,
+    which then reads every input in such windows; ``max_length`` is raised to fit a window if needed."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
     if static := encoder_of(model_name):
@@ -136,6 +140,9 @@ def train_student(
             hf_logging.set_verbosity(level)
         log(f"{model_name}: a new classification head for {len(labels)} labels on the pretrained encoder")
     model = model.to(device)
+    if chunk_tokens and max_length < chunk_tokens + tok.num_special_tokens_to_add():
+        max_length = chunk_tokens + tok.num_special_tokens_to_add()
+        log(f"max_length raised to {max_length}: a window of {chunk_tokens} tokens plus special tokens")
     gold = gold or [None] * len(texts)
     if multi_label:  # multi-hot gold, and which texts have it
         has_gold = torch.tensor([g is not None for g in gold])
@@ -219,6 +226,9 @@ def train_student(
     model.config.tinydistill_max_length = (
         max_length  # read back by student_logits, Predictor and the web page
     )
+    if chunk_tokens:  # read back by student_logits and Predictor
+        model.config.tinydistill_chunk_tokens = chunk_tokens
+        model.config.tinydistill_chunk_stride = chunk_stride or max(1, chunk_tokens // 2)
     model.save_pretrained(out_dir)
     tok.save_pretrained(out_dir)
     kept = best_epoch if best_state is not None else len(history)
@@ -240,17 +250,59 @@ def student_logits(
     model, tok, texts: list[str], batch_size: int = 64, max_length: int | None = None
 ) -> torch.Tensor:
     """Logits per text. Inputs are cut to ``max_length`` tokens, by default the length the student was trained
-    with (128 for students trained before it was recorded)."""
+    with (128 for students trained before it was recorded). A student trained on windows of long documents
+    reads each text in the same windows; see :func:`by_windows`."""
     max_length = max_length or getattr(model.config, "tinydistill_max_length", None) or 128
     dev = next(model.parameters()).device
-    out = []
-    for b in range(0, len(texts), batch_size):
-        enc = tok(
-            texts[b : b + batch_size],
-            padding=True,
-            truncation=True,
-            max_length=max_length,
-            return_tensors="pt",
-        )
-        out.append(model(**{k: v.to(dev) for k, v in enc.items()}).logits.float().cpu())
-    return torch.cat(out) if out else torch.empty(0)
+
+    def run(texts: list[str]) -> torch.Tensor:
+        out = []
+        for b in range(0, len(texts), batch_size):
+            enc = tok(
+                texts[b : b + batch_size],
+                padding=True,
+                truncation=True,
+                max_length=max_length,
+                return_tensors="pt",
+            )
+            out.append(model(**{k: v.to(dev) for k, v in enc.items()}).logits.float().cpu())
+        return torch.cat(out) if out else torch.empty(0)
+
+    size = getattr(model.config, "tinydistill_chunk_tokens", None)
+    if not size or not texts:
+        return run(texts)
+    multi = model.config.problem_type == "multi_label_classification"
+    stride = model.config.tinydistill_chunk_stride
+    rows = by_windows(lambda w: run(w).tolist(), texts, lambda t: windows(tok, t, size, stride), multi)
+    return torch.tensor(rows, dtype=torch.float32)
+
+
+def windows(tok, text: str, size: int, stride: int | None = None) -> list[str]:
+    """``text`` as overlapping windows of ``size`` tokens of ``tok`` (no special tokens), each starting
+    ``stride`` tokens (default ``size // 2``) after the previous one, decoded back to text; the last one may
+    be shorter. A text of at most ``size`` tokens is one window, the text itself."""
+    stride = stride or max(1, size // 2)
+    ids = tok(text, add_special_tokens=False, verbose=False)["input_ids"]
+    if len(ids) <= size:
+        return [text]
+    return [tok.decode(ids[s : s + size]) for s in range(0, len(ids) - size + stride, stride)]
+
+
+def by_windows(
+    score: Callable[[list[str]], list[list[float]]],
+    texts: list[str],
+    cut: Callable[[str], list[str]],
+    multi_label: bool = False,
+) -> list[list[float]]:
+    """Score every text's windows (``cut``) in one call of ``score`` and pool them into one row per text: the
+    log of the mean of the windows' probabilities (softmax; multi-label, each label's sigmoid, as log-odds),
+    as ``combine_scores`` pools teachers. A text that is a single window keeps its scores unchanged."""
+    from .teacher import combine_scores
+
+    parts = [cut(t) for t in texts]
+    rows = score([w for p in parts for w in p])
+    out, i = [], 0
+    for p in parts:
+        out.append(combine_scores(rows[i : i + len(p)], multi_label))
+        i += len(p)
+    return out

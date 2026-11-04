@@ -142,6 +142,10 @@ def cmd_label(a: argparse.Namespace) -> None:
         for n, spec, lim in (("train", a.data, a.limit), ("test", a.test, a.test_limit))
         if spec
     ]
+    cut, chunk = _chunking(a)
+
+    def texts_of(spec, limit):  # what the teacher scores: every text, or every window of it
+        return (w for e in read_examples(spec, task, limit, with_gold=False) for w in cut(e.text))
 
     caches, fingerprints, device = [], [], "cpu"
     seconds, scored = 0.0, 0
@@ -159,9 +163,9 @@ def cmd_label(a: argparse.Namespace) -> None:
             known = [keys.get(q) for q in quick]
             cached = [ScoreCache(cache_dir / f"teacher-{k}.jsonl") for k in known if k]
             if len(cached) == len(known) and all(
-                text_hash(e.text) in c.scores
+                text_hash(t) in c.scores
                 for _, spec, limit in splits
-                for e in read_examples(spec, task, limit, with_gold=False)
+                for t in texts_of(spec, limit)
                 for c in cached
             ):
                 log(f"{name}: every text is in the cache, so the teacher is not loaded")
@@ -203,8 +207,9 @@ def cmd_label(a: argparse.Namespace) -> None:
                 log(f"resuming: {len(cache.scores)} texts already scored")
             for split, spec, limit in splits:
                 t0 = time.perf_counter()
-                bar = Progress(f"label {split} ({who})", count_rows(spec, limit), log, run / "status.json")
-                texts = iter_unique(e.text for e in read_examples(spec, task, limit, with_gold=False))
+                total = None if chunk else count_rows(spec, limit)  # windows are not counted ahead
+                bar = Progress(f"label {split} ({who})", total, log, run / "status.json")
+                texts = iter_unique(texts_of(spec, limit))
                 n = cache.fill(member, texts, on_read=bar.update)
                 bar.finish()
                 seconds += time.perf_counter() - t0
@@ -216,21 +221,25 @@ def cmd_label(a: argparse.Namespace) -> None:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+    multi = task.multi_label
     for split, spec, limit in splits:
         n_rows = 0
         with (run / f"{split}.jsonl").open("w", encoding="utf-8") as f:
-            for e in read_examples(spec, task, limit):
-                per = [c.get(e.text) for c in caches]
-                row: dict[str, Any] = {
-                    "text": e.text,
-                    "gold": e.gold,
-                    "scores": combine_scores(per, task.multi_label),
-                }
-                if len(per) > 1:
-                    row["teacher_scores"] = per
-                f.write(json.dumps(row) + "\n")
-                n_rows += 1
-        log(f"{split}: {n_rows} texts")
+            for doc, e in enumerate(read_examples(spec, task, limit)):
+                wins = cut(e.text)
+                if split == "test" or len(wins) == 1:  # the document, scored as the mean of its windows
+                    pieces = [(e.text, [combine_scores([c.get(w) for w in wins], multi) for c in caches])]
+                else:  # the student trains on the windows
+                    pieces = [(w, [c.get(w) for c in caches]) for w in wins]
+                for text, per in pieces:
+                    row: dict[str, Any] = {"text": text, "gold": e.gold, "scores": combine_scores(per, multi)}
+                    if len(per) > 1:
+                        row["teacher_scores"] = per
+                    if chunk and split == "train":
+                        row["doc"] = doc  # the window's document: its row number in the data
+                    f.write(json.dumps(row) + "\n")
+                    n_rows += 1
+        log(f"{split}: {n_rows} {'windows' if chunk and split == 'train' else 'texts'}")
     _meta(
         run,
         {
@@ -258,8 +267,34 @@ def cmd_label(a: argparse.Namespace) -> None:
             "shortlist": a.shortlist,
             "shortlist_model": a.shortlist_model,
             "shortlist_keep": a.shortlist_keep,
+            **({"chunk_tokens": None, "chunk_stride": None, "chunk_tokenizer": None} | chunk),
         },
     )
+
+
+def _chunking(a: argparse.Namespace) -> tuple[Any, dict]:
+    """For label --chunk-tokens: a function cutting a text into its windows (the text alone without the
+    flag), and the settings for meta.json, which train stores with the model."""
+    if not a.chunk_tokens:
+        return (lambda t: [t]), {}
+    from transformers import AutoTokenizer
+
+    from .static import encoder_of
+    from .student import DEFAULT_STUDENT, windows
+
+    size = a.chunk_tokens
+    stride = a.chunk_stride if a.chunk_stride is not None else max(1, size // 2)
+    if size < 1 or not 0 < stride <= size:
+        raise SystemExit("--chunk-tokens must be positive and --chunk-stride between 1 and --chunk-tokens")
+    name = a.chunk_tokenizer or getattr(a, "student", None) or DEFAULT_STUDENT  # `run` has --student
+    name = encoder_of(name) or name  # a static student uses its encoder's tokenizer
+    tok = AutoTokenizer.from_pretrained(name)
+    log(f"texts over {size} tokens ({name}) are cut into windows of {size} tokens, {stride} apart")
+    return (lambda t: windows(tok, t, size, stride)), {
+        "chunk_tokens": size,
+        "chunk_stride": stride,
+        "chunk_tokenizer": name,
+    }
 
 
 # Student variants: (directory name, role, row name). The first seed's models live directly in the run
@@ -282,6 +317,7 @@ def cmd_train(a: argparse.Namespace) -> None:
 
     import torch
 
+    from .static import encoder_of
     from .student import few_gold, few_gold_sets, train_student
     from .teacher import pick_device
 
@@ -333,7 +369,18 @@ def cmd_train(a: argparse.Namespace) -> None:
     per_seed += batches(len(upper)) if a.upper_bound else 0
     bar = Progress("train", a.seeds * per_seed, log, run / "status.json", unit="batches")
     t0 = time.perf_counter()
-    sel = {"val_share": a.val_share, "patience": a.patience}
+    meta = _meta(run)
+    sel = {
+        "val_share": a.val_share,
+        "patience": a.patience,
+        "chunk_tokens": meta.get("chunk_tokens"),
+        "chunk_stride": meta.get("chunk_stride"),
+    }
+    if meta.get("chunk_tokens") and meta.get("chunk_tokenizer") != (encoder_of(a.student) or a.student):
+        log(
+            f"warning: the windows were cut with the tokenizer of {meta['chunk_tokenizer']}, not of "
+            f"{a.student}; label again with --chunk-tokenizer {a.student} if they count tokens differently"
+        )
     kept: dict[str, list[int]] = {}
     for i in range(a.seeds):
         seed = a.seed + i
@@ -657,6 +704,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "shortlist",
                 "shortlist_model",
                 "shortlist_keep",
+                "chunk_tokens",
+                "chunk_stride",
             )
         },
         "environment": environment(threads),
@@ -776,7 +825,14 @@ def cmd_web(a: argparse.Namespace) -> None:
     from .export import model_path
     from .web import build_site
 
-    page = build_site(model_path(a.model), Path(a.out), a.title, note=a.note)
+    folder = model_path(a.model)
+    config = folder / "config.json"
+    if config.exists() and json.loads(config.read_text(encoding="utf-8")).get("tinydistill_chunk_tokens"):
+        log(
+            "warning: this model reads long texts in windows, but the page reads only the first one "
+            "(predict, serve and Predictor read them all)"
+        )
+    page = build_site(folder, Path(a.out), a.title, note=a.note)
     log(f"wrote {page}; serve the folder over HTTP, e.g. python -m http.server -d {a.out}")
 
 
@@ -1112,6 +1168,27 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=2048,
         help="tokens per teacher forward pass; short texts with few labels are packed together",
+    )
+    label.add_argument(
+        "--chunk-tokens",
+        type=int,
+        metavar="T",
+        help="cut texts longer than T tokens of the student's tokenizer into overlapping windows of T "
+        "tokens: the teacher scores each window, the student trains on them and averages its windows' "
+        "probabilities per text when it predicts (for documents longer than the student reads)",
+    )
+    label.add_argument(
+        "--chunk-stride",
+        type=int,
+        metavar="S",
+        help="with --chunk-tokens: tokens from one window's start to the next (default T // 2, so windows "
+        "overlap by half; S = T for no overlap)",
+    )
+    label.add_argument(
+        "--chunk-tokenizer",
+        metavar="MODEL",
+        help="with --chunk-tokens: the student whose tokenizer counts the tokens (default: the default "
+        "student; `run` uses its --student); train warns if its --student differs",
     )
     label.add_argument("--limit", type=int, help="use only the first N training texts")
     label.add_argument("--test-limit", type=int, help="use only the first N test texts")
