@@ -23,3 +23,12 @@ cp runs/go-emotions-7b/results.md examples/go-emotions/go-emotions-7b.md
 cp runs/go-emotions-1.5b/results.json examples/go-emotions/go-emotions-1.5b.json
 cp runs/go-emotions-1.5b/results.md examples/go-emotions/go-emotions-1.5b.md
 python examples/update_readme.py
+
+# The 7B run's students kept their last epoch (10 of 10), so they were still improving: the same students with up
+# to 30 epochs, from the same cached labels.
+tinydistill run examples/go-emotions/task.yaml --data "$data:train" --limit 10000 --test "$data:test" \
+  --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --upper-bound \
+  --gold-per-class 8 --gold-only --teacher Qwen/Qwen2.5-7B-Instruct --load-4bit --val-share 0.05 --epochs 30 \
+  --out runs/go-emotions-7b-30-epochs --skip-teacher-bench
+cp runs/go-emotions-7b-30-epochs/results.json examples/go-emotions/go-emotions-7b-30-epochs.json
+cp runs/go-emotions-7b-30-epochs/results.md examples/go-emotions/go-emotions-7b-30-epochs.md
