@@ -5,18 +5,21 @@ body:
   - type: markdown
     attributes:
       value: Thanks for reporting. Security problems go through the private process in SECURITY.md instead.
-  - type: input
-    id: version
+  - type: textarea
+    id: env
     attributes:
-      label: tinydistill version
-      description: Output of `pip show tinydistill`, or the commit if installed from Git.
+      label: Output of `tinydistill env`
+      description: Run `tinydistill env` and paste its output (versions, platform, CUDA and GPU).
+      render: text
     validations:
       required: true
   - type: textarea
-    id: command
+    id: reproduction
     attributes:
-      label: Command
-      description: The command you ran (or the Python code).
+      label: Minimal reproduction
+      description: >-
+        The command you ran (or the Python code), cut down to the smallest version that still fails. The task
+        file goes in the next field.
       render: shell
     validations:
       required: true
@@ -31,13 +34,5 @@ body:
     attributes:
       label: What happened, and what you expected
       description: Include the full error message or traceback.
-    validations:
-      required: true
-  - type: textarea
-    id: env
-    attributes:
-      label: Environment
-      description: Python, torch and transformers versions; operating system; CPU or GPU.
-      placeholder: "Python 3.12, torch 2.x, transformers 4.x, Linux, CPU"
     validations:
       required: true

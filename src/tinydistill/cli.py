@@ -871,6 +871,38 @@ def cmd_status(a: argparse.Namespace) -> None:
     print(describe_status(Path(a.run) / "status.json"))
 
 
+def cmd_env(a: argparse.Namespace) -> None:
+    import platform
+    from importlib.metadata import PackageNotFoundError, version
+
+    from . import __version__
+
+    def ver(pkg: str) -> str:
+        try:
+            return version(pkg)
+        except PackageNotFoundError:
+            return "not installed"
+
+    lines = {
+        "tinydistill": __version__,
+        "Python": platform.python_version(),
+        "Platform": f"{platform.system()} {platform.release()} ({platform.machine()})",
+        "torch": ver("torch"),
+    }
+    try:
+        import torch
+
+        cuda = torch.cuda.is_available()
+        lines["CUDA available"] = f"{cuda} (CUDA {torch.version.cuda})" if cuda else "False"
+        if cuda:
+            lines["GPU"] = ", ".join(torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count()))
+    except ImportError:
+        lines["CUDA available"] = "unknown (torch not installed)"
+    for pkg in ("transformers", "onnxruntime", "datasets", "huggingface_hub", "matplotlib", "bitsandbytes"):
+        lines[pkg] = ver(pkg)
+    print("\n".join(f"- {k}: {v}" for k, v in lines.items()))
+
+
 def cmd_compare(a: argparse.Namespace) -> None:
     from .evaluate import compare_table
 
@@ -1149,6 +1181,7 @@ def build_parser() -> argparse.ArgumentParser:
     cmp = sub.add_parser("compare", help="one markdown table comparing several runs (e.g. student sizes)")
     cmp.add_argument("runs", nargs="+", help="run directories or results.json files")
     cmp.set_defaults(fn=cmd_compare)
+    sub.add_parser("env", help="versions and hardware, for bug reports").set_defaults(fn=cmd_env)
     sub.add_parser(
         "run", parents=[label, train, export, ev, common], help="label, train, export and eval"
     ).set_defaults(fn=cmd_run)

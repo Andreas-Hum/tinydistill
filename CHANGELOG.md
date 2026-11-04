@@ -5,6 +5,10 @@
 - Documentation site at https://andreas-hum.github.io/tinydistill/ (MkDocs): getting started, a guide per
   topic, how it works, benchmarks, and a command-line and Python API reference generated from the code. The
   live demo moved to https://andreas-hum.github.io/tinydistill/demo/.
+- `tinydistill env` prints the tinydistill, Python, torch and dependency versions, the platform and the GPU,
+  for bug reports. Contributing: a pull request template with a code agent policy, issue forms that ask for
+  `tinydistill env` and a minimal reproduction, a check that labels likely automated pull requests for a
+  maintainer to review, pre-commit hooks for ruff, Dependabot, and workflow actions pinned to commit SHAs.
 
 ## 0.3.4 (2026-11-04)
 
