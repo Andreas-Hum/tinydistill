@@ -63,6 +63,22 @@ only half of it is scored. Rewriting the prompt from its own mistakes is the ide
 `tinydistill analyse RUN` writes `RUN/analysis.html` with each label's scores for teacher and student, the most
 common confusions with examples, and texts where the two disagree.
 
+### Check the gold labels: analyse --review
+
+Gold labels have mistakes too. `tinydistill analyse RUN --review review.csv` writes, instead of the page, a CSV
+of training texts for a person to check (single-label runs; no student or test set needed):
+
+- first the texts whose gold label the teacher's top label contradicts, the teacher's most confident answer
+  first: where a confident teacher disagrees, the gold label is the likeliest to be wrong (or the prompt
+  misleads the teacher);
+- then, for an ensemble of teachers or prompts, the other texts on which its members' top labels differ, the
+  most divided first.
+
+The columns are `text`, `gold`, `teacher_label`, `teacher_confidence` and `member_labels`. This is the "find
+label issues" half of confident learning ([Northcutt et al.,
+2021](https://arxiv.org/abs/1911.00068)), without the other half: training is not changed. Fix the labels you
+find wrong in the data and label again.
+
 ## Label the texts that matter: suggest
 
 `tinydistill suggest RUN --n 200 --out to_label.jsonl` picks the training texts most worth labelling by hand:
@@ -72,6 +88,34 @@ the empty label field and train again with those labels:
 ```sh
 tinydistill train RUN --gold-file to_label.jsonl
 ```
+
+## Label on a budget: run --budget
+
+With a paid API teacher every labelled text costs money. `run --budget N --rounds R` has the teacher label only
+N training texts, in R rounds (default 4) of N/R:
+
+```sh
+tinydistill run task.yaml --data train.csv --test test.csv --teacher gpt-4o-mini \
+  --api-url https://api.openai.com/v1 --budget 2000 --rounds 4 --out run
+```
+
+Round 1 labels N/R texts picked at random (`--seed`) and trains the student. Each later round, the student
+scores the texts not labelled yet, the teacher labels the N/R it is least sure of (the highest entropy of its
+predicted distribution; multi-label, the mean binary entropy of its labels), and the student is trained again
+on everything labelled so far. The last training is the final student, which is exported and evaluated as
+usual. This is uncertainty sampling, the classic active-learning rule ([Lewis and Gale,
+1994](https://arxiv.org/abs/cmp-lg/9407020)); LLKD ([Li et al., 2024](https://arxiv.org/abs/2411.08028))
+also uses the student's uncertainty to choose the texts.
+
+- The rounds only choose which texts the teacher labels; the student is trained on them exactly as without a
+  budget.
+- `train.jsonl` holds the N labelled texts only, so `--gold-per-class` and `--upper-bound` see only those.
+- The `--test` texts are labelled too, outside the budget; leave out `--test` or use `--test-limit` to save.
+- The scores are cached as usual, so a larger budget later pays only for the new texts.
+- `run --budget N --dry-run` estimates the cost of N texts picked at random (see
+  [Hosted APIs](teacher.md#hosted-apis)).
+
+Without `--budget` nothing changes.
 
 ## Learn from production: refresh
 

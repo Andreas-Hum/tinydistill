@@ -1064,3 +1064,111 @@ def test_env_lists_versions_and_survives_missing_packages(monkeypatch, capsys):
     ):
         assert f"- {key}: " in out
     assert "- bitsandbytes: not installed" in out
+
+
+def test_budget_rounds_label_the_texts_the_student_is_least_sure_of(tmp_path, monkeypatch):
+    import torch
+
+    from tinydistill import student
+    from tinydistill.suggest import uncertainty
+
+    uniform = torch.zeros(1, 4)
+    assert uncertainty(uniform).item() == pytest.approx(torch.log(torch.tensor(4.0)).item())
+    assert uncertainty(uniform, multi_label=True).item() == pytest.approx(torch.log(torch.tensor(2.0)).item())
+    assert uncertainty(torch.tensor([[0.0, 1.0], [0.0, 5.0]])).argmax().item() == 0
+
+    asked: list[list[str]] = []
+
+    def fake_logits(model, tok, texts, **kw):  # text i: logits [0, i], so the lower i the less sure
+        asked.append(list(texts))
+        return torch.tensor([[0.0, float(t.split()[-1])] for t in texts])
+
+    monkeypatch.setattr(student, "student_logits", fake_logits)
+    (tmp_path / "task.yaml").write_text(TASK)
+    write_jsonl(tmp_path / "d.jsonl", [{"review": f"text {i}"} for i in range(12)])
+    run = tmp_path / "run"
+    main(
+        [
+            "run",
+            str(tmp_path / "task.yaml"),
+            "--data",
+            str(tmp_path / "d.jsonl"),
+            "--out",
+            str(run),
+            "--budget",
+            "7",
+            "--rounds",
+            "3",
+            "--teacher",
+            TINY_LM,
+            "--student",
+            TINY_ENCODER,
+            "--epochs",
+            "1",
+            "--batch-size",
+            "4",
+            "--reps",
+            "2",
+            "--skip-teacher-bench",
+            "--device",
+            "cpu",
+        ]
+    )
+
+    def by_i(texts):
+        return sorted(texts, key=lambda t: int(t.split()[-1]))
+
+    # 7 texts in 3 rounds: 2 at random, then the 2 and the 3 the student is least sure of (eval's timing
+    # calls come after these two)
+    first = {f"text {i}" for i in range(12)} - set(asked[0])
+    second, third = set(by_i(asked[0])[:2]), set(by_i(asked[1])[:3])
+    assert len(first) == 2 and len(asked[0]) == 10 and set(asked[1]) == set(asked[0]) - second
+    train = {r["text"] for r in map(json.loads, (run / "train.jsonl").read_text().splitlines())}
+    assert train == first | second | third and len(train) == 7
+    (cache,) = run.glob("teacher-*.jsonl")
+    assert len(cache.read_text().splitlines()) == 7  # the teacher labelled exactly the budget
+    meta = json.loads((run / "meta.json").read_text())
+    assert meta["budget"] == 7 and meta["rounds"] == 3
+    assert json.loads((run / "results.json").read_text())["training"]["budget"] == 7
+
+
+def test_analyse_review_lists_gold_contradictions_then_divided_ensembles(tmp_path, capsys):
+    import csv
+    import math
+
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "task.yaml").write_text(TASK + "  neu: neutral review\n")
+
+    def lg(*p):  # log-probabilities: scores whose softmax is p
+        return [math.log(x) for x in p]
+
+    a, b, c = lg(0.8, 0.1, 0.1), lg(0.1, 0.8, 0.1), lg(0.1, 0.1, 0.8)
+    rows = [
+        {"text": "agreed", "gold": 0, "scores": lg(0.7, 0.2, 0.1), "teacher_scores": [a, a, a]},
+        {"text": "unsure contradiction", "gold": 0, "scores": lg(0.3, 0.6, 0.1), "teacher_scores": [b, b, a]},
+        {"text": "split three ways", "gold": None, "scores": lg(0.4, 0.3, 0.3), "teacher_scores": [a, b, c]},
+        {"text": "sure contradiction", "gold": 2, "scores": lg(0.05, 0.9, 0.05), "teacher_scores": [b, b, b]},
+        {"text": "split two to one", "gold": 1, "scores": lg(0.2, 0.7, 0.1), "teacher_scores": [b, b, c]},
+    ]
+    write_jsonl(run / "train.jsonl", rows)
+    out = tmp_path / "review.csv"
+    main(["analyse", str(run), "--review", str(out)])
+    with out.open(encoding="utf-8", newline="") as f:
+        got = list(csv.DictReader(f))
+    assert [r["text"] for r in got] == [
+        "sure contradiction",
+        "unsure contradiction",
+        "split three ways",
+        "split two to one",
+    ]
+    assert got[0] == {
+        "text": "sure contradiction",
+        "gold": "neu",
+        "teacher_label": "neg",
+        "teacher_confidence": "0.9",
+        "member_labels": "neg; neg; neg",
+    }
+    assert got[2]["gold"] == "" and got[2]["member_labels"] == "pos; neg; neu"
+    assert "2 whose gold label the teacher contradicts, then 2 on which" in capsys.readouterr().err
+    assert not (run / "analysis.html").exists()

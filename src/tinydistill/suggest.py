@@ -31,3 +31,13 @@ def pick(score: np.ndarray, group: np.ndarray, n: int) -> list[int]:
             if queues[g] and len(out) < n:
                 out.append(int(queues[g].pop(0)))
     return out
+
+
+def uncertainty(logits, multi_label: bool = False):
+    """How unsure a model is of each text (a torch tensor, texts x labels, of logits): the entropy of its
+    predicted distribution; multi-label, the mean binary entropy of its labels."""
+    import torch
+
+    if multi_label:
+        return torch.distributions.Bernoulli(logits=logits).entropy().mean(-1)
+    return torch.distributions.Categorical(logits=logits).entropy()

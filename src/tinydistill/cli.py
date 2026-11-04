@@ -91,7 +91,8 @@ def _run_members(run: Path, meta: dict, task: Task, name: str, device: str, exam
     return prompt_members(scorer, [load_task(run / f) for f in meta.get("prompts") or []])
 
 
-def cmd_label(a: argparse.Namespace) -> None:
+def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
+    """``only``: label just these training texts (run --budget); the test set is labelled in full."""
     import gc
 
     import torch
@@ -110,6 +111,8 @@ def cmd_label(a: argparse.Namespace) -> None:
     )
 
     task = load_task(a.task)
+    if a.dry_run and not a.api_url:
+        raise SystemExit("--dry-run estimates the cost of labelling with --api-url")
     sources = [p.strip() for p in (a.prompts or "").split(",") if p.strip()]
     variants = _variants(task, sources)
     if variants and (a.vllm_url or a.api_url):
@@ -157,10 +160,14 @@ def cmd_label(a: argparse.Namespace) -> None:
     ]
     cut, chunk = _chunking(a)
 
-    def texts_of(spec, limit):  # what the teacher scores: every text, or every window of it
-        return (w for e in read_examples(spec, task, limit, with_gold=False) for w in cut(e.text))
+    def rows_of(split, spec, limit, with_gold=True):
+        rows = read_examples(spec, task, limit, with_gold=with_gold)
+        return (e for e in rows if e.text in only) if only is not None and split == "train" else rows
 
-    caches, fingerprints, device = [], [], "cpu"
+    def texts_of(split, spec, limit):  # what the teacher scores: every text, or every window of it
+        return (w for e in rows_of(split, spec, limit, False) for w in cut(e.text))
+
+    caches, fingerprints, device, costs = [], [], "cpu", []
     seconds, scored = 0.0, 0
     keys_file = cache_dir / "teacher-keys.json"  # quick key (tokenizer only) -> full fingerprint
     keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
@@ -186,8 +193,8 @@ def cmd_label(a: argparse.Namespace) -> None:
             cached = [ScoreCache(cache_dir / f"teacher-{k}.jsonl") for k in known if k]
             if len(cached) == len(known) and all(
                 text_hash(t) in c.scores
-                for _, spec, limit in splits
-                for t in texts_of(spec, limit)
+                for split, spec, limit in splits
+                for t in texts_of(split, spec, limit)
                 for c in cached
             ):
                 log(f"{name}: every text is in the cache, so the teacher is not loaded")
@@ -229,11 +236,19 @@ def cmd_label(a: argparse.Namespace) -> None:
             cache = ScoreCache(cache_dir / f"teacher-{fingerprints[-1]}.jsonl")
             if cache.scores:
                 log(f"resuming: {len(cache.scores)} texts already scored")
+            if a.dry_run:
+                todo = iter_unique(
+                    t for s in splits for t in texts_of(*s) if text_hash(t) not in cache.scores
+                )
+                costs.append(_api_cost(member, list(todo), a.api_samples))
+                print(_cost_line(who, *costs[-1], a))
+                continue
             for split, spec, limit in splits:
                 t0 = time.perf_counter()
-                total = None if chunk else count_rows(spec, limit)  # windows are not counted ahead
+                # windows (and a budget's texts) are not counted ahead
+                total = None if chunk or only is not None else count_rows(spec, limit)
                 bar = Progress(f"label {split} ({who})", total, log, run / "status.json")
-                texts = iter_unique(texts_of(spec, limit))
+                texts = iter_unique(texts_of(split, spec, limit))
                 n = cache.fill(member, texts, on_read=bar.update)
                 bar.finish()
                 seconds += time.perf_counter() - t0
@@ -244,12 +259,22 @@ def cmd_label(a: argparse.Namespace) -> None:
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+    if a.dry_run:
+        if len(costs) > 1:
+            n, requests, tokens_in, tokens_out = (sum(c) for c in zip(*costs, strict=True))
+            print(_cost_line("total", n, requests, tokens_in, tokens_out, a))
+        print(
+            "Input tokens are estimated as the prompt's characters / 4. With --api-samples N each text takes "
+            "N requests at most; an API that accepts several answers per request takes one and bills the "
+            "prompt once. Nothing was sent or scored."
+        )
+        return
 
     multi = task.multi_label
     for split, spec, limit in splits:
         n_rows = 0
         with (run / f"{split}.jsonl").open("w", encoding="utf-8") as f:
-            for doc, e in enumerate(read_examples(spec, task, limit)):
+            for doc, e in enumerate(rows_of(split, spec, limit)):
                 wins = cut(e.text)
                 if split == "test" or len(wins) == 1:  # the document, scored as the mean of its windows
                     pieces = [(e.text, [combine_scores([c.get(w) for w in wins], multi) for c in caches])]
@@ -284,6 +309,7 @@ def cmd_label(a: argparse.Namespace) -> None:
             "test": a.test,
             "label_seconds": round(seconds, 1),
             "label_texts_scored": scored,
+            "budget": None if only is None else len(only),  # run --budget: the training texts labelled
             "teacher_tokens": a.teacher_tokens,
             "vllm_url": a.vllm_url,
             "api_url": a.api_url,
@@ -296,6 +322,36 @@ def cmd_label(a: argparse.Namespace) -> None:
             **({"chunk_tokens": None, "chunk_stride": None, "chunk_tokenizer": None} | chunk),
         },
     )
+
+
+def _api_cost(member, texts: list[str], samples: int | None) -> tuple[int, int, int, int]:
+    """label --dry-run: (texts, requests, input tokens, output tokens) that labelling ``texts`` with the API
+    teacher ``member`` takes. Input tokens are the rendered prompts' characters / 4, an approximation (no
+    tokenizer of a hosted model is at hand); output tokens are the most the requests ask for."""
+    from .teacher import API_SAMPLE_TOKENS
+
+    shots = member.similar(texts) if member.similar is not None and texts else [None] * len(texts)
+    chars = sum(len(member._render(t, s)) for t, s in zip(texts, shots, strict=True))
+    k = samples or 1
+    return (
+        len(texts),
+        len(texts) * k,
+        round(chars / 4) * k,
+        len(texts) * k * (API_SAMPLE_TOKENS if samples else 1),
+    )
+
+
+def _cost_line(
+    who: str, n: int, requests: int, tokens_in: int, tokens_out: int, a: argparse.Namespace
+) -> str:
+    line = (
+        f"{who}: {n} texts to label, {requests} requests, about {tokens_in:,} input tokens and at most "
+        f"{tokens_out:,} output tokens"
+    )
+    if a.price_in is not None or a.price_out is not None:
+        cost = (tokens_in * (a.price_in or 0) + tokens_out * (a.price_out or 0)) / 1e6
+        line += f", about {cost:,.4f} at the given prices"
+    return line
 
 
 def _chunking(a: argparse.Namespace) -> tuple[Any, dict]:
@@ -743,6 +799,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "shortlist_keep",
                 "chunk_tokens",
                 "chunk_stride",
+                "budget",
+                "rounds",
             )
         },
         "environment": environment(threads),
@@ -929,6 +987,24 @@ def cmd_push(a: argparse.Namespace) -> None:
 def cmd_analyse(a: argparse.Namespace) -> None:
     from .analyse import build
 
+    if a.review:
+        import csv
+
+        from .analyse import review
+
+        task = load_task(Path(a.run) / "task.yaml")
+        if task.multi_label:
+            raise SystemExit("--review is for single-label tasks")
+        queue, wrong = review(_read_jsonl(Path(a.run) / "train.jsonl"), task.labels)
+        with Path(a.review).open("w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, ["text", "gold", "teacher_label", "teacher_confidence", "member_labels"])
+            w.writeheader()
+            w.writerows(queue)
+        log(
+            f"wrote {len(queue)} training texts to {a.review}: {wrong} whose gold label the teacher "
+            f"contradicts, then {len(queue) - wrong} on which the teacher's ensemble members disagree"
+        )
+        return
     page, summary = build(Path(a.run), a.top)
     (Path(a.run) / "analysis.html").write_text(page, encoding="utf-8")
     print(summary)
@@ -1243,11 +1319,18 @@ def cmd_run(a: argparse.Namespace) -> None:
     import torch
 
     a.run = a.out
-    cmd_label(a)
-    gc.collect()  # release the teacher before training
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    cmd_train(a)
+    if a.budget:
+        _budget_rounds(a)
+        if a.dry_run:
+            return
+    else:
+        cmd_label(a)
+        if a.dry_run:
+            return
+        gc.collect()  # release the teacher before training
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        cmd_train(a)
     cmd_export(a)
     cmd_eval(a)
     out = a.out
@@ -1257,6 +1340,47 @@ def cmd_run(a: argparse.Namespace) -> None:
         f"  tinydistill serve {out}/onnx                   a JSON endpoint on http://127.0.0.1:8000\n"
         f"  tinydistill web {out}/onnx --out site          a page that runs it in the browser"
     )
+
+
+def _budget_rounds(a: argparse.Namespace) -> None:
+    """run --budget N --rounds R: the teacher labels N training texts in R rounds, N/R each. Round 1 picks
+    them at random (--seed); each later round picks the unlabelled texts the student just trained is least
+    sure of (highest entropy). The student is trained after every round; the last is the final one."""
+    import gc
+    import random
+
+    import torch
+
+    from .data import read_examples
+    from .student import load_student, student_logits
+    from .suggest import uncertainty
+    from .teacher import pick_device
+
+    task = load_task(a.task)
+    pool = list(dict.fromkeys(e.text for e in read_examples(a.data, task, a.limit, with_gold=False)))
+    n = min(a.budget, len(pool))
+    if not 1 <= a.rounds <= n:
+        raise SystemExit(f"--rounds must be between 1 and the budget ({n} texts)")
+    sizes = [n * (r + 1) // a.rounds - n * r // a.rounds for r in range(a.rounds)]
+    rng = random.Random(a.seed)
+    if a.dry_run:  # a random sample of N texts stands in for the ones the rounds would pick
+        cmd_label(a, set(rng.sample(pool, n)))
+        return
+    chosen = set(rng.sample(pool, sizes[0]))
+    for r, size in enumerate(sizes):
+        if r:
+            left = [t for t in pool if t not in chosen]
+            model, tok = load_student(Path(a.out) / "student", pick_device(a.device))
+            u = uncertainty(student_logits(model, tok, left), task.multi_label)
+            chosen.update(left[i] for i in u.argsort(descending=True, stable=True)[:size].tolist())
+            del model
+        log(f"budget round {r + 1} of {a.rounds}: the teacher labels {len(chosen)} of {len(pool)} texts")
+        cmd_label(a, chosen)
+        gc.collect()  # release the teacher before training
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        cmd_train(a)
+    _meta(Path(a.out), {"rounds": a.rounds, "budget_pool": len(pool)})
 
 
 # ---------- parser ----------
@@ -1387,6 +1511,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     label.add_argument("--limit", type=int, help="use only the first N training texts")
     label.add_argument("--test-limit", type=int, help="use only the first N test texts")
+    label.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="with --api-url: print the requests and (approximate) tokens labelling would take, and with "
+        "--price-in/--price-out its cost, for the texts not in the cache yet; scores nothing",
+    )
+    label.add_argument(
+        "--price-in", type=float, metavar="P", help="with --dry-run: the API's price per million input tokens"
+    )
+    label.add_argument(
+        "--price-out",
+        type=float,
+        metavar="Q",
+        help="with --dry-run: the API's price per million output tokens",
+    )
 
     train = argparse.ArgumentParser(add_help=False)
     train.add_argument(
@@ -1626,6 +1765,13 @@ def build_parser() -> argparse.ArgumentParser:
         "analyse", parents=[run_dir], help="where the teacher and student go wrong (RUN/analysis.html)"
     )
     ana.add_argument("--top", type=int, default=15, help="how many confusions and disagreements to list")
+    ana.add_argument(
+        "--review",
+        metavar="OUT.csv",
+        help="instead of the page, write a CSV of training texts for a person to check: where the teacher's "
+        "label contradicts the gold label, the teacher's most confident first, then (ensembles) where its "
+        "members disagree most. Training is not changed",
+    )
     ana.set_defaults(fn=cmd_analyse)
     sub.add_parser(
         "status", parents=[run_dir], help="how far a run is, and whether it is still running"
@@ -1634,9 +1780,18 @@ def build_parser() -> argparse.ArgumentParser:
     cmp.add_argument("runs", nargs="+", help="run directories or results.json files")
     cmp.set_defaults(fn=cmd_compare)
     sub.add_parser("env", help="versions and hardware, for bug reports").set_defaults(fn=cmd_env)
-    sub.add_parser(
+    rn = sub.add_parser(
         "run", parents=[label, train, export, ev, common], help="label, train, export and eval"
-    ).set_defaults(fn=cmd_run)
+    )
+    rn.add_argument(
+        "--budget",
+        type=int,
+        metavar="N",
+        help="the teacher labels only N training texts (for paid APIs): N/R at random, then in each of "
+        "--rounds R rounds the N/R unlabelled texts the student trained so far is least sure of",
+    )
+    rn.add_argument("--rounds", type=int, default=4, metavar="R", help="with --budget: rounds (default 4)")
+    rn.set_defaults(fn=cmd_run)
     return p
 
 
