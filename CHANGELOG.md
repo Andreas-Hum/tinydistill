@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `Distiller`: the pipeline as a scikit-learn style estimator, `Distiller("task.yaml").fit(texts)` then
+  `predict`, `predict_proba`, `describe`, `score`, `save` and `Distiller.load`, with `get_params` and
+  `set_params` for scikit-learn tools (without depending on scikit-learn). With `cache_dir` it shares the
+  teacher's score cache with `tinydistill label --cache-dir`.
 - Documentation site at https://andreas-hum.github.io/tinydistill/ (MkDocs): getting started, a guide per
   topic, how it works, benchmarks, and a command-line and Python API reference generated from the code. The
   live demo moved to https://andreas-hum.github.io/tinydistill/demo/.

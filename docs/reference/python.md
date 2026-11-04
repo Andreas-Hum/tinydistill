@@ -3,6 +3,12 @@
 The functions and classes most programs need are importable from `tinydistill` directly; the rest are in its
 modules.
 
+## In a few lines
+
+::: tinydistill.distiller.Distiller
+
+::: tinydistill.distiller.NotFittedError
+
 ## Using a model
 
 ::: tinydistill.export.Predictor

@@ -341,7 +341,19 @@ clf.predict(["How do I top up my card?"])  # list of label names
 clf.predict_proba(["How do I top up my card?"])  # numpy array, one row per text
 ```
 
-The whole pipeline, without the command line:
+The whole pipeline in a few lines, scikit-learn style (`fit` labels the texts with the teacher, trains the
+student and exports it):
+
+```python
+from tinydistill import Distiller
+
+clf = Distiller("task.yaml", teacher="Qwen/Qwen2.5-1.5B-Instruct", cache_dir="cache")
+clf.fit(texts)  # a list of training texts; fit(texts, gold) also takes gold labels (None for none)
+clf.predict(["Where is my card?"])  # one label id per text
+clf.save("model")  # a folder Predictor reads; Distiller.load("model") gives it back
+```
+
+Step by step, without the command line:
 
 ```python
 from pathlib import Path

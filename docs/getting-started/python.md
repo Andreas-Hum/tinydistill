@@ -1,5 +1,31 @@
 # From Python
 
+## In a few lines: Distiller
+
+`Distiller` runs the whole pipeline scikit-learn style: `fit` scores the texts with the teacher, trains the
+student on its soft labels and exports it to ONNX, and the fitted model predicts.
+
+```python
+from tinydistill import Distiller, load_task, read_examples
+
+task = load_task("task.yaml")
+texts = [e.text for e in read_examples("hf:PolyAI/banking77:train", task, limit=1000)]
+test = list(read_examples("hf:PolyAI/banking77:test", task, limit=500))
+
+clf = Distiller(task, teacher="Qwen/Qwen2.5-1.5B-Instruct", cache_dir="cache")
+clf.fit(texts)  # optionally fit(texts, gold) with a gold label (or None) per text
+clf.predict(["How do I top up my card?"])  # one label id per text
+clf.predict_proba(["How do I top up my card?"])  # numpy array, one column per label in clf.classes_
+clf.score([e.text for e in test], [e.gold for e in test])  # accuracy
+clf.save("model")  # a folder Predictor reads
+
+clf = Distiller.load("model")  # no teacher needed
+```
+
+`cache_dir` keeps the teacher's scores in the same files `tinydistill label --cache-dir` writes, so a second
+`fit` on the same texts (or a command-line run) does not load the teacher again. `get_params` and `set_params`
+return and set the constructor's arguments, so scikit-learn tools such as `clone` work with it.
+
 ## Use a distilled model
 
 `Predictor` runs an exported model with onnxruntime and a tokenizer; it does not need PyTorch.
