@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `improve RUN --rounds R --per-round N`: rounds of performance-guided distillation (PGKD, Di Palo et al.,
+  2024). Each round finds the label pairs the student confuses most on a held-out share of the training texts
+  (`--held-out`, default 0.1, against the teacher's labels; never the test set), has the teacher write N texts
+  that are easy to mistake for the other label of a pair, labels them with the run's teacher and trains,
+  exports and evaluates a new student with the run's training settings in `RUN-improve/round-k`. Round 0 is
+  the run retrained without the held-out texts. It stops when the held-out agreement does not improve and
+  writes `RUN-improve/improve.md` and `improve.json`. Single-label runs with a local teacher.
+- `synth --vary`: each request also names a length, a tone and a writer's situation, sampled with `--seed`
+  (AttrPrompt, Yu et al., 2023); a task file's `attributes` mapping replaces them. `synth --dedup T [--data
+  FILE]` drops texts whose cosine similarity to a text kept earlier, or to one in FILE, is T or more. Without
+  the flags the output is unchanged.
 - `label --api-url URL --api-samples N [--api-temperature T]`: for hosted APIs without log-probabilities, the
   teacher samples N answers per text (default temperature 0.7) and each label's soft label is its share of the
   answers whose first word is an option letter. N and T are part of the cache fingerprint and of `meta.json`.
