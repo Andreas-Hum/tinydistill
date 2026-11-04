@@ -13,6 +13,11 @@
   "Show the math", which adds each step's formula with the current text's numbers (KaTeX, loaded on first
   use). "Inside the model" is folded under "How does it work?". When the student alone is at least as
   accurate as the teacher, the cascade step says sending texts to the teacher does not help.
+- `web`: the explainer page is now a one-screen playground: text (rerun as you type), a diagram of the whole network
+  (a column of token nodes per layer, attention lines from the chosen head or the mean over heads) and the output
+  (probabilities with a sparkline per label across the layers, teacher against student, the loss). Hovering a token
+  highlights it everywhere; hovering a layer shows its heads, clicking one pins it. The attention matrix, embeddings,
+  token map, classifier terms and the math moved into tabs under the diagram. On a phone the panes stack.
 - `web` also writes `OUT/explainer/`, a guided walk through the student as it reads the visitor's text: an
   overview of every stage drawn from the current run, then tokens and embeddings, every attention head of every
   layer, what the classifier would answer after each layer, a PCA map of the token vectors per layer, the

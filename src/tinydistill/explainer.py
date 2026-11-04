@@ -1,6 +1,6 @@
-"""The explainer page of `tinydistill web`: a guided, zoomable walk through the student as it runs in the
-browser on the visitor's text, from the tokens through every layer and head to the probabilities, with the
-math of each stage and what the student was trained on. The page itself is explainer.html next to this file;
+"""The explainer page of `tinydistill web`: a one-screen playground of the student as it runs in the browser
+on the visitor's text, from the tokens through every layer and head to the probabilities, with the math of
+each stage and what the student was trained on. The page itself is explainer.html next to this file;
 the model is ``explorer.onnx`` (see export.export_explorer)."""
 
 from __future__ import annotations

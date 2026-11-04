@@ -59,14 +59,18 @@ The model folder is named after a hash of its contents, so browsers never mix a 
 page. The layer-by-layer view works for BERT-, RoBERTa-, MPNet- and DeBERTa-style students; for others, such as
 ModernBERT and ALBERT, the page shows the answer, the probabilities and which words matter without it.
 
-The same command writes a second page, `site/explainer/`: a guided walk through the model as it reads the
-visitor's text. An overview draws every stage from the current run (text, tokens, embeddings, each layer, the
-`[CLS]` vector, the classifier, the probabilities and, for the bundled examples, the teacher's soft labels);
-selecting a stage zooms into it. The steps show each token's embedding vector, every attention head of every
-layer as a heat map (one head in full, with lines from a token to the tokens it attends to), what the classifier
-would answer after each layer, a map of the token vectors per layer (PCA, computed in the page), the terms of the
-classifier's score, the probabilities, and the training loss with this run's cross-entropy weight. Each step has
-a "the math" panel with its formula and the current numbers, rendered with [KaTeX](https://katex.org).
+The same command writes a second page, `site/explainer/`: a one-screen playground of the model as it reads the
+visitor's text. On the left, the text (the model reruns as you type), the bundled examples and the tokens. In the
+middle, the network: a column of token nodes after the embeddings and after each layer, with lines between columns
+for the attention of the chosen head (or the mean over heads), each token's strongest only, and under each layer the
+chance of the final answer had the model stopped there. On the right, the probabilities with a sparkline per label
+across the layers, the teacher's soft labels against the student for the bundled examples, and the training loss
+with this run's cross-entropy weight. Hovering a token highlights it everywhere (its nodes, its attention lines, its
+row and column in the attention matrix, its point in the token map); hovering a layer shows its heads as small
+multiples, and clicking a head pins it. Tabs under the network hold the details: one head's full attention matrix,
+the embeddings, a map of the token vectors per layer (PCA, computed in the page) and the terms of the classifier's
+score. "Math" shows each one's formulas with the current numbers, rendered with [KaTeX](https://katex.org). On a
+phone the panes stack and the network scrolls inside its own box.
 
 The explainer runs `explorer.onnx`, exported from the run's PyTorch student (`RUN/student`) with every head's
 attention and the hidden states as extra outputs, so it reads at most 128 tokens. It needs a BERT-, RoBERTa- or
