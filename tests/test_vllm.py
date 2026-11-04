@@ -78,3 +78,20 @@ def test_vllm_with_similar_examples_equals_local(fake_vllm, task):
     for got, want in zip(remote.score_many(texts), local.score_many(texts), strict=True):
         assert got == pytest.approx(want, abs=1e-4)
     assert remote.fingerprint() != VLLMScorer(url, TINY_LM, tok, shots).fingerprint()
+
+
+def test_vllm_reasoning_equals_local_reasoning(fake_vllm, task, monkeypatch):
+    from tinydistill.teacher import ReasoningScorer, VLLMReasoningScorer
+
+    url, model, requests = fake_vllm
+    tok = AutoTokenizer.from_pretrained(TINY_LM)
+    remote = VLLMReasoningScorer(url, TINY_LM, tok, task, 16, workers=2)
+    local = ReasoningScorer(model, tok, task, 16)
+    monkeypatch.setattr(local, "_generate", lambda prompts: ["x"] * len(prompts))  # what the stand-in writes
+    texts = ["great product", "meh"]
+    for got, want in zip(remote.score_many(texts), local.score_many(texts), strict=True):
+        assert got == pytest.approx(want, abs=1e-4)
+    gen = next(b for b in requests if "stop" in b)
+    assert gen["max_tokens"] == 16 and gen["temperature"] == 0 and len(gen["prompt"]) == 2
+    assert remote.reasoning == {"great product": "x", "meh": "x"}
+    assert remote.fingerprint() != VLLMScorer(url, TINY_LM, tok, task).fingerprint()
