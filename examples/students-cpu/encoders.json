@@ -1,0 +1,88 @@
+{
+ "what": "20 training steps on 16 short texts (4 labels) on CPU, then ONNX export; latency is the median over 50 calls of Predictor.logits at batch 1 (10 at batch 32) on those texts",
+ "threads": 2,
+ "cpu": "x86_64",
+ "torch": "2.15.0+cpu",
+ "transformers": "5.22.1",
+ "onnxruntime": "1.31.1",
+ "students": [
+  {
+   "student": "sentence-transformers/all-MiniLM-L6-v2",
+   "params_m": 22.7,
+   "train_20_steps_s": 2.8,
+   "onnx_fp32_max_abs_diff_vs_pytorch": 3.814697265625e-06,
+   "int8_top_label_agrees_with_pytorch": 1.0,
+   "size_mb_fp32": 91.0,
+   "size_mb_int8": 23.0,
+   "latency_ms_b1_int8": 0.85,
+   "latency_ms_b32_int8": 19.9,
+   "latency_ms_b1_fp32": 2.51,
+   "latency_ms_b32_fp32": 40.1
+  },
+  {
+   "student": "jhu-clsp/ettin-encoder-17m",
+   "params_m": 16.9,
+   "train_20_steps_s": 2.3,
+   "onnx_fp32_max_abs_diff_vs_pytorch": 4.291534423828125e-06,
+   "int8_top_label_agrees_with_pytorch": 1.0,
+   "size_mb_fp32": 67.6,
+   "size_mb_int8": 17.2,
+   "latency_ms_b1_int8": 0.71,
+   "latency_ms_b32_int8": 12.6,
+   "latency_ms_b1_fp32": 1.0,
+   "latency_ms_b32_fp32": 20.2
+  },
+  {
+   "student": "jhu-clsp/ettin-encoder-32m",
+   "params_m": 32.0,
+   "train_20_steps_s": 3.5,
+   "onnx_fp32_max_abs_diff_vs_pytorch": 2.384185791015625e-06,
+   "int8_top_label_agrees_with_pytorch": 1.0,
+   "size_mb_fp32": 128.4,
+   "size_mb_int8": 32.5,
+   "latency_ms_b1_int8": 1.46,
+   "latency_ms_b32_int8": 23.9,
+   "latency_ms_b1_fp32": 3.17,
+   "latency_ms_b32_fp32": 49.0
+  },
+  {
+   "student": "jhu-clsp/mmBERT-small",
+   "params_m": 140.6,
+   "train_20_steps_s": 13.8,
+   "onnx_fp32_max_abs_diff_vs_pytorch": 2.1457672119140625e-06,
+   "int8_top_label_agrees_with_pytorch": 1.0,
+   "size_mb_fp32": 563.2,
+   "size_mb_int8": 141.6,
+   "latency_ms_b1_int8": 5.39,
+   "latency_ms_b32_int8": 65.3,
+   "latency_ms_b1_fp32": 10.52,
+   "latency_ms_b32_fp32": 149.2
+  },
+  {
+   "student": "static:minishlab/potion-base-8M",
+   "params_m": 7.6,
+   "train_20_steps_s": 1.4,
+   "onnx_fp32_max_abs_diff_vs_pytorch": 3.337860107421875e-06,
+   "int8_top_label_agrees_with_pytorch": 1.0,
+   "size_mb_fp32": 30.2,
+   "size_mb_int8": 7.6,
+   "latency_ms_b1_int8": 0.05,
+   "latency_ms_b32_int8": 3.5,
+   "latency_ms_b1_fp32": 0.05,
+   "latency_ms_b32_fp32": 4.0
+  },
+  {
+   "student": "static:minishlab/potion-multilingual-128M",
+   "params_m": 128.1,
+   "train_20_steps_s": 15.1,
+   "onnx_fp32_max_abs_diff_vs_pytorch": 1.430511474609375e-06,
+   "int8_top_label_agrees_with_pytorch": 1.0,
+   "size_mb_fp32": 512.4,
+   "size_mb_int8": 128.1,
+   "latency_ms_b1_int8": 0.07,
+   "latency_ms_b32_int8": 3.3,
+   "latency_ms_b1_fp32": 0.04,
+   "latency_ms_b32_fp32": 3.5
+  }
+ ]
+}

@@ -1009,12 +1009,15 @@ def test_train_keeps_the_best_epoch_on_held_out_texts(tmp_path):
             "--gold-per-class",
             "1",
             "--gold-only",
+            "--init-head",
+            "names",
             "--device",
             "cpu",
         ]
     )
     meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
     assert meta["val_share"] == 0.2 and set(meta["kept_epochs"]) == {"student", "student-kgold"}
+    assert meta["init_head"] == "names"
     assert all(1 <= e <= 3 for runs in meta["kept_epochs"].values() for e in runs)
     main(["export", str(run)])
     main(["eval", str(run), "--reps", "2", "--teacher-reps", "2", "--skip-teacher-bench"])

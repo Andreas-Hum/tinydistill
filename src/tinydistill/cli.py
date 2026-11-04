@@ -401,6 +401,12 @@ def cmd_train(a: argparse.Namespace) -> None:
         "patience": a.patience,
         "chunk_tokens": meta.get("chunk_tokens"),
         "chunk_stride": meta.get("chunk_stride"),
+        "init_head": [
+            f"{v}: {d}" if d else v
+            for v, d in zip(task.verbalisations, task.descriptions or [None] * len(task.labels), strict=True)
+        ]
+        if a.init_head
+        else None,
     }
     if meta.get("chunk_tokens") and meta.get("chunk_tokenizer") != (encoder_of(a.student) or a.student):
         log(
@@ -465,6 +471,7 @@ def cmd_train(a: argparse.Namespace) -> None:
         {
             "student": a.student,
             "epochs": a.epochs,
+            "init_head": a.init_head,
             "val_share": a.val_share,
             "patience": a.patience if a.val_share else None,
             "kept_epochs": kept if a.val_share else None,
@@ -1239,7 +1246,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--student",
         default="sentence-transformers/all-MiniLM-L6-v2",
         help="Hugging Face encoder, or `static` / `static:<encoder>` for a static-embedding student "
-        "(no attention: much smaller and faster; try --epochs 20 --lr 1e-3)",
+        "(no attention: much smaller and faster; try --epochs 20 --lr 1e-3); <encoder> may be a Model2Vec "
+        "model such as minishlab/potion-base-8M",
+    )
+    train.add_argument(
+        "--init-head",
+        choices=["names"],
+        help="`names`: before training, set each label's classifier weights to the student's own embedding "
+        "of the label's name (and description), so the untrained student ranks labels by similarity to "
+        "their names (default: a random head)",
     )
     train.add_argument("--epochs", type=int, default=10, help="passes over the training texts (default 10)")
     train.add_argument(

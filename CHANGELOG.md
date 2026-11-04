@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `train --init-head names`: before training, each label's classifier weights are set to the student's own
+  representation of the label's name (and description), normalised and scaled, with zero bias, so the untrained
+  student ranks labels by similarity to their names. BERT, RoBERTa/MPNet, ModernBERT and static students. Off by
+  default; recorded in `meta.json`.
+- Static students from Model2Vec models: `--student static:minishlab/potion-base-8M` (or any folder or Hub model
+  with `model_type: model2vec`) starts from the model's own token vectors, read from its files without the
+  `model2vec` package. Tokens the Model2Vec model has no vector for (such as `<s>` in potion-multilingual)
+  start at zero.
+- Ettin (`jhu-clsp/ettin-encoder-17m`, `-32m`) and mmBERT (`jhu-clsp/mmBERT-small`) students are checked:
+  they train, export to ONNX and int8, and run in `Predictor` with no changes. Sizes and CPU latencies, with
+  those of the potion static students, are in `examples/students-cpu/encoders.json` and the student table.
 - `label --api-url URL --api-samples N [--api-temperature T]`: for hosted APIs without log-probabilities, the
   teacher samples N answers per text (default temperature 0.7) and each label's soft label is its share of the
   answers whose first word is an option letter. N and T are part of the cache fingerprint and of `meta.json`.

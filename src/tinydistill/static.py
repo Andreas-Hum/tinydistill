@@ -3,7 +3,8 @@ No attention, so it is far smaller and faster than a transformer. The token vect
 encoder (each token run through it on its own, then reduced with PCA), then train with the usual loss.
 
 It is a regular `transformers` model, so training, ONNX export and `Predictor` work as for any student:
-``--student static`` (from MiniLM) or ``--student static:<encoder>``."""
+``--student static`` (from MiniLM) or ``--student static:<encoder>``. ``<encoder>`` can also be a Model2Vec
+model (e.g. ``minishlab/potion-base-8M``): its token vectors are used as they are."""
 
 from __future__ import annotations
 
@@ -82,10 +83,27 @@ def token_vectors(encoder: str, dim: int = 256, batch: int = 1024) -> torch.Tens
     return v @ vt[:dim].T
 
 
+def model2vec_vectors(encoder: str) -> torch.Tensor | None:
+    """The token vectors of a Model2Vec model (a Hub id or folder with ``model_type: model2vec`` in its
+    config.json and an ``embeddings`` matrix in model.safetensors), or None if ``encoder`` is not one."""
+    from safetensors.torch import load_file
+    from transformers.utils import cached_file
+
+    config = cached_file(encoder, "config.json", _raise_exceptions_for_missing_entries=False)
+    if not config or json.loads(Path(config).read_text(encoding="utf-8")).get("model_type") != "model2vec":
+        return None
+    return load_file(str(cached_file(encoder, "model.safetensors")))["embeddings"].float()
+
+
 def new_static(encoder: str, labels: list[str], multi_label: bool, dim: int = 256):
-    """A static student initialised from ``encoder``, and its tokenizer."""
+    """A static student initialised from ``encoder`` (a Model2Vec model keeps its own vectors and size), and
+    its tokenizer."""
     tok = AutoTokenizer.from_pretrained(encoder)
-    vectors = token_vectors(encoder, dim)
+    vectors = model2vec_vectors(encoder)
+    if vectors is None:
+        vectors = token_vectors(encoder, dim)
+    if len(tok) > len(vectors):  # tokens a Model2Vec model has no vector for (e.g. <s>, </s>) start at zero
+        vectors = torch.cat([vectors, vectors.new_zeros(len(tok) - len(vectors), vectors.shape[1])])
     config = StaticConfig(
         vocab_size=vectors.shape[0],
         dim=vectors.shape[1],
