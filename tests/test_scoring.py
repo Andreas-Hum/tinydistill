@@ -3,8 +3,10 @@ import math
 
 import pytest
 import torch
+import transformers
 from conftest import TINY_ENCODER, TINY_LM
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
 from tinydistill.teacher import NOT_SCORED, LabelScorer, surface_variants
 
@@ -400,6 +402,10 @@ SHOTS = "Is this review positive, negative or neutral?\n{labels}\n{examples}\n\n
 POOL = [("good film", 0), ("bad film", 1), ("great movie", 0), ("awful plot", 1), ("so-so, I guess", 2)]
 
 
+@pytest.mark.skipif(
+    int(transformers.__version__.split(".")[0]) < 5,
+    reason="the hashes were recorded with transformers 5, whose tokenizers give other prompt ids",
+)
 def test_fingerprints_without_similar_examples_are_unchanged(lm, task):
     """Computed before --few-shot-similar existed: a change here would invalidate every score cache."""
     from tinydistill.teacher import quick_key
@@ -499,6 +505,9 @@ def hybrid(lm):
     return AutoModelForCausalLM.from_config(cfg).eval(), tok
 
 
+@pytest.mark.skipif(
+    "qwen3_5_text" not in CONFIG_MAPPING, reason="this transformers version has no Qwen3.5 models"
+)
 def test_recurrent_teachers_score_one_text_at_a_time(lm, hybrid, task):
     """Linear-attention layers ignore the packing mask and cannot roll their state back, so such teachers
     score each text alone; the scores equal a plain forward pass over prompt + text + continuation."""
