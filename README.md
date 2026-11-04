@@ -268,9 +268,11 @@ using only the standard library. It listens on 127.0.0.1 unless you pass `--host
 
 **Browser.** `tinydistill web RUN/onnx --out site` writes a static page plus the model in the layout
 [transformers.js](https://github.com/huggingface/transformers.js) expects; the int8 model then runs in the
-visitor's browser with no server at all. Below the answer, an "Inside the model" view shows each step of the inference
-(tokens, the answer after each layer, attention, probabilities, which words matter, the teacher's soft labels
-for the examples and the cascade), so the page also explains distillation. Serve the folder with any static host (GitHub Pages works).
+visitor's browser with no server at all. It sets the teacher against the student (from `results.json`), answers
+as you type, and checks itself on up to 200 bundled test texts. "How does it work?" shows each step of the
+inference (tokens, the answer after each layer, attention, probabilities, which words matter, the teacher's soft
+labels and the cascade), with the formulas on request, so the page also explains distillation. Serve the folder
+with any static host (GitHub Pages works).
 
 **Hugging Face Hub.** `tinydistill push RUN/onnx --repo user/name` uploads the model with a model card.
 Anyone can then use it without the run directory: `Predictor("hf:user/name")` in Python, or

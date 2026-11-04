@@ -32,10 +32,28 @@ curl -s localhost:8000/predict -d '{"texts": ["Oil prices fall as demand weakens
 
 `tinydistill web RUN/onnx --out site` writes a static page plus the model in the layout
 [transformers.js](https://github.com/huggingface/transformers.js) expects. The int8 model then runs in the
-visitor's browser with no server at all; any static host works, GitHub Pages included. Below the answer, an
-"Inside the model" view shows each step of the inference: the word pieces, what each layer would answer, where
-the classifier looks, all label probabilities, which words matter, the teacher's soft labels for the examples,
-and the cascade. The [live demo](https://andreas-hum.github.io/tinydistill/demo/) is such a page.
+visitor's browser with no server at all; any static host works, GitHub Pages included. The
+[live demo](https://andreas-hum.github.io/tinydistill/demo/) is such a page.
+
+- At the top, a card sets the teacher against the student: model, size, time per text and test accuracy
+  (macro-F1 for multi-label tasks). The numbers come from the run's `results.json`; the student's time is
+  measured in the visitor's browser. A number the run did not record is left out.
+- The answer, the top three labels and a copy of the text with the words that support the answer highlighted
+  (leave one word out) update as you type. Under a top probability of 50% the page says the text may fit
+  none of the labels.
+- The page holds up to 200 test texts (fewer when they are long: 150,000 characters in all), one per label
+  first, with their gold labels and the teacher's ten most likely labels. Example buttons show the first few;
+  "Random test text" shows the student, the teacher and the gold label for one of them, each marked correct or
+  wrong. "Check it yourself" runs all of them in the browser and reports accuracy (macro-F1 for multi-label),
+  agreement with the teacher and milliseconds per text. They are a sample picked to cover the labels, not
+  the full test set.
+- "All labels" is a searchable list of the labels.
+- "How does it work?" folds out each step of the inference: the word pieces, what each layer would answer,
+  where the classifier looks, all label probabilities, which words matter, the teacher's soft labels and the
+  cascade. "Show the steps" plays them in order. "Show the math" adds each step's formula with the current
+  text's numbers: the token ids and embedding lookup, attention for `[CLS]`, the classifier's logits, softmax
+  (or a sigmoid per label), and the distillation loss as training computes it, with the KL term for a test
+  text. It loads [KaTeX](https://katex.org) from jsDelivr the first time it is turned on.
 
 The model folder is named after a hash of its contents, so browsers never mix a cached older model with a new
 page. The layer-by-layer view works for BERT-, RoBERTa- and MPNet-style students; for others, such as

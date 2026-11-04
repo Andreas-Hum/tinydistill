@@ -62,6 +62,16 @@ def test_bad_requests(server, raw, code):
     assert got == code and "error" in body
 
 
+def test_web_bundle_keeps_labels_first_and_a_size_budget():
+    from tinydistill.web import _bundle
+
+    rows = [{"text": "x" * 10, "gold": i // 5} for i in range(20)]  # sorted by label, four labels
+    picked, first = _bundle(rows, n=8, chars=1000)
+    assert first == 4 and [r["gold"] for r in picked[:4]] == [0, 1, 2, 3] and len(picked) == 8
+    assert len({id(r) for r in picked}) == 8  # no row twice
+    assert len(_bundle(rows, n=8, chars=35)[0]) == 3  # 10 characters each
+
+
 def test_web_page_layout(tmp_path):
     from tinydistill.web import build_site
 
@@ -120,5 +130,10 @@ def test_web_page_layout(tmp_path):
     assert outputs == ["logits", "layer_logits", "cls_attention"]  # the "Inside the model" view
     assert f'"model": "{folder}"' in text
     assert text.count('class="ghost sample"') == 2  # one per gold label, not the first rows
+    assert "&lt;/b&gt;&quot;</button>" in text  # the buttons show their own text
+    data = json.loads(text.split('id="data">')[1].split("</script>")[0].replace("<\\/", "</"))
+    assert len(data["samples"]) == 6 and data["samples"][1]["gold"] == 1  # all test rows, up to BUNDLE
+    assert "<td>Test accuracy</td><td class='t'></td><td>50.0%</td>" in text  # the card; no teacher number
+    assert 'id="live-ms"' in text and "Size</td>" not in text  # time measured in the page; no sizes: no row
     assert "Test accuracy 0.500 on 6 held-out texts. Distilled from T (8-shot) into S." in text
     assert "Data: CC BY 4.0 &lt;x&gt;" in text
