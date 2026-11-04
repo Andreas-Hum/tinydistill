@@ -470,3 +470,53 @@ def test_similar_examples_need_examples_before_text(lm, task):
     after = type(task)(**{**task.__dict__, "prompt": "{labels}\nReview: {text}\n{examples}\nAnswer:"})
     with pytest.raises(ValueError, match="before"):
         LabelScorer(model, tok, after, similar=Retriever(POOL, 2, TINY_ENCODER))
+
+
+@pytest.fixture(scope="module")
+def hybrid(lm):
+    """A tiny random Qwen3.5 (linear-attention layers between full-attention ones), built from a config."""
+    from transformers import AutoConfig
+
+    tok = lm[1]
+    cfg = AutoConfig.for_model(
+        "qwen3_5_text",
+        vocab_size=len(tok),
+        pad_token_id=0,
+        hidden_size=32,
+        intermediate_size=64,
+        num_hidden_layers=4,
+        num_attention_heads=2,
+        num_key_value_heads=1,
+        head_dim=16,
+        linear_num_key_heads=2,
+        linear_num_value_heads=2,
+        linear_key_head_dim=8,
+        linear_value_head_dim=8,
+        linear_conv_kernel_dim=4,
+        full_attention_interval=2,
+    )
+    torch.manual_seed(0)
+    return AutoModelForCausalLM.from_config(cfg).eval(), tok
+
+
+def test_recurrent_teachers_score_one_text_at_a_time(lm, hybrid, task):
+    """Linear-attention layers ignore the packing mask and cannot roll their state back, so such teachers
+    score each text alone; the scores equal a plain forward pass over prompt + text + continuation."""
+    model, tok = hybrid
+    texts = ["great product, would buy again", "", "meh"]
+    scorer = LabelScorer(model, tok, task, max_tokens=10_000)
+    got = scorer.form_scores_many(texts)
+    assert not scorer._packable
+    for t, row in zip(texts, got, strict=True):
+        assert row.tolist() == pytest.approx(reference(scorer, t), abs=1e-4)
+    # one continuation per batch gives the same scores
+    one = scorer._score_alone(scorer.text_ids("meh"), scorer._full, rows_bytes=1)
+    assert one.tolist() == pytest.approx(got[2].tolist(), abs=1e-4)
+    # a shortlist scores only its labels
+    short = LabelScorer(model, tok, task, shortlist=FixedShortlist({"meh": [1]}))
+    row = short.score_many(["meh"])[0]
+    assert row[1] == pytest.approx(scorer.score("meh")[1], abs=1e-4)
+    assert row[0] < NOT_SCORED / 2
+    plain = LabelScorer(*lm, task)
+    plain.form_scores("x")
+    assert plain._packable  # plain attention layers still pack

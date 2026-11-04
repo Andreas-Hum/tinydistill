@@ -16,6 +16,7 @@ the whole pack; there is no padding and no copy of the cache, which is cropped b
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -380,6 +381,8 @@ class LabelScorer(_Prompt):
         ids = [self.text_ids(t, h) for t, h in zip(texts, self.heads(texts), strict=True)]
         labels = self.shortlist(texts) if self.shortlist is not None else [None] * len(texts)
         views = [self._view(lab) for lab in labels]
+        if not self._packable:
+            return torch.stack([self._score_alone(x, v) for x, v in zip(ids, views, strict=True)])
         out: list[torch.Tensor] = []
         pack: list[tuple[list[int], _View]] = []
         used = 0
@@ -405,6 +408,51 @@ class LabelScorer(_Prompt):
             cache = out.past_key_values
         self._prefix_cache = cache
         self._prefix_last = torch.log_softmax(out.logits[0, -1].float(), -1)
+        from transformers.cache_utils import DynamicLayer
+
+        # Packing masks texts from each other and rolls the cache back to the prompt afterwards. Both need
+        # plain attention layers: recurrent (linear attention) layers ignore the mask and cannot be rolled
+        # back, and sliding-window layers drop old tokens. Other models score one text at a time.
+        layers = getattr(cache, "layers", None) or []
+        self._packable = bool(layers) and all(type(layer) is DynamicLayer for layer in layers)
+
+    @torch.no_grad()
+    def _score_alone(self, x: list[int], view: _View, rows_bytes: int = 2**31) -> torch.Tensor:
+        """One text's continuation scores without packing: the text runs against a copy of the prompt's
+        cache, then the multi-token continuations run in batches against copies of the text's cache (as
+        many rows as fit in ``rows_bytes`` of cache)."""
+        dev = self.device
+        forms = range(len(self.forms)) if view.scored is None else view.scored.nonzero().flatten().tolist()
+        total = torch.full((len(self.forms),), NOT_SCORED, dtype=torch.float32, device=dev)
+        cache = copy.deepcopy(self._prefix_cache)
+        first = self._prefix_last
+        if x:
+            out = self.model(torch.tensor([x], device=dev), past_key_values=cache, use_cache=True)
+            first = torch.log_softmax(out.logits[0, -1].float(), -1)
+        for f in forms:
+            total[f] = first[self.forms[f][0]]
+        longer = [f for f in forms if len(self.forms[f]) > 1]
+        size = sum(t.numel() * t.element_size() for t in _tensors(cache))
+        per = max(1, rows_bytes // max(size, 1))
+        past = len(self.prefix_ids) + len(x)
+        for i in range(0, len(longer), per):
+            batch = longer[i : i + per]
+            width = max(len(self.forms[f]) - 1 for f in batch)
+            inp = torch.zeros((len(batch), width), dtype=torch.long, device=dev)
+            mask = torch.zeros((len(batch), past + width), dtype=torch.long, device=dev)
+            mask[:, :past] = 1
+            for r, f in enumerate(batch):  # right-padded: the padding comes after every scored position
+                n = len(self.forms[f]) - 1
+                inp[r, :n] = torch.tensor(self.forms[f][:-1], device=dev)
+                mask[r, past : past + n] = 1
+            c = copy.deepcopy(cache)
+            c.reorder_cache(torch.zeros(len(batch), dtype=torch.long, device=dev))  # one copy per row
+            logits = self.model(inp, attention_mask=mask, past_key_values=c, use_cache=True).logits.float()
+            for r, f in enumerate(batch):
+                tgt = torch.tensor(self.forms[f][1:], device=dev)
+                rows = logits[r, : len(tgt)]
+                total[f] += (rows.gather(1, tgt[:, None])[:, 0] - torch.logsumexp(rows, -1)).sum()
+        return total
 
     def _additive(self, allow: torch.Tensor) -> torch.Tensor:
         """The mask as additive biases (0 where attention is allowed): every attention implementation reads
@@ -481,6 +529,22 @@ class LabelScorer(_Prompt):
             lp = torch.where(rows == n, self._prefix_last[view.targets], lp)
             results.append(self._totals(lp, view))
         return torch.stack(results)
+
+
+def _tensors(obj) -> Iterator[torch.Tensor]:
+    """The tensors a cache holds (in its layers' attributes, lists and dicts)."""
+    if isinstance(obj, torch.Tensor):
+        yield obj
+    elif isinstance(obj, (list, tuple)):
+        for o in obj:
+            yield from _tensors(o)
+    elif isinstance(obj, dict):
+        for o in obj.values():
+            yield from _tensors(o)
+    elif hasattr(obj, "layers"):
+        yield from _tensors(obj.layers)
+    elif hasattr(obj, "__dict__"):
+        yield from _tensors(vars(obj))
 
 
 def combine_scores(per_teacher: list[list[float]], multi_label: bool = False) -> list[float]:
