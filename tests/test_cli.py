@@ -985,3 +985,29 @@ def test_train_keeps_the_best_epoch_on_held_out_texts(tmp_path):
         "cascade.png",
         "soft_labels.png",
     }
+
+
+def test_env_lists_versions_and_survives_missing_packages(monkeypatch, capsys):
+    import importlib.metadata as md
+
+    real = md.version
+
+    def fake(pkg):
+        if pkg == "bitsandbytes":
+            raise md.PackageNotFoundError(pkg)
+        return real(pkg)
+
+    monkeypatch.setattr(md, "version", fake)
+    main(["env"])
+    out = capsys.readouterr().out
+    for key in (
+        "tinydistill",
+        "Python",
+        "Platform",
+        "torch",
+        "CUDA available",
+        "transformers",
+        "onnxruntime",
+    ):
+        assert f"- {key}: " in out
+    assert "- bitsandbytes: not installed" in out

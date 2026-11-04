@@ -19,3 +19,11 @@ body:
     attributes:
       label: Alternatives
       description: Workarounds you use now, or other approaches you considered.
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Would you like to work on it?
+      options:
+        - "Yes"
+        - "No"
+        - Maybe

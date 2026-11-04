@@ -1,0 +1,87 @@
+name: Anti-slop
+
+# Labels pull requests that look like low-effort automated submissions, using two account checks only: a GitHub
+# account younger than 30 days, and more than 7 repositories forked in one day. Both must fail before anything
+# happens, and then the pull request is only labelled and gets a polite comment; it is never closed or locked,
+# and a maintainer looks at it. Owners, members and collaborators, and pull requests labelled "exempt", are
+# skipped.
+#
+# pull_request_target runs with this repository's token even for pull requests from forks. That is safe here
+# because the action only reads pull request and account metadata through the API; it never checks out or runs
+# the pull request's code.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions: {}
+
+jobs:
+  anti-slop:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: peakoss/anti-slop@57858eead489d08b255fab2af45a506c2ca6eab2  # v0.3.0
+        with:
+          # Both enabled checks must fail before the failure actions run.
+          max-failures: 2
+
+          # Label and comment only; never close or lock.
+          close-pr: false
+          lock-pr: false
+          failure-add-pr-labels: "needs maintainer review"
+          failure-pr-message: |
+            This pull request was flagged by our automated checks. If you are a genuine contributor, please
+            reply here and a maintainer will review it.
+
+            Common reasons for flagging:
+            - A new GitHub account
+            - An unusually high number of repository forks in 24 hours
+
+            Thanks for contributing, and sorry if this is a false positive.
+
+          # The two account checks.
+          min-account-age: 30
+          max-daily-forks: 7
+
+          # Every other check is off.
+          allowed-target-branches: ""
+          blocked-target-branches: ""
+          allowed-source-branches: ""
+          blocked-source-branches: ""
+          max-changed-files: 0
+          max-changed-lines: 0
+          max-negative-reactions: 0
+          require-maintainer-can-modify: false
+          require-conventional-title: false
+          require-description: false
+          max-description-length: 0
+          max-emoji-count: 0
+          max-code-references: 0
+          require-linked-issue: false
+          blocked-terms: ""
+          blocked-issue-numbers: ""
+          require-pr-template: false
+          strict-pr-template-sections: ""
+          optional-pr-template-sections: ""
+          max-additional-pr-template-sections: 0
+          max-commit-message-length: 0
+          require-conventional-commits: false
+          require-commit-author-match: false
+          blocked-commit-authors: ""
+          allowed-file-extensions: ""
+          allowed-paths: ""
+          blocked-paths: ""
+          require-final-newline: false
+          max-added-comments: 0
+          detect-spam-usernames: false
+          require-public-profile: false
+          min-profile-completeness: 0
+          min-repo-merged-prs: 0
+          min-repo-merge-ratio: 0
+          min-global-merge-ratio: 0
+
+          # Exemptions.
+          exempt-author-association: "OWNER,MEMBER,COLLABORATOR"
+          exempt-label: "exempt"
