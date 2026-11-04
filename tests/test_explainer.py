@@ -85,6 +85,9 @@ def test_explainer_page(tmp_path, multi):
     assert (folder / "onnx" / "model_quantized.onnx").exists() and (folder / "tokenizer.json").exists()
     session = ort.InferenceSession(str(folder / "onnx" / "model_quantized.onnx"))
     assert [o.name for o in session.get_outputs()] == EXPLORER_OUTPUTS
+    feed = {"input_ids": np.array([[2, 10, 11, 3]]), "attention_mask": np.ones((1, 4), dtype=np.int64)}
+    got = dict(zip(EXPLORER_OUTPUTS, session.run(None, feed), strict=True))  # the int8 model runs
+    np.testing.assert_allclose(got["head_terms"].sum(-1) + got["head_bias"], got["logits"], atol=0.05)
     text = page.read_text(encoding="utf-8")
     assert "<title>Demo: inside the model</title>" in text and "Data &lt;x&gt;" in text
     assert "<b>hi</b>" not in text and "<b>hi<\\/b>" in text  # "<\/" in the JSON data

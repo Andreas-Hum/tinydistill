@@ -155,6 +155,9 @@ class _Explore(torch.nn.Module):
     def __init__(self, model, head, last):
         super().__init__()
         self.model, self.head, self.last = model, head, last
+        # head_terms read their own copy of the weights: int8 quantisation rewrites the linear layer's own
+        # (transposed, so the export does not merge the two as equal)
+        self.register_buffer("w_t", last.weight.detach().t().contiguous())
 
     def forward(self, input_ids, attention_mask):
         base, seen = self.model.base_model, {}
@@ -191,7 +194,7 @@ class _Explore(torch.nn.Module):
             token,
             seen["summed"] - token,
             h,
-            h[:, None, :] * self.last.weight,
+            (h[:, :, None] * self.w_t).transpose(1, 2),
             self.last.bias.expand(b, -1),
         )
 
@@ -218,6 +221,7 @@ def export_explorer(student_dir: Path, out_dir: Path, int8: bool = False, opset:
     if (
         not isinstance(last, torch.nn.Linear)
         or not hasattr(model.base_model.encoder, "layer")
+        or emb is None
         or getattr(emb, "LayerNorm", None) is None
         or emb.word_embeddings.embedding_dim != model.config.hidden_size  # ELECTRA's projected embeddings
     ):

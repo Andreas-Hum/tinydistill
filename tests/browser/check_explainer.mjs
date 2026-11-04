@@ -25,7 +25,13 @@ for (const url of args) {
     page.on("pageerror", (e) => problems.push(`${where}: page error: ${e}`));
     page.on("console", (m) => m.type() === "error" && problems.push(`${where}: console error: ${m.text()}`));
     await page.goto(url);
-    await page.waitForFunction(() => document.body.dataset.ready === "1", null, { timeout: 180000 });
+    try {
+      await page.waitForFunction(() => document.body.dataset.ready === "1", null, { timeout: 180000 });
+    } catch {
+      problems.push(`${where}: the page never got ready; it says: ${await page.textContent("#status")}`);
+      await page.close();
+      continue;
+    }
     const stages = await page.locator("#overview .stage").count();
     if (stages < 8) problems.push(`${where}: the overview has ${stages} stages`);
     await page.locator("#overview .stage").nth(4).click();  // a layer: zooms into it
