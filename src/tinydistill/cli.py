@@ -964,7 +964,7 @@ def cmd_web(a: argparse.Namespace) -> None:
 
     try:
         explainer = build_explainer(folder, Path(a.out) / "explainer", a.title, note=a.note)
-        log(f"wrote {explainer}, a walk through the model's layers and heads")
+        log(f"wrote {explainer}, an interactive view of the model's layers and heads")
         link = (
             '<p class="note"><a href="explainer/">Explore the model layer by layer</a>: every head\'s '
             "attention, the token vectors as they move through the layers, and the math.</p>\n  <footer>"
