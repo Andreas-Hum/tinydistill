@@ -91,6 +91,22 @@ def test_cascade_curve_by_hand():
     assert c[1]["threshold"] == 0.6  # texts below 0.6 (the 0.2 and 0.4 ones) go to the teacher
 
 
+def test_cascade_curve_matches_a_cascade_at_its_threshold_with_ties():
+    """A confident student often gives exactly 1.0 to many texts. Each row must report what a Cascade at the
+    row's threshold does (texts below it go to the teacher), also when confidences tie."""
+    from tinydistill.evaluate import cascade_curve
+
+    confidence = [0.6, 1.0, 1.0, 1.0]
+    student = [1, 1, 0, 0]  # wrong, wrong, right, right
+    teacher = [0, 0, 0, 0]  # all right
+    gold = [0, 0, 0, 0]
+    for c in cascade_curve(confidence, student, teacher, gold, shares=(0.25, 0.5, 1.0)):
+        routed = [i for i in range(4) if confidence[i] < c["threshold"]]
+        pred = [teacher[i] if i in routed else student[i] for i in range(4)]
+        assert c["share_to_teacher"] == len(routed) / 4
+        assert c["accuracy"] == sum(p == g for p, g in zip(pred, gold, strict=True)) / 4
+
+
 def test_ordinal_metrics_by_hand():
     from tinydistill.evaluate import ordinal_metrics
 

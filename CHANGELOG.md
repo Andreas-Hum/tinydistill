@@ -118,6 +118,13 @@
 - Fix: `tune` stopped with an IndexError when no setting could be scored (every `--few-shot` value above 0 and
   no `{examples}` line), and recommended the wrong file when two task files had the same file name. Both are
   refused with a message.
+- Fix: the web page of a DeBERTa student skipped the model's pooler, so its answers differed from `predict`; it
+  now applies it. For ALBERT students, whose layer view failed, the page runs the plain exported model.
+- Fix: the cascade table in `eval` reports, for each threshold, what a cascade at that threshold does. When
+  student confidences tied at the threshold (often at 1.0), it counted texts as sent to the teacher that the
+  cascade keeps.
+- Fix: `Distiller.save` into a folder holding an earlier int8 model removes that file when the saved model has
+  none; before, `Predictor` and `Distiller.load` read the old int8 model.
 
 ## 0.3.4 (2026-11-04)
 

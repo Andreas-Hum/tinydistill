@@ -302,18 +302,20 @@ def cascade_curve(
 ) -> list[dict]:
     """Student-then-teacher cascade: for each share s, the s least confident texts (by the student's top
     probability) go to the teacher and the rest keep the student's answer. Returns, per share, the confidence
-    threshold that achieves it, and the accuracy and macro-F1 of the combined answers."""
+    threshold that achieves it, and the share actually sent, accuracy and macro-F1 of a cascade at that
+    threshold (texts below it go; when confidences tie at the threshold, fewer than s go)."""
     n = len(gold)
     order = sorted(range(n), key=lambda i: confidence[i])  # least confident first
     out = []
     for share in shares:
         k = round(share * n)
-        routed = set(order[:k])
-        pred = [teacher_pred[i] if i in routed else student_pred[i] for i in range(n)]
         threshold = confidence[order[k]] if k < n else 1.0  # texts below this go to the teacher
+        # as a Cascade at this threshold routes them: with ties (often at 1.0) fewer than k texts go
+        routed = {i for i in range(n) if confidence[i] < threshold}
+        pred = [teacher_pred[i] if i in routed else student_pred[i] for i in range(n)]
         out.append(
             {
-                "share_to_teacher": k / n if n else 0.0,
+                "share_to_teacher": len(routed) / n if n else 0.0,
                 "threshold": threshold,
                 "accuracy": accuracy(pred, gold),
                 "macro_f1": macro_f1(pred, gold),

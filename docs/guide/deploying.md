@@ -56,8 +56,8 @@ visitor's browser with no server at all; any static host works, GitHub Pages inc
   text. It loads [KaTeX](https://katex.org) from jsDelivr the first time it is turned on.
 
 The model folder is named after a hash of its contents, so browsers never mix a cached older model with a new
-page. The layer-by-layer view works for BERT-, RoBERTa- and MPNet-style students; for others, such as
-ModernBERT, the page shows the answer, the probabilities and which words matter without it.
+page. The layer-by-layer view works for BERT-, RoBERTa-, MPNet- and DeBERTa-style students; for others, such as
+ModernBERT and ALBERT, the page shows the answer, the probabilities and which words matter without it.
 
 ## Hugging Face Hub
 
