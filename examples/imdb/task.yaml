@@ -1,0 +1,17 @@
+# IMDB (Maas et al., 2011): https://huggingface.co/datasets/stanfordnlp/imdb. Film reviews, positive or negative;
+# many are longer than the student's 128 tokens. examples/imdb/run.sh compares cutting reviews at 128 tokens
+# with reading them in windows (--chunk-tokens).
+name: imdb
+text_field: text
+label_field: label
+prompt: |-
+  Here is a film review. Is the reviewer's opinion of the film positive or negative?
+  Options:
+  {labels}
+
+  Review: {text}
+
+  Reply with one option, exactly as written.
+labels:
+- neg: negative
+- pos: positive
