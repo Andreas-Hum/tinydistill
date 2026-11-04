@@ -344,7 +344,8 @@ PAGE = r"""<!doctype html>
 
   function bars(list, probs, teacher = false, gold = []) {
     const ol = el("ol", { className: "bars" + (teacher ? " teacher" : "") });
-    for (const i of list) {
+    for (const [n, i] of list.entries()) {
+      if (n && probs[i] < 0.0005 && !gold.includes(i)) continue;  // labels at 0% would only list in label order
       const li = el("li", { className: gold.includes(i) ? "gold" : "" },
         el("div", { className: "fill", style: `width:${(probs[i] * 100).toFixed(1)}%` }),
         el("span", { textContent: name(i) }), el("span", { className: "p", textContent: pct(probs[i]) }));
