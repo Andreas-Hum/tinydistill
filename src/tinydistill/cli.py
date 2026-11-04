@@ -130,6 +130,8 @@ def cmd_label(a: argparse.Namespace) -> None:
             a.shortlist_keep,
             a.api_url,
             a.api_key_env,
+            a.api_samples,
+            a.api_temperature,
         )
         fingerprints.append(scorer.fingerprint())
         device = str(scorer.device)
@@ -193,6 +195,8 @@ def cmd_label(a: argparse.Namespace) -> None:
             "vllm_url": a.vllm_url,
             "api_url": a.api_url,
             "api_key_env": a.api_key_env,  # the variable's name; the key itself is never written
+            "api_samples": a.api_samples,
+            "api_temperature": a.api_temperature,
             "shortlist": a.shortlist,
             "shortlist_model": a.shortlist_model,
             "shortlist_keep": a.shortlist_keep,
@@ -468,6 +472,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                     meta.get("shortlist_keep"),
                     meta.get("api_url"),
                     meta.get("api_key_env", "OPENAI_API_KEY"),
+                    meta.get("api_samples"),
+                    meta.get("api_temperature", 0.7),
                 )
                 if hasattr(scorer, "model"):  # a local model (not a vLLM server)
                     row["params_m"] = sum(p.numel() for p in scorer.model.parameters()) / 1e6
@@ -664,6 +670,8 @@ def _run_teacher(run: Path, device: str):
             meta.get("shortlist_keep"),
             meta.get("api_url"),
             meta.get("api_key_env", "OPENAI_API_KEY"),
+            meta.get("api_samples"),
+            meta.get("api_temperature", 0.7),
         )
         for t in meta.get("teachers") or [meta["teacher"]]
     ]
@@ -1003,6 +1011,20 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="VAR",
         help="environment variable holding the API key for --api-url (default OPENAI_API_KEY; "
         "unset: no key is sent, as for a local server)",
+    )
+    label.add_argument(
+        "--api-samples",
+        type=int,
+        metavar="N",
+        help="for APIs without log-probabilities: sample N answers per text (N >= 2, N times the requests) "
+        "and score each label by its share of the answers",
+    )
+    label.add_argument(
+        "--api-temperature",
+        type=float,
+        default=0.7,
+        metavar="T",
+        help="sampling temperature for --api-samples (default 0.7)",
     )
     label.add_argument(
         "--shortlist",

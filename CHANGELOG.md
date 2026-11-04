@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `label --api-url URL --api-samples N [--api-temperature T]`: for hosted APIs without log-probabilities, the
+  teacher samples N answers per text (default temperature 0.7) and each label's soft label is its share of the
+  answers whose first word is an option letter. N and T are part of the cache fingerprint and of `meta.json`.
 - ModernBERT students are tested (training, ONNX and int8 export). On Banking77, ModernBERT-base reached the
   accuracy of MiniLM-L6 at about eight times the latency.
 - Fix: the input length a student was trained with (`--max-length`) is stored with the model, and `Predictor`,
