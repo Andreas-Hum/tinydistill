@@ -1,0 +1,52 @@
+[
+  {
+    "teacher": "Qwen/Qwen3.5-4B",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.82,
+    "macro_f1": 0.8398632300657229,
+    "seconds_per_text": 0.1790238918700197,
+    "instruction": "Here is a news headline with the start of the article. What is it about?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false
+  },
+  {
+    "teacher": "Qwen/Qwen3.5-9B",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.795,
+    "macro_f1": 0.8140650199473729,
+    "seconds_per_text": 0.2126067224700091,
+    "instruction": "Here is a news headline with the start of the article. What is it about?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false
+  },
+  {
+    "teacher": "google/gemma-4-E4B-it",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.765,
+    "macro_f1": 0.7835416348357525,
+    "seconds_per_text": 0.18200157779996518,
+    "instruction": "Here is a news headline with the start of the article. What is it about?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false
+  },
+  {
+    "teacher": "google/gemma-4-12B-it",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.75,
+    "macro_f1": 0.770425589590675,
+    "seconds_per_text": 0.22751551952504087,
+    "instruction": "Here is a news headline with the start of the article. What is it about?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-7B-Instruct",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.64,
+    "macro_f1": 0.6553207837111026,
+    "seconds_per_text": 0.015423063405032736,
+    "instruction": "Here is a news headline with the start of the article. What is it about?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false
+  }
+]
