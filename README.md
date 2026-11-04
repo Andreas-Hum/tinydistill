@@ -512,7 +512,7 @@ among labels.
 python -m venv .venv && . .venv/bin/activate
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -e ".[dev]"
-ruff check . && ruff format --check . && pytest
+ruff check . && ruff format --check . && mypy && pytest
 ```
 
 The tests run on a CPU in a few seconds with tiny random models from `hf-internal-testing`. They check the label
