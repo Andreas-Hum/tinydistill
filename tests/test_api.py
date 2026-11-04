@@ -343,3 +343,39 @@ def test_similar_examples_are_sent_per_text(api):
     shown = own.split("Review:")[0]
     assert shown.count(" -> ") == 2 and '"good film"' not in shown  # never its own example
     assert scorer.fingerprint() != ApiScorer(url, "m", shots, api_key_env=KEY_ENV).fingerprint()
+
+
+def test_dry_run_estimates_the_cost_and_scores_nothing(api, tmp_path, capsys):
+    from tinydistill.task import load_task
+
+    url, state = api
+    (tmp_path / "task.yaml").write_text(TASK)
+    rows = [{"review": f"this was good {'x' * i}"} for i in range(10)]
+    (tmp_path / "d.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    run = tmp_path / "run"
+    base = ["label", str(tmp_path / "task.yaml"), "--data", str(tmp_path / "d.jsonl"), "--teacher", "m"]
+    base += ["--api-url", url, "--api-key-env", KEY_ENV, "--out", str(run)]
+    task = load_task(tmp_path / "task.yaml")
+    chars = [len(task.render(r["review"], None, lettered=True)) for r in rows]
+
+    main([*base, "--dry-run", "--price-in", "2", "--price-out", "10"])
+    out = capsys.readouterr().out
+    tokens = round(sum(chars) / 4)
+    want = f"m: 10 texts to label, 10 requests, about {tokens:,} input tokens and at most 10 output tokens"
+    assert f"{want}, about {(tokens * 2 + 10 * 10) / 1e6:,.4f} at the given prices\n" in out
+    assert "characters / 4" in out and "Nothing was sent or scored" in out
+    assert state["requests"] == [] and not list(run.glob("teacher-*.jsonl"))
+    assert not (run / "train.jsonl").exists()
+
+    main([*base, "--limit", "4", "--api-samples", "3"])  # 4 texts labelled for real: the dry run counts 6
+    state["requests"].clear()
+    capsys.readouterr()
+    main([*base, "--dry-run", "--api-samples", "3"])
+    tokens = round(sum(chars[4:]) / 4) * 3
+    want = f"m: 6 texts to label, 18 requests, about {tokens:,} input tokens and at most 180 output tokens\n"
+    assert want in capsys.readouterr().out
+    main([*base, "--teacher", "m,m2", "--dry-run"])  # without sampling nothing is cached: 10 texts each
+    assert "\ntotal: 20 texts to label, 20 requests, " in capsys.readouterr().out
+    assert state["requests"] == []
+    with pytest.raises(SystemExit, match="--api-url"):
+        main(["label", str(tmp_path / "task.yaml"), "--data", "x.jsonl", "--out", str(run), "--dry-run"])

@@ -94,6 +94,24 @@ calling the API again on the test texts; `--skip-teacher-bench` avoids that.
 Every text is sent to the API provider: check their data policy before labelling anything personal or
 confidential.
 
+### What will it cost: --dry-run
+
+`--dry-run` prints what labelling would take, and scores nothing: the texts not in the cache yet (training and
+test), the requests and the input and output tokens. With the API's prices per million tokens, `--price-in`
+and `--price-out`, it also prints the cost. There is no built-in price list; prices change.
+
+```sh
+tinydistill label task.yaml --data train.csv --teacher gpt-4o-mini \
+  --api-url https://api.openai.com/v1 --dry-run --price-in 0.15 --price-out 0.6 --out run
+```
+
+The input tokens are an approximation: the characters of each rendered prompt divided by 4 (a hosted model's
+tokenizer is not at hand), with the few-shot examples it would show. The output tokens are the most the
+requests ask for: one token per text, or with `--api-samples N` 10 tokens per answer. With `--api-samples N`
+the estimate counts N requests per text, each with the whole prompt; an API that accepts `n` takes one request
+and bills the prompt once. To label only part of the data, see `run --budget` in
+[Improving a run](improving.md#label-on-a-budget-run-budget).
+
 ### APIs without log-probabilities
 
 Some APIs and models return no log-probabilities at all. For them, `--api-samples N` (N at least 2) asks for N

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 from collections import Counter
 from pathlib import Path
 
@@ -36,6 +37,41 @@ def confusions(pred: list[int], gold: list[int], top: int) -> list[tuple[int, in
             where.setdefault((g, p), []).append(i)
     ranked = sorted(where.items(), key=lambda kv: -len(kv[1]))[:top]
     return [(g, p, len(idx), idx) for (g, p), idx in ranked]
+
+
+def review(rows: list[dict], labels: list[str]) -> tuple[list[dict], int]:
+    """A queue of training texts (rows of a single-label run's train.jsonl) for a person to check, and how many
+    of them contradict their gold label. First the texts whose gold label differs from the teacher's top
+    label, the teacher's most confident first: there the gold label is most likely wrong (or the prompt
+    misleads the teacher). Then, for an ensemble (rows with ``teacher_scores``), the other texts on which its
+    members' top labels differ, the most divided first (the smallest share of members on the most common
+    label), then the least confident. Nothing here changes training."""
+
+    def top(scores: list[float]) -> tuple[int, float]:
+        m = max(scores)
+        p = [math.exp(x - m) for x in scores]
+        best = max(range(len(p)), key=p.__getitem__)
+        return best, p[best] / sum(p)
+
+    wrong, divided = [], []
+    for r in rows:
+        label, conf = top(r["scores"])
+        members = [top(s)[0] for s in r.get("teacher_scores") or []]
+        row = {
+            "text": r["text"],
+            "gold": "" if r["gold"] is None else labels[r["gold"]],
+            "teacher_label": labels[label],
+            "teacher_confidence": round(conf, 3),
+            "member_labels": "; ".join(labels[m] for m in members),
+        }
+        agree = max(Counter(members).values()) / len(members) if members else 1.0
+        if r["gold"] is not None and r["gold"] != label:
+            wrong.append((-conf, row))
+        elif agree < 1:
+            divided.append(((agree, conf), row))
+    wrong.sort(key=lambda x: x[0])
+    divided.sort(key=lambda x: x[0])
+    return [row for _, row in wrong + divided], len(wrong)
 
 
 CSS = """
