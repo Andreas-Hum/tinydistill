@@ -29,4 +29,4 @@ __all__ = [
     "read_examples",
     "train_student",
 ]
-__version__ = "0.3.3"
+__version__ = "0.3.4"

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.4 (2026-11-04)
 
 - Fix: `tune --out NAME` with a dot in NAME (such as `tune-1.5b`) wrote `tune-1.md`; it now writes
   `NAME.md` and `NAME.json`.
