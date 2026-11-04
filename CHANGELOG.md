@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `refresh` trains the new student with the run's own training settings (as `improve` does) instead of the
+  defaults; a training flag given with another value than its default still wins.
 - `run --budget N [--rounds R]`: the teacher labels only N training texts, in R rounds (default 4): N/R at
   random, then in each round the N/R unlabelled texts the student trained so far is least sure of (highest
   entropy; multi-label, mean binary entropy), retraining after each round. For paid API teachers. Training

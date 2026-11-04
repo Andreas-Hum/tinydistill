@@ -1169,6 +1169,12 @@ def cmd_refresh(a: argparse.Namespace) -> None:
     _new_run(src, dst, rows + added)
     _meta(dst, {"refreshed_from": str(src), "refresh_log": a.log, "refresh_added": len(added)})
     log(f"{dst}: {len(rows)} training texts from {src} plus {len(added)} the teacher answered in the cascade")
+    # the new student trains as the run's did; a flag given with another value than its default wins
+    defaults = vars(build_parser().parse_args(["refresh", str(src), "--log", "", "--out", ""]))
+    for k, v in _run_settings(src).items():
+        if getattr(a, k, None) == defaults.get(k):
+            setattr(a, k, v)
+    a.int8 = a.int8 or (src / "onnx" / "model.int8.onnx").exists()
     a.run = str(dst)
     cmd_train(a)
     cmd_export(a)
@@ -1176,8 +1182,8 @@ def cmd_refresh(a: argparse.Namespace) -> None:
     log(f"compare them with: tinydistill compare {src} {dst}")
 
 
-# the training settings of a run that improve trains every round with (from its meta.json)
-IMPROVE_KEYS = (
+# the training settings of a run (from its meta.json) that refresh and improve train the new student with
+RUN_KEYS = (
     "student",
     "init_head",
     "epochs",
@@ -1190,6 +1196,18 @@ IMPROVE_KEYS = (
     "ce_weight",
     "seeds",
 )
+
+
+def _run_settings(src: Path) -> dict:
+    """The training settings ``src`` was trained with: RUN_KEYS from its meta.json, and the student's
+    max_length."""
+    meta = _meta(src)
+    settings = {k: meta[k] for k in RUN_KEYS if meta.get(k) is not None}
+    config = src / "student" / "config.json"
+    if config.exists():
+        max_length = json.loads(config.read_text(encoding="utf-8")).get("tinydistill_max_length")
+        settings |= {"max_length": max_length} if max_length else {}
+    return settings
 
 
 def cmd_improve(a: argparse.Namespace) -> None:
@@ -1225,14 +1243,7 @@ def cmd_improve(a: argparse.Namespace) -> None:
     log(f"{len(val)} of {len(rows)} training texts are held out to find confusions and compare rounds")
     # every train, export and eval default, then the run's training settings
     defaults = vars(build_parser().parse_args(["refresh", str(src), "--log", "", "--out", ""]))
-    config = src / "student" / "config.json"
-    max_length = (
-        json.loads(config.read_text(encoding="utf-8")).get("tinydistill_max_length")
-        if config.exists()
-        else None
-    )
-    settings = {k: meta[k] for k in IMPROVE_KEYS if meta.get(k) is not None}
-    settings |= {"max_length": max_length} if max_length else {}
+    settings = _run_settings(src)
     known = {r["text"] for r in rows} | {r["text"] for r in _read_jsonl(src / "test.jsonl")}
     teacher: Any = None
     generate: Any = None

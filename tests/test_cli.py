@@ -1245,3 +1245,25 @@ def test_tune_refuses_prompt_files_with_the_same_name(tmp_path):
     args = ["tune", str(tmp_path / "a" / "task.yaml"), "--prompt", str(tmp_path / "b" / "task.yaml")]
     with pytest.raises(SystemExit, match="file names"):
         main([*args, "--data", _tune_data(tmp_path), "--teacher", TINY_LM, "--out", str(tmp_path / "t")])
+
+
+def test_refresh_trains_with_the_runs_settings(tmp_path, monkeypatch):
+    from tinydistill import cli
+
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "task.yaml").write_text(TASK)
+    meta = {"teacher": TINY_LM, "student": TINY_ENCODER, "epochs": 7, "seeds": 2, "init_head": "names"}
+    (run / "meta.json").write_text(json.dumps(meta))
+    write_jsonl(run / "train.jsonl", [{"text": "a training text", "gold": None, "scores": [0.0, -1.0]}])
+    write_jsonl(tmp_path / "log.jsonl", [{"text": "a new text", "scores": [0.0, -1.0]}])
+    trained = []
+    monkeypatch.setattr(cli, "cmd_train", trained.append)
+    for step in ("cmd_export", "cmd_eval"):
+        monkeypatch.setattr(cli, step, lambda a: None)
+    args = ["refresh", str(run), "--log", str(tmp_path / "log.jsonl")]
+    main([*args, "--out", str(tmp_path / "new")])
+    a = trained[-1]
+    assert (a.student, a.epochs, a.seeds, a.init_head) == (TINY_ENCODER, 7, 2, "names")
+    main([*args, "--out", str(tmp_path / "new2"), "--epochs", "3"])  # a flag given on the command line wins
+    assert (trained[-1].epochs, trained[-1].seeds) == (3, 2)

@@ -127,6 +127,10 @@ and evaluates a new student on the same test set. Logged texts that are in the t
 tinydistill refresh RUN --log cascade.jsonl --out RUN2
 ```
 
+The new student trains with RUN's own settings: student, epochs, seeds, learning rate, batch size, gold labels,
+`--init-head`, `--max-length` and int8 export. A training flag given with another value than its default
+replaces RUN's, as in `refresh RUN ... --epochs 20`.
+
 ## Target the student's confusions: improve
 
 `improve` runs rounds of performance-guided distillation (PGKD, [Di Palo et al.,
