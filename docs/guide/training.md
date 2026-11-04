@@ -35,6 +35,14 @@ On Banking77, MiniLM-L6 and ModernBERT trained for 20 epochs and mpnet trained f
 accuracy (0.813, 0.815 and 0.814; [Benchmarks](../results.md#banking77-the-hard-case)), so the smallest is the
 one to deploy there.
 
+### Texts in other languages
+
+The task file can stay in English while the texts are not: the teacher reads an English instruction over
+Danish texts well enough to teach a student. For the student, pick a multilingual encoder, such as
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, mmBERT or the multilingual potion static model.
+On Danish MASSIVE (60 intents), the multilingual MiniLM reached 0.761 against 0.724 for the English MiniLM-L6,
+from the same 8-shot 7B teacher (0.736; [Benchmarks](../results.md#danish-massive-an-english-prompt-over-danish-texts)).
+
 ## Starting from the label names
 
 `--init-head names` sets the classifier's starting weights from the label names instead of at random: each

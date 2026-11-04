@@ -97,6 +97,42 @@ held-out training texts (`--val-share 0.05`, up to 20 epochs; the `best-of-20` r
 for the three seeds and lands where 10 fixed epochs do: it finds a reasonable stopping point without gold
 labels, but here it does not beat simply training longer.
 
+### The most similar examples instead of 8 per class
+
+[`examples/banking77/similar.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/banking77/similar.sh)
+shows the 7B teacher, for each text, the 16 of the same 616 gold examples that are most similar to it
+(`--few-shot-similar 16`) instead of all 616. The student trains for 10 epochs:
+
+<!-- results: banking77/banking77-7b-similar16.md -->
+| Model | Device | Accuracy | Macro-F1 | Top-3 accuracy | Agreement with teacher | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Throughput (texts/s) | Size (MB) | Speed-up, batch 1 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| teacher, 16 similar examples, 4-bit | cuda | 0.851 | 0.850 | 0.947 | n/a | 156.8 | 4907.8 | 6.5 | 5443 | 1.0x |
+| student, PyTorch | cpu | 0.857 ± 0.001 | 0.856 ± 0.001 | 0.947 ± 0.002 | 0.878 ± 0.003 | 3.7 | 72.7 | 440.4 | 91 | 42.6x |
+| student, ONNX fp32 | cpu | 0.858 | 0.857 | 0.947 | 0.881 | 2.6 | 72.0 | 444.5 | 91 | 60.8x |
+| student, ONNX int8 | cpu | 0.855 | 0.854 | 0.951 | 0.875 | 1.0 | 34.1 | 939.6 | 23 | 153.6x |
+
+Task `banking77`, 3080 gold-labelled test texts. Teacher: `Qwen/Qwen2.5-7B-Instruct`. Student: `sentence-transformers/all-MiniLM-L6-v2`. The teacher's prompt shows each text the 16 most similar of 616 gold training examples. The student learns from the teacher's soft labels on all 10003 training texts, plus cross-entropy on 616 gold-labelled texts (8 per class; weight 1.0). Values with ± are the mean and standard deviation over 3 training seeds; the ONNX rows are the exported first-seed model.
+CPU rows use 2 threads. Latency is the median over repeated runs. Size is the teacher's weights as loaded and the students' model files. The teacher packs several texts into one forward pass; it is timed at batch 32 only when that takes under three minutes, otherwise its throughput is 1 / batch-1 latency. Speed-up is relative to the teacher, 16 similar examples, 4-bit on cuda.
+
+### Cascade: student first, unsure texts to the teacher
+
+| Share sent to the teacher | Student confidence threshold | Accuracy | Macro-F1 | Mean latency per text (ms) |
+|---|---|---|---|---|
+| 0% | 0.138 | 0.855 | 0.854 | 1.0 |
+| 10% | 0.622 | 0.862 | 0.861 | 16.7 |
+| 20% | 0.785 | 0.862 | 0.860 | 32.4 |
+| 30% | 0.875 | 0.858 | 0.857 | 48.1 |
+| 50% | 0.927 | 0.855 | 0.853 | 79.4 |
+| 100% | 1.000 | 0.851 | 0.850 | 157.8 |
+
+The student answers every text and passes its least confident ones to the teacher. Thresholds are set on the test texts to hit each share; in deployment, set them on a validation split. Latency is the student's batch-1 latency plus the share times the batch-1 latency of the teacher, 16 similar examples, 4-bit on cuda.
+<!-- /results -->
+
+The teacher is more accurate with 16 well-chosen examples than with all 616 (0.851 against 0.783), and faster,
+because its prompt is far shorter (157 ms per text against 264). The student follows: 0.855 deployed, above
+its teacher and above the 0.813 of the same student trained for 20 epochs on the 8-per-class teacher. Its
+cascade gains little, since the student is already about as accurate as the teacher it would ask.
+
 ### Compared with SetFit
 
 [SetFit](https://github.com/huggingface/setfit) is a strong few-shot method that needs no LLM: it fine-tunes a
@@ -290,6 +326,29 @@ The student is within about 0.05 macro-F1 of its teacher and more often gets the
 Its macro-F1 is also higher than that of the same student trained on all 10,000 gold labels, which rarely
 predicts the uncommon emotions; the gold-trained student is better on micro-F1, which the common labels
 dominate. With only 8 gold labels per emotion and no teacher, the student predicts no labels at all.
+
+## Danish MASSIVE: an English prompt over Danish texts
+
+Intent detection in Danish with 60 intents ([MASSIVE](https://huggingface.co/datasets/mteb/amazon_massive_intent),
+CC BY 4.0; 11,514 training and 2,974 test texts), reproduced by
+[`examples/massive-da/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/massive-da/run.sh).
+The task file's instruction and label names are in English; only the texts are Danish. The 8-shot runs also
+train on those 8 gold labels per intent:
+
+<!-- results: massive-da/summary.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| massive-da-7b | zero-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.603 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.594 ± 0.007 | 0.536 ± 0.008 | 0.725 ± 0.003 | ONNX int8 | 0.8 | 29.6 | 23 |
+| massive-da-7b-8shot | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.736 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.724 ± 0.006 | 0.667 ± 0.004 | 0.752 ± 0.006 | ONNX int8 | 0.9 | 29.5 | 23 |
+| paraphrase-multilingual-MiniLM-L12-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.736 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 118 | 0.761 ± 0.002 | 0.707 ± 0.003 | 0.804 ± 0.006 | ONNX int8 | 1.9 | 39.3 | 118 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+The English teacher prompt works on Danish texts, and the 8 examples per intent add 13 points to it. The
+English MiniLM student gets within about a point of its teacher; the multilingual
+`paraphrase-multilingual-MiniLM-L12-v2` student is more accurate than the teacher (0.761 against 0.736), at
+twice the latency and five times the size.
 
 ## A vLLM teacher agrees with the local one
 
