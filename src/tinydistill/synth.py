@@ -53,7 +53,10 @@ def generator(model, tok, temperature: float = 0.9, max_new_tokens: int = 400) -
     def generate(message: str) -> str:
         if chat:
             prompt = tok.apply_chat_template(
-                [{"role": "user", "content": message}], tokenize=False, add_generation_prompt=True
+                [{"role": "user", "content": message}],
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,  # write the texts directly (Qwen3 style templates; others ignore it)
             )
             ids = tok(prompt, add_special_tokens=False, return_tensors="pt").input_ids
         else:

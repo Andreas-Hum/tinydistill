@@ -137,8 +137,11 @@ class _Prompt:
             task = replace(task, prompt=task.prompt.replace("{examples}", _EXAMPLES))
         user = task.render(_SENTINEL, self.examples, _LABEL if task.multi_label else None)
         if self.chat:
-            full = tokenizer.apply_chat_template(
-                [{"role": "user", "content": user}], tokenize=False, add_generation_prompt=True
+            full = tokenizer.apply_chat_template(  # no thinking: the answer must come right after the prompt
+                [{"role": "user", "content": user}],
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,  # Qwen3 style templates open a <think> block otherwise; others ignore
             )
         else:
             full = user
