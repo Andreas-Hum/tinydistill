@@ -55,8 +55,8 @@ clf.describe(["I still haven't received my new card", "My card got stolen"])
 
 ```mermaid
 flowchart LR
-    A["Task prompt +<br/>unlabelled texts"] --> B["LLM teacher(s)<br/>Qwen · Mistral · Phi · ..."]
-    T["tune: check the<br/>task file"] -.-> B
+    A["Task prompt +<br/>unlabelled texts"] --> B["LLM teacher(s)<br/>Qwen · Gemma · Mistral · ..."]
+    T["tune: test and rewrite<br/>the task file"] -.-> B
     S["Synthetic texts<br/>(synth)"] -.-> B
     V["vLLM server ·<br/>hosted API"] -.-> B
     K["A few gold labels<br/>per class"] -.-> B
@@ -66,6 +66,8 @@ flowchart LR
     D --> E["Fast CPU<br/>inference"]
     D --> W["Browser · server · Hub ·<br/>Python (Distiller)"]
     E -.-> F["Cascade: unsure<br/>texts to the LLM"]
+    F -. "refresh: retrain<br/>on what it asked" .-> C
+    C -. "improve: new texts<br/>for its confusions" .-> S
 ```
 
 Each step is one command: `tinydistill label` (teacher), `train` (student), `export` (ONNX and int8) and

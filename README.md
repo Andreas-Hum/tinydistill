@@ -27,12 +27,13 @@ optimisation by distilling LLMs.
   <a href="https://andreas-hum.github.io/tinydistill/demo/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/demo-dark.png">
-      <img alt="The live demo: a 23 MB Banking77 classifier running in the browser, showing the word pieces and what each layer of the model would answer" src="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/demo-light.png" width="480">
+      <img alt="Inside the model: a 23 MB Banking77 student running in the browser, with its tokens, the attention between them in every layer, its heads, and the probabilities forming layer by layer" src="https://raw.githubusercontent.com/Andreas-Hum/tinydistill/main/docs/images/demo-light.png" width="480">
     </picture>
   </a>
 </p>
 <p align="center"><i>The <a href="https://andreas-hum.github.io/tinydistill/demo/">live demo</a>: a 23 MB student distilled from Qwen2.5-7B runs in your
-browser and shows what happens inside it.</i></p>
+browser. <a href="https://andreas-hum.github.io/tinydistill/demo/explainer/?tour=1">Inside the model</a> shows every layer and
+attention head as it reads your text, with a guided tour.</i></p>
 
 ## Highlights
 

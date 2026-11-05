@@ -115,11 +115,25 @@
   .verdict { font-weight: 650; }
   footer { margin-top: 40px; color: var(--muted); font-size: .9rem; }
   a { color: var(--accent); }
+  nav.pages { display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 20px; border: 1px solid var(--line);
+              border-radius: 999px; background: var(--card); font-size: .92rem; }
+  nav.pages a { padding: 3px 14px; border-radius: 999px; color: var(--muted); text-decoration: none; }
+  nav.pages a:hover { color: var(--fg); background: var(--soft); }
+  nav.pages a[aria-current="page"] { background: var(--accent); color: #fff; font-weight: 600; }
+  .deeper { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 14px 0 0; padding: 14px 16px;
+            border: 1px solid var(--accent); border-radius: 10px; background: var(--card); }
+  .deeper p { flex: 1 1 260px; margin: 0; color: var(--muted); font-size: .92rem; }
+  .deeper p b { display: block; color: var(--fg); font-size: 1.02rem; }
+  .deeper a { white-space: nowrap; }
+  .deeper a.go { padding: 7px 14px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none;
+                 font-weight: 600; }
+  .deeper a.go:hover { filter: brightness(1.1); }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
 <body>
 <main>
+  <nav class="pages" aria-label="Pages"><a href="./" aria-current="page">Try it</a><a href="explainer/" data-base="explainer/">Inside the model</a></nav>
   <h1>Banking77 intent classifier</h1>
   <p class="sub">A 23 MB model distilled from a large language model with tinydistill. It runs in your
     browser, and nothing you type leaves this page. Test accuracy 0.855 on 3080 held-out texts. Distilled from Qwen/Qwen2.5-7B-Instruct (16 similar examples, 4-bit) into sentence-transformers/all-MiniLM-L6-v2.</p>
@@ -152,6 +166,12 @@
     <div class="flow" aria-hidden="true">
       <span>text</span><span>tokens</span><span>layers</span><span>classifier</span><span>probabilities</span>
     </div>
+  </div>
+  <div class="deeper">
+    <p><b>See inside the model on this text</b>Every layer, every attention head and the math, as the model
+      reads it, in your browser.</p>
+    <a href="explainer/?tour=1" data-base="explainer/?tour=1">Guided tour</a>
+    <a class="go" href="explainer/" data-base="explainer/">See inside</a>
   </div>
 
   <section id="check-it">
@@ -217,7 +237,6 @@
       <div class="box" id="cascade"></div></li>
   </ol>
   </details>
-  <p class="note"><a href="explainer/">Explore the model layer by layer</a>: every head's attention, the token vectors as they move through the layers, and the math.</p>
   <footer>Made with <a href="https://github.com/Andreas-Hum/tinydistill">tinydistill</a> and
     <a href="https://github.com/huggingface/transformers.js">transformers.js</a>. Trained on the Banking77 dataset (PolyAI, CC BY 4.0), labelled by Qwen2.5-7B-Instruct shown each text&#x27;s 16 most similar gold examples.</footer>
 </main>
@@ -243,6 +262,18 @@
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // ---- what works before the model is loaded ----
+  // ?text= opens the page on a text; the links to the explainer carry the current one
+  const asked = new URLSearchParams(location.search).get("text");
+  if (asked?.trim()) $("text").value = asked;
+  const withText = () => {
+    for (const a of document.querySelectorAll("a[data-base]")) {
+      const u = new URL(a.dataset.base, location.href), q = $("text").value.trim();
+      if (q) u.searchParams.set("text", q);
+      a.href = u.href;
+    }
+  };
+  withText();
+  $("text").addEventListener("input", withText);
   const labelList = $("label-list");
   labelList.append(...D.labels.map((_, i) => el("li", { textContent: name(i) })));
   $("label-q").oninput = (e) => {
@@ -608,6 +639,7 @@
 
   async function classify(animate = false) {
     const value = text.value;
+    withText();
     if (!value.trim()) return;
     const id = ++runId;
     const r = await analyse(value);
