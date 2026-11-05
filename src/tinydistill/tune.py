@@ -6,6 +6,7 @@ from __future__ import annotations
 import dataclasses
 import gc
 import random
+import re
 import time
 from collections.abc import Callable
 
@@ -17,21 +18,56 @@ from .synth import generator
 from .task import Task
 from .teacher import LabelScorer, load_teacher
 
-PLACEHOLDERS = ("{labels}", "{label}", "{text}", "{examples}")
+DESCRIBED = {  # each placeholder as the teacher sees it in a rewrite request
+    "{labels}": "[the list of categories]",
+    "{label}": "[the category asked about]",
+    "{text}": "[the text to classify]",
+    "{examples}": "[labelled examples]",
+}
+PLACEHOLDERS = tuple(DESCRIBED)
 PROPOSE_TOKENS = 256  # new tokens per rewrite: an instruction is short (the label list is a placeholder)
+LEAD_CHARS = 600  # longest kept rewrite of the instruction (or twice the original's length, if more)
 
-PROPOSE = """Below is the instruction of a text classification task, given to a language model. Rewrite it
-so that the model classifies more accurately: clearer and more precise, with the same task and categories.
-Keep the placeholders {placeholders} exactly as written, each once: they are filled in later. Reply with the
-rewritten instruction only.
+PROPOSE = """Below is a prompt of a text classification task, given to a language model. The parts in square
+brackets are filled in later. Rewrite the instruction at its start (repeated below) so that the model
+classifies more accurately: clearer and more precise, with the same task and categories. The rest of the
+prompt stays as it is, so do not list the categories or add the text. Reply with the new instruction only.
+
+Prompt:
+{prompt}
+
+Instruction to rewrite:
+{lead}"""
+
+REFLECT = """Below is a prompt of a text classification task, given to a language model, and texts it
+classified wrongly with it. The parts in square brackets are filled in later. Rewrite the instruction at its
+start (repeated below) so that the model gets texts like these right: clearer and more precise, with the same
+task and categories. Do not quote the texts. The rest of the prompt stays as it is, so do not list the
+categories or add the text. Reply with the new instruction only.
+
+Mistakes made with it:
+{mistakes}
+
+Prompt:
+{prompt}
+
+Instruction to rewrite:
+{lead}"""
+
+# for a prompt that starts with a placeholder: the teacher rewrites all of it
+PROPOSE_WHOLE = """Below is the instruction of a text classification task, given to a language model.
+Rewrite it so that the model classifies more accurately: clearer and more precise, with the same task and
+categories. Keep the placeholders {placeholders} exactly as written, each once: they are filled in later.
+Reply with the rewritten instruction only.
 
 Instruction:
 {instruction}"""
 
-REFLECT = """Below is the instruction of a text classification task, given to a language model, and texts it
-classified wrongly with it. Rewrite the instruction so that the model gets texts like these right: clearer and
-more precise, with the same task and categories. Do not quote the texts. Keep the placeholders {placeholders}
-exactly as written, each once: they are filled in later. Reply with the rewritten instruction only.
+REFLECT_WHOLE = """Below is the instruction of a text classification task, given to a language model, and
+texts it classified wrongly with it. Rewrite the instruction so that the model gets texts like these right:
+clearer and more precise, with the same task and categories. Do not quote the texts. Keep the placeholders
+{placeholders} exactly as written, each once: they are filled in later. Reply with the rewritten instruction
+only.
 
 Mistakes made with it:
 {mistakes}
@@ -43,13 +79,54 @@ SHORT = 300  # characters of each shown text
 
 
 def _clean(reply: str) -> str:
-    """A reply without surrounding code fences, quotes or an "Instruction:" heading."""
+    """A reply without surrounding code fences, quotes or a heading such as "Instruction:" or "Rewritten
+    instruction:" (on a line of its own or not)."""
     t = reply.strip().strip("`").strip()
     if t.lower().startswith(("text\n", "yaml\n")):  # the language tag of a code fence
         t = t.split("\n", 1)[1]
-    if t.lower().startswith("instruction:"):
-        t = t[len("instruction:") :]
+    t = re.sub(r"(?i)^[^\n:]*instruction[^\n:]*:", "", t.strip())
     return t.strip().strip('"“”').strip()
+
+
+def split(prompt: str) -> tuple[str, str]:
+    """(lead, rest): the text before the prompt's first placeholder, and the rest from there, which rewrites
+    keep as written. A one-word heading line just before the placeholder (such as "Options:"), after other
+    lines, is part of the rest. The lead is empty when the prompt starts with a placeholder."""
+    at = min((prompt.find(p) for p in PLACEHOLDERS if p in prompt), default=len(prompt))
+    heading = re.search(r"\n(\w+:\s*)\Z", prompt[:at])
+    at = heading.start(1) if heading else at
+    return prompt[:at], prompt[at:]
+
+
+def _lead_problem(task: Task, reply: str, longest: int, mistakes: str) -> str:
+    """Why a rewrite of the lead is dropped, or "" to keep it."""
+    if not reply:
+        return "empty reply"
+    if len(reply) > longest:
+        return f"reply longer than {longest} characters"
+    if re.search(r"\{\w+\}|\[[^\]\n]*\]", reply):  # also one in square brackets, as the request shows them
+        return "reply contains a placeholder"
+    if all(v.lower() in reply.lower() for v in task.verbalisations):
+        return "reply contains the whole option list"
+    shown = [x[len("Text: ") :].removesuffix("...") for x in mistakes.splitlines() if x.startswith("Text: ")]
+    if re.search(r"(?im)^(text|correct answer|the model's answer):", reply) or any(x in reply for x in shown):
+        return "reply quotes the mistakes"
+    return ""
+
+
+def _whole_problem(task: Task, prompt: str, keep: list[str]) -> str:
+    """Why a rewrite of the whole prompt is dropped, or "" to keep it."""
+    if any(prompt.count(p) != int(p in keep) for p in PLACEHOLDERS):
+        return "reply does not have the placeholders " + ", ".join(keep) + ", each once"
+    if task.multi_label and prompt.index("{label}") < prompt.index("{text}"):
+        return "reply has {label} before {text}"  # as load_task demands
+    try:
+        dataclasses.replace(task, prompt=prompt).render(
+            "text", [("example", 0)] if "{examples}" in prompt else None, "label"
+        )
+    except Exception:
+        return "reply does not render"
+    return ""
 
 
 def propose(
@@ -60,33 +137,50 @@ def propose(
     mistakes: str = "",
     seen: set[str] | None = None,
 ) -> list[tuple[str, Task]]:
-    """Candidate task files: ``n`` rewrites of the instruction by the model behind ``generate`` (one request
-    each), keeping those with every placeholder of the original exactly once and no other, then the task with
-    label names only (when it has descriptions). Named "1", "2", ... and "names-only".
+    """Candidate task files: ``n`` rewrites by the model behind ``generate`` (one request each) of the
+    instruction before the first placeholder (see ``split``), each followed by the rest of the prompt as
+    written, then the task with label names only (when it has descriptions). Named "1", "2", ... and
+    "names-only". The request shows the placeholders as descriptions in square brackets; a reply that is
+    empty, too long, has a placeholder or the whole option list, or quotes the mistakes is dropped, and the
+    reason logged. A prompt that starts with a placeholder is rewritten whole instead, keeping a reply only
+    with every placeholder of the original exactly once and no other.
 
     ``mistakes``: texts the instruction got wrong (see ``_mistake``); the request asks for rewrites that fix
     them, and no names-only task is added. ``seen``: instructions already tried, skipped and added to."""
+    lead, rest = split(task.prompt)
     keep = [p for p in PLACEHOLDERS if p in task.prompt]
-    template = REFLECT if mistakes else PROPOSE
-    message = template.format(
-        placeholders=", ".join(keep), instruction=task.prompt.strip(), mistakes=mistakes
-    )
+    if lead.strip():
+        shown = task.prompt
+        for p, d in DESCRIBED.items():
+            shown = shown.replace(p, d)
+        message = (REFLECT if mistakes else PROPOSE).format(
+            prompt=shown.strip(), lead=lead.strip(), mistakes=mistakes
+        )
+        sep = lead[len(lead.rstrip()) :]  # the line break (or space) between the lead and the rest
+        longest = max(LEAD_CHARS, 2 * len(lead.strip()))
+    else:
+        log("the prompt starts with a placeholder: the teacher rewrites the whole prompt")
+        message = (REFLECT_WHOLE if mistakes else PROPOSE_WHOLE).format(
+            placeholders=", ".join(keep), instruction=task.prompt.strip(), mistakes=mistakes
+        )
     seen = set() if seen is None else seen
     seen.add(task.prompt.strip())
     out: list[tuple[str, Task]] = []
     for _ in range(n):
-        prompt = _clean(generate(message))
-        if prompt in seen or any(prompt.count(p) != int(p in keep) for p in PLACEHOLDERS):
+        reply = _clean(generate(message))
+        if lead.strip():
+            prompt = reply + sep + rest
+            why = _lead_problem(task, reply, longest, mistakes)
+        else:
+            prompt = reply
+            why = _whole_problem(task, prompt, keep)
+        if not why and prompt.strip() in seen:
+            why = "an instruction already tried"
+        if why:
+            log(f"dropped: {why}")
             continue
-        if task.multi_label and prompt.index("{label}") < prompt.index("{text}"):
-            continue  # as load_task demands
-        candidate = dataclasses.replace(task, prompt=prompt)
-        try:
-            candidate.render("text", [("example", 0)] if "{examples}" in prompt else None, "label")
-        except Exception:
-            continue
-        seen.add(prompt)
-        out.append((str(len(out) + 1), candidate))
+        seen.add(prompt.strip())
+        out.append((str(len(out) + 1), dataclasses.replace(task, prompt=prompt)))
     log(f"proposed {n} rewrites of the instruction: kept {len(out)}, dropped {n - len(out)}")
     if task.descriptions and not mistakes:
         out.append(("names-only", dataclasses.replace(task, descriptions=[])))
@@ -267,4 +361,10 @@ def instructions(rows: list[dict], tasks: list[tuple[str, Task]]) -> str:
         for name, t in tasks
         if name in best
     ]
-    return "\n### Instructions\n\n" + "\n".join(parts)
+    note = (
+        "The teacher's rewrites change only the instruction before the first placeholder; the rest of the "
+        "prompt is kept as written.\n\n"
+        if split(tasks[0][1].prompt)[0].strip()
+        else ""
+    )
+    return "\n### Instructions\n\n" + note + "\n".join(parts)
