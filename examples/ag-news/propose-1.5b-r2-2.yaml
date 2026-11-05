@@ -1,0 +1,40 @@
+name: ag-news
+text_field: text
+label_field: label
+prompt: 'What is this news headline primarily about?
+
+
+  AP: Group Discovers John the Baptist Cave
+
+
+  Revised Instruction:
+
+
+  News: A team of archaeologists has discovered what appears to be the entrance to
+  a well-preserved cave believed to contain remnants related to the ancient prophet
+  John the Baptist. The find could provide valuable insights into early Christian
+  history and religious practices.
+
+  Options:
+
+  {labels}
+
+
+  News: {text}
+
+
+  Reply with one option, exactly as written.'
+surface_forms:
+- lowercase
+- capitalised
+- uppercase
+ordinal: false
+multi_label: false
+answers:
+- 'yes'
+- 'no'
+labels:
+  World: world
+  Sports: sports
+  Business: business
+  Sci/Tech: science and technology

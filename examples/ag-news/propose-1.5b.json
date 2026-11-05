@@ -1,0 +1,112 @@
+[
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "propose-1.5b-4.yaml",
+    "few_shot": 0,
+    "accuracy": 0.88,
+    "macro_f1": 0.8864103824963252,
+    "seconds_per_text": 0.005535536550014513,
+    "instruction": "What is this news headline primarily about?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false,
+    "round": 1
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "task.yaml",
+    "few_shot": 0,
+    "accuracy": 0.85,
+    "macro_f1": 0.8541275797373358,
+    "seconds_per_text": 0.004931126945011783,
+    "instruction": "Here is a news headline with the start of the article. What is it about?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false,
+    "round": 1
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "propose-1.5b-2.yaml",
+    "few_shot": 0,
+    "accuracy": 0.84,
+    "macro_f1": 0.8505142457728665,
+    "seconds_per_text": 0.004409910304966616,
+    "instruction": "What is this news article about?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false,
+    "round": 1
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "propose-1.5b-3.yaml",
+    "few_shot": 0,
+    "accuracy": 0.83,
+    "macro_f1": 0.8317580701340435,
+    "seconds_per_text": 0.004297211789962603,
+    "instruction": "What topic does this news headline discuss?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false,
+    "round": 1
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "propose-1.5b-1.yaml",
+    "few_shot": 0,
+    "accuracy": 0.76,
+    "macro_f1": 0.7815972222222223,
+    "seconds_per_text": 0.004394405580096645,
+    "instruction": "What category does this headline fall into?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false,
+    "round": 1
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "propose-1.5b-r2-4.yaml",
+    "few_shot": 0,
+    "accuracy": 0.75,
+    "macro_f1": 0.7743207408037664,
+    "seconds_per_text": 0.00434004338007071,
+    "instruction": "In what way does this news headline primarily convey information?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false,
+    "round": 2
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "propose-1.5b-r2-3.yaml",
+    "few_shot": 0,
+    "accuracy": 0.73,
+    "macro_f1": 0.765323315118397,
+    "seconds_per_text": 0.004497721580119105,
+    "instruction": "In what way does this news headline describe?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false,
+    "round": 2
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "propose-1.5b-r2-1.yaml",
+    "few_shot": 0,
+    "accuracy": 0.41,
+    "macro_f1": 0.3630781335522715,
+    "seconds_per_text": 0.004604921090067365,
+    "instruction": "In what country has the author lived for at least two years?\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false,
+    "round": 2
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "propose-1.5b-r2-2.yaml",
+    "few_shot": 0,
+    "accuracy": 0.36,
+    "macro_f1": 0.37424043062200957,
+    "seconds_per_text": 0.004530321549973451,
+    "instruction": "What is this news headline primarily about?\n\nAP: Group Discovers John the Baptist Cave\n\nRevised Instruction:\n\nNews: A team of archaeologists has discovered what appears to be the entrance to a well-preserved cave believed to contain remnants related to the ancient prophet John the Baptist. The find could provide valuable insights into early Christian history and religious practices.\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false,
+    "round": 2
+  },
+  {
+    "teacher": "Qwen/Qwen2.5-1.5B-Instruct",
+    "prompt": "propose-1.5b-r2-5.yaml",
+    "few_shot": 0,
+    "accuracy": 0.26,
+    "macro_f1": 0.10317460317460317,
+    "seconds_per_text": 0.004421807865001028,
+    "instruction": "What is this news headline primarily about?\nApple Computer Inc. will open its second Japanese retail store later this month in the western Japanese city of Osaka, it said Thursday.\nOptions:\n{labels}\n\nNews: {text}\n\nReply with one option, exactly as written.",
+    "descriptions": false,
+    "round": 2
+  }
+]
