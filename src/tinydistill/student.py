@@ -111,6 +111,7 @@ def train_student(
     chunk_tokens: int | None = None,
     chunk_stride: int | None = None,
     init_head: list[str] | None = None,
+    outside: str | None = None,
 ) -> int:
     """Train and save the student; returns the epoch whose model is saved. With ``val_share`` > 0 that share
     of the texts is held out (texts without gold labels when there is a teacher), the loss on them is measured
@@ -119,7 +120,8 @@ def train_student(
     ``chunk_stride`` (the texts are windows of long documents, see :func:`windows`) are saved with the model,
     which then reads every input in such windows; ``max_length`` is raised to fit a window if needed.
     ``init_head``: one text per label (its name, and description), to start the classifier from them with
-    :func:`init_head_from_names`."""
+    :func:`init_head_from_names`. ``outside``: the id of the task's `outside` label, saved with the model so
+    that Predictor and the web page can tell it apart."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
     if static := encoder_of(model_name):
@@ -235,6 +237,8 @@ def train_student(
     if chunk_tokens:  # read back by student_logits and Predictor
         model.config.tinydistill_chunk_tokens = chunk_tokens
         model.config.tinydistill_chunk_stride = chunk_stride or max(1, chunk_tokens // 2)
+    if outside:  # read back by Predictor and the web pages
+        model.config.tinydistill_outside = outside
     model.save_pretrained(out_dir)
     tok.save_pretrained(out_dir)
     kept = best_epoch if best_state is not None else len(history)

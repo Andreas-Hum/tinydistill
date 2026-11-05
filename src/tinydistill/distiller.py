@@ -195,6 +195,7 @@ class Distiller:
             log=self.log,
             multi_label=task.multi_label,
             val_share=self.val_share,
+            outside=task.outside_id,
         )
         export_onnx(root / "student", root / "onnx", int8=self.int8)
         shutil.rmtree(root / "student")

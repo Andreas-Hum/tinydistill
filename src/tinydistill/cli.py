@@ -493,6 +493,7 @@ def cmd_train(a: argparse.Namespace) -> None:
         ]
         if a.init_head
         else None,
+        "outside": task.outside_id,
     }
     if meta.get("chunk_tokens") and meta.get("chunk_tokenizer") != (encoder_of(a.student) or a.student):
         log(
@@ -599,6 +600,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
         macro_f1,
         multilabel_metrics,
         ordinal_metrics,
+        outside_metrics,
         render,
         time_calls,
         top_k_accuracy,
@@ -640,6 +642,8 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "agreement": accuracy(pred, teacher_pred)
             }
         extra = ordinal_metrics(pred, gold) if task.ordinal else {}
+        if task.outside:
+            extra |= outside_metrics(pred, gold, len(task.labels) - 1)
         if scores is not None and len(task.labels) > 5:
             extra["top3_accuracy"] = top_k_accuracy(scores, gold)
         return extra | {

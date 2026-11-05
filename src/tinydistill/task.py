@@ -11,6 +11,8 @@ import yaml
 
 SURFACE_FORMS = ("lowercase", "capitalised", "uppercase")
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"  # option letters of a lettered prompt
+# the `outside` label, for texts that fit none of the other labels: its default id, name and description
+OUTSIDE = ("outside", "none of these", "the text fits none of the other categories")
 
 
 def label_name(label_id: str) -> str:
@@ -32,6 +34,12 @@ class Task:
     ordinal: bool = False  # the labels are listed in order (e.g. 1 to 5 stars): also report distances
     multi_label: bool = False  # each label is a separate yes/no question ({label} in the prompt)
     answers: tuple[str, str] = ("yes", "no")  # the teacher's answers to a multi-label question
+    outside: bool = False  # the last label is the `outside` label: the text fits none of the others
+
+    @property
+    def outside_id(self) -> str | None:
+        """The id of the `outside` label, or None when the task has none."""
+        return self.labels[-1] if self.outside else None
 
     def render(
         self,
@@ -70,6 +78,12 @@ class Task:
         for i, (lid, v) in enumerate(zip(self.labels, self.verbalisations, strict=True)):
             d = self.descriptions[i] if self.descriptions else None
             labels[lid] = {"name": v, "description": d} if d else v
+        extra = {}
+        if self.outside:  # written back as the `outside` key, not as one of the labels
+            lid = self.labels[-1]
+            del labels[lid]
+            d = self.descriptions[-1] if self.descriptions else None
+            extra["outside"] = {"id": lid, "name": self.verbalisations[-1], "description": d}
         return {
             "name": self.name,
             "text_field": self.text_field,
@@ -80,7 +94,7 @@ class Task:
             "multi_label": self.multi_label,
             "answers": list(self.answers),
             "labels": labels,
-        }
+        } | extra
 
 
 def _parse_label(path, lid: str, value) -> tuple[str, str | None]:
@@ -96,6 +110,20 @@ def _parse_label(path, lid: str, value) -> tuple[str, str | None]:
         desc = value.get("description")
         return str(name), (str(desc) if desc else None)
     raise ValueError(f"{path}: label {lid!r} must be a name, a mapping with name/description, or empty")
+
+
+def _parse_outside(path, value) -> tuple[str, str, str | None] | None:
+    """The `outside` key: true, or a mapping with any of id, name and description (an empty description
+    leaves it out)."""
+    if value is None or value is False:
+        return None
+    if value is True:
+        value = {}
+    if not isinstance(value, dict) or set(value) - {"id", "name", "description"}:
+        raise ValueError(f"{path}: 'outside' must be true or a mapping with id, name and description")
+    lid, name, desc = OUTSIDE
+    desc = value.get("description", desc)
+    return str(value.get("id") or lid), str(value.get("name") or name), str(desc) if desc else None
 
 
 def _parse_forms(path, value) -> tuple[str, ...]:
@@ -129,6 +157,17 @@ def load_task(path: str | Path) -> Task:
     if len(items) < 2:
         raise ValueError(f"{path}: need at least two labels")
     parsed = [_parse_label(path, lid, v) for lid, v in items]
+    outside = _parse_outside(path, raw.get("outside"))
+    if outside:
+        if raw.get("multi_label"):
+            raise ValueError(
+                f"{path}: 'outside' is for single-label tasks; in a multi-label task a text with no label "
+                "already fits none of them"
+            )
+        if outside[0] in [lid for lid, _ in items]:
+            raise ValueError(f"{path}: the outside label's id {outside[0]!r} is also one of the labels")
+        items.append((outside[0], None))
+        parsed.append(outside[1:])
     verbs = [p[0] for p in parsed]
     descs = [p[1] for p in parsed]
     if len(set(verbs)) != len(verbs):
@@ -161,6 +200,7 @@ def load_task(path: str | Path) -> Task:
         ordinal=bool(raw.get("ordinal", False)),
         multi_label=multi,
         answers=(answers[0], answers[1]),
+        outside=outside is not None,
     )
 
 
@@ -210,6 +250,7 @@ def task_yaml_from_data(
     body["prompt"] = Literal(DEFAULT_PROMPT)
     header = (
         f"# Task file for {spec}, written by `tinydistill init`. Edit the prompt and, if needed, the label\n"
-        "# names (id: name) or add descriptions (id: {description: ...}); see the README.\n"
+        "# names (id: name) or add descriptions (id: {description: ...}); see the README. For texts that\n"
+        '# fit none of the labels, add `outside: true`: one more label, "none of these".\n'
     )
     return header + yaml.safe_dump(body, sort_keys=False, allow_unicode=True, width=120)

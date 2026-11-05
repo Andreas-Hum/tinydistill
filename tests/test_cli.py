@@ -311,6 +311,7 @@ def test_init_writes_a_loadable_task(tmp_path):
     )
     task = load_task(out)
     assert task.labels == ["neg", "pos"] and task.text_field == "body" and "{examples}" in task.prompt
+    assert "add `outside: true`" in out.read_text(encoding="utf-8")  # offered, not added
     with pytest.raises(SystemExit, match="exists"):
         main(["init", str(tmp_path / "d.jsonl"), "--out", str(out)])
     write_jsonl(tmp_path / "n.jsonl", [{"text": "a", "label": 0}, {"text": "b", "label": 1}])

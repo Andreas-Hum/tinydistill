@@ -1070,7 +1070,9 @@
   const ROWH = 32, rows = new Map();
   function drawOutput(r) {
     const chosen = D.multi ? r.p.map((x, i) => [x, i]).filter(([x]) => x >= 0.5).map(([, i]) => i) : [r.top];
-    $("answer").textContent = chosen.length ? chosen.map(name).join(", ") : "no label at 50%";
+    // the task's `outside` label (D.outside) means the text fits none of the others
+    const said = (i) => (i === D.outside ? "None of the labels fits" : name(i));
+    $("answer").textContent = chosen.length ? chosen.map(said).join(", ") : "no label at 50%";
     $("answer-p").textContent = D.multi ? `${chosen.length} of ${NL} labels at 50% or more (a sigmoid per label)` :
       `${pct(r.p[r.top])}, softmax over ${NL} labels`;
     $("spark-h").textContent = `layers 1-${L}`;
