@@ -163,8 +163,9 @@ texts plus those 616 gold labels. Latency is per text, one at a time:
 - **The teacher sets the ceiling.** With a 1.5B teacher, or without examples in its prompt, the students are
   much weaker; the same student trained on all 10,003 gold labels reaches 0.914.
 - **Many labels.** On CLINC150 (151 intents), `--shortlist 20 --shortlist-keep oos` labelled six times
-  faster than scoring every label and was more accurate
-  ([RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#clinc150-many-labels)).
+  faster than scoring every label and was more accurate. With each text's 16 most similar gold examples in
+  the prompt and "none of these" as the outside label, the deployed student reaches 0.767, against 0.574
+  zero-shot ([RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#clinc150-many-labels)).
 - **Compared with SetFit**, a strong few-shot method that needs no LLM, on the same 616 gold labels: 0.813
   against 0.797 with the same encoder. Distillation needs a GPU for the teacher; SetFit trains in a minute
   ([comparison](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#compared-with-setfit)).
