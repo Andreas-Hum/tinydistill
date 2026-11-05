@@ -19,8 +19,8 @@ SetFit, GLiClass zero-shot and the LLM itself, with accuracy, CPU latency, size 
 10-shot results on Banking77 are listed separately. The tables are written by
 [`examples/compare/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples/compare).
 
-On Banking77 the best student reaches 0.867 against 0.796 for SetFit with the same encoder, which trains in 7
-minutes on a CPU and needs no LLM; on CLINC150, 0.767 against 0.712. With a zero-shot teacher and no gold labels
+On Banking77 the best student reaches 0.875 against 0.796 for SetFit with the same encoder, which trains in 7
+minutes on a CPU and needs no LLM; on CLINC150, 0.817 against 0.712. With a zero-shot teacher and no gold labels
 the CLINC150 student (0.573) is below both SetFit and the encoder fine-tuned on the gold labels alone (0.580).
 
 ## Banking77: the hard case
@@ -667,6 +667,45 @@ Three sets lower the teacher by 10 points on Banking77 (0.851 to 0.749) and 7 on
 the students follow (0.857 to 0.809, 0.767 to 0.749), at three times the labelling cost. With 8 gold examples
 per class, a text's class has at most 8 examples to show, so the later sets hold few or none of them, and
 averaging those sets in dilutes the one that does. One set stays the default.
+
+## A linear probe on the teacher's hidden states
+
+[`examples/teachers-2026/probe.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe.sh)
+adds `--probe` to the 7B teacher with each text's 16 most similar gold examples: a linear classifier on the
+teacher's last hidden state for the prompt plus the text, fit on the same 8 gold examples per class, whose
+probabilities are averaged with the in-context ones. On Banking77:
+
+<!-- results: teachers-2026/probe/banking77.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| banking77-7b-similar16 | 16 similar examples, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.851 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.857 ± 0.001 | 0.856 ± 0.001 | 0.878 ± 0.003 | ONNX int8 | 1.0 | 34.1 | 23 |
+| banking77-7b-similar16-probe | 16 similar examples, 4-bit, probe `Qwen/Qwen2.5-7B-Instruct` | 0.859 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.875 ± 0.001 | 0.875 ± 0.001 | 0.890 ± 0.001 | ONNX int8 | 1.0 | 33.7 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+and on CLINC150, with the shortlist of 20 plus out of scope:
+
+<!-- results: teachers-2026/probe/clinc150.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| clinc150-7b-similar16 | 16 similar examples, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.775 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.767 ± 0.006 | 0.834 ± 0.003 | 0.796 ± 0.004 | ONNX int8 | 0.8 | 22.2 | 23 |
+| clinc150-7b-similar16-probe | 16 similar examples, 4-bit, probe `Qwen/Qwen2.5-7B-Instruct` | 0.842 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.817 ± 0.007 | 0.873 ± 0.004 | 0.832 ± 0.007 | ONNX int8 | 0.9 | 22.1 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+The probe lifts the teacher from 0.851 to 0.859 on Banking77 and from 0.775 to 0.842 on CLINC150, and the
+students gain more than their teachers: 0.857 to 0.875 and 0.767 to 0.817, or 0.872 and 0.813 deployed in int8
+(from 0.855 and 0.760). The Banking77 student is the most accurate on this page with 8 gold labels per class,
+above the student of Qwen3.5-9B (0.867), with a teacher that takes 155 ms per text on the GPU against Qwen3.5-9B's
+924 ms. On the gold examples held out
+from the fit (`--probe-dev`), the probe alone is below the prompt on Banking77 (75.6% against 78.0% of 123) and
+above it on CLINC150 (96.7% against 94.6% of 242), and combined beats both on Banking77 (78.9%) but not the
+probe alone on CLINC150 (95.5%); those held-out texts are few, and the test sets are the measure.
+Both students are on the Hub ([Banking77](https://huggingface.co/Shroomy/tinydistill-banking77-minilm),
+[CLINC150](https://huggingface.co/Shroomy/tinydistill-clinc150-minilm)) and in the
+[live demo](https://andreas-hum.github.io/tinydistill/demo/).
 
 ## A vLLM teacher agrees with the local one
 

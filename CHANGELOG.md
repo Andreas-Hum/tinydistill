@@ -4,6 +4,9 @@
 
 - RESULTS.md: demonstration ensembling (`--few-shot-sets 3`) measured on Banking77 and CLINC150 with the 7B
   teacher; three sets of 16 similar examples were worse than one, for the teacher and the student.
+- RESULTS.md: the linear probe on the teacher's hidden states (`--probe`) measured on the same runs; it lifted
+  the deployed students from 0.855 to 0.872 on Banking77 and from 0.760 to 0.813 on CLINC150. Both are the new
+  Hub models and live demo models; the README headline, the Hub table and "How it compares" use them.
 
 ## 0.5.0 (2026-11-05)
 

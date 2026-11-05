@@ -1,6 +1,6 @@
 """Write examples/compare/<task>.md, one table per task, from the runners' files in examples/compare/results/
 and the saved tinydistill results in examples/ (examples/<task>/*.json, examples/<task>/students/*.json and
-examples/teachers-2026/similar/<task>-*.json). The tinydistill row is the saved run with the most accurate
+examples/teachers-2026/*/<task>-*.json). The tinydistill row is the saved run with the most accurate
 student that uses at most 8 gold labels per class, so a new run there is picked up when this script runs
 again."""
 
@@ -84,7 +84,7 @@ def row(r: dict, name: str) -> dict | None:
 def tinydistill_runs(name: str, budget: int) -> list[tuple[Path, dict]]:
     """Saved tinydistill runs on this task and test set with at most 8 gold labels per class."""
     files = [*EXAMPLES.glob(f"{name}/*.json"), *EXAMPLES.glob(f"{name}/students/*.json")]
-    files += EXAMPLES.glob(f"teachers-2026/similar/{name}-*.json")
+    files += EXAMPLES.glob(f"teachers-2026/*/{name}-*.json")
     out = []
     for f in sorted(files):
         r = read(f)

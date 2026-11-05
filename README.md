@@ -145,14 +145,15 @@ Long steps print their progress, speed and time left every few seconds and write
 
 Banking77 intent detection: 77 fine-grained classes, 3,080 held-out test texts; the student is the one in the
 [live demo](https://andreas-hum.github.io/tinydistill/demo/). The teacher's prompt shows each text the 16 most
-similar of 616 gold examples (8 per class), and the student learns from its soft labels on 10,003 training
-texts plus those 616 gold labels. Latency is per text, one at a time:
+similar of 616 gold examples (8 per class), its scores are averaged with a linear probe on its hidden states
+fit on the same examples, and the student learns from its soft labels on 10,003 training texts plus those 616
+gold labels. Latency is per text, one at a time:
 
 <!-- results: headline.md -->
 | Model | Runs on | Test accuracy | Latency per text | Size | Speed-up |
 |---|---|---|---|---|---|
-| Teacher: `Qwen/Qwen2.5-7B-Instruct`, 4-bit, 16 most similar examples in the prompt | RTX 4090 | 0.851 | 157 ms | 5.4 GB | 1x |
-| Student: MiniLM-L6, int8 ONNX | CPU, 2 threads | 0.855 | 1.0 ms | 23 MB | 154x |
+| Teacher: `Qwen/Qwen2.5-7B-Instruct`, 4-bit, 16 most similar examples in the prompt, plus a linear probe | RTX 4090 | 0.859 | 155 ms | 5.4 GB | 1x |
+| Student: MiniLM-L6, int8 ONNX | CPU, 2 threads | 0.872 | 1.0 ms | 23 MB | 153x |
 <!-- /results -->
 
 - The student is **more accurate than its teacher**: learning its soft labels across 10,000 texts smooths out
@@ -164,8 +165,8 @@ texts plus those 616 gold labels. Latency is per text, one at a time:
   much weaker; the same student trained on all 10,003 gold labels reaches 0.914.
 - **Many labels.** On CLINC150 (151 intents), `--shortlist 20 --shortlist-keep oos` labelled six times
   faster than scoring every label and was more accurate. With each text's 16 most similar gold examples in
-  the prompt and "none of these" as the outside label, the deployed student reaches 0.767, against 0.574
-  zero-shot ([RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#clinc150-many-labels)).
+  the prompt and a linear probe on the teacher's hidden states, the deployed student reaches 0.813, against
+  0.574 zero-shot ([RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#a-linear-probe-on-the-teachers-hidden-states)).
 - **Compared with SetFit**, a strong few-shot method that needs no LLM, on the same 616 gold labels: 0.813
   against 0.797 with the same encoder. Distillation needs a GPU for the teacher; SetFit trains in a minute
   ([comparison](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#compared-with-setfit)).
@@ -287,7 +288,7 @@ command line. These models from the results are published that way, in a
 
 | Model | Task | Size | Test accuracy |
 |---|---|---|---|
-| [`Shroomy/tinydistill-banking77-minilm`](https://huggingface.co/Shroomy/tinydistill-banking77-minilm) | Banking77, 77 intents | 23 MB | 0.814 |
+| [`Shroomy/tinydistill-banking77-minilm`](https://huggingface.co/Shroomy/tinydistill-banking77-minilm) | Banking77, 77 intents | 23 MB | 0.872 |
 | [`Shroomy/tinydistill-banking77-static`](https://huggingface.co/Shroomy/tinydistill-banking77-static) | Banking77, static embeddings | 8 MB | 0.802 |
 | [`Shroomy/tinydistill-financial-tweets-minilm`](https://huggingface.co/Shroomy/tinydistill-financial-tweets-minilm) | financial tweet sentiment | 23 MB | 0.820 |
 

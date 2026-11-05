@@ -20,8 +20,8 @@ def row(results: dict, name: str) -> dict:
 def headline() -> str | None:
     """Banking77, the live demo's run: the teacher on the GPU against its int8 ONNX student on the CPU."""
     files = {
-        "teacher": examples / "banking77" / "banking77-7b-similar16.json",
-        "minilm": examples / "banking77" / "banking77-7b-similar16.json",
+        "teacher": examples / "teachers-2026" / "probe" / "banking77-7b-similar16-probe.json",
+        "minilm": examples / "teachers-2026" / "probe" / "banking77-7b-similar16-probe.json",
     }
     if not all(f.exists() for f in files.values()):
         return None
@@ -32,7 +32,8 @@ def headline() -> str | None:
     lines = [
         "| Model | Runs on | Test accuracy | Latency per text | Size | Speed-up |",
         "|---|---|---|---|---|---|",
-        f"| Teacher: `{res['teacher']['teacher']}`, 4-bit, 16 most similar examples in the prompt | {gpu} "
+        f"| Teacher: `{res['teacher']['teacher']}`, 4-bit, 16 most similar examples in the prompt, "
+        f"plus a linear probe | {gpu} "
         f"| {teacher['accuracy']:.3f} | {teacher['latency_ms_b1']:.0f} ms "
         f"| {teacher['size_mb'] / 1000:.1f} GB | 1x |",
     ]

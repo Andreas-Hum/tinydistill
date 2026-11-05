@@ -119,6 +119,11 @@ confident than it would be for a new text. That is fine for distillation, since 
 cross-entropy term, but the teacher's agreement with gold on those rows says nothing about its accuracy: use
 the `--probe-dev` report or the test set for that.
 
+With 8 gold examples per class and the 7B teacher shown each text's 16 most similar of them, the probe raised
+the teacher's test accuracy from 0.851 to 0.859 on Banking77 and from 0.775 to 0.842 on CLINC150, and the
+deployed students from 0.855 to 0.872 and from 0.760 to 0.813; see
+[Results](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#a-linear-probe-on-the-teachers-hidden-states).
+
 The probe needs a local teacher: hosted APIs and vLLM return no hidden states, so `--api-url` and `--vllm-url`
 refuse it. It does not work with `--chunk-tokens`.
 

@@ -20,29 +20,30 @@ reruns everything.
 
 ## What the tables show
 
-- **tinydistill is the most accurate method that runs on a CPU** on Banking77 (0.867 against SetFit's 0.796;
-  0.859 as the deployed int8 model) and CLINC150 (0.767 against 0.712, the same deployed); on Danish MASSIVE it
-  reaches 0.761 against 0.586 for gold only. Its int8 student and the gold-only model, the same encoder, are the
-  fastest and smallest models in every table: 1.0 to 2.3 ms per text and 23 to 24 MB, against 4.6 to 6.9 ms
-  and 92 MB for SetFit and 113 to 577 ms and 746 MB for GLiClass.
-- **The student matches its teacher at a fraction of the latency.** On Banking77, CLINC150 and Danish MASSIVE
-  the student is within 0.002 of the LLM that labelled its data or above it (0.867 against 0.861 on Banking77),
-  at 1.0 to 2.3 ms on a CPU against 97 to 907 ms on a GPU. On financial tweets it is 0.014 below its teacher
-  ensemble.
+- **tinydistill is the most accurate method that runs on a CPU** on Banking77 (0.875 against SetFit's 0.796;
+  0.872 as the deployed int8 model) and CLINC150 (0.817 against 0.712; 0.813 deployed); on Danish MASSIVE it
+  reaches 0.761 against 0.586 for gold only. Its int8 student is the fastest and smallest model in every table,
+  level with the gold-only model of the same encoder on two tasks: 0.9 to 2.3 ms per text and 23 to 24 MB,
+  against 4.6 to 6.9 ms and 92 MB for SetFit and 113 to 577 ms and 746 MB for GLiClass.
+- **The student comes close to its teacher at a fraction of the latency.** It is above the LLM that labelled its
+  data on Banking77 (0.875 against 0.859) and Danish MASSIVE (0.761 against 0.736), and below it on CLINC150
+  (0.817 against 0.842) and financial tweets (0.828 against 0.842), at 0.9 to 2.3 ms on a CPU against 92 to
+  242 ms on a GPU.
 - **It needs a GPU and a good teacher; SetFit needs neither.** SetFit trained in 7 minutes on the CPU and came
-  within 0.071 of the best student on Banking77 and 0.055 on CLINC150. The best Banking77 student took 3.2 hours
-  of labelling with Qwen3.5-9B; the 7B teacher's student is 0.010 lower after 35 minutes.
+  within 0.079 of the best student on Banking77 and 0.105 on CLINC150. The best students took 35 and 26 minutes
+  of labelling with the 7B teacher, shown each text's 16 most similar gold examples and averaged with a linear
+  probe on its hidden states (`--probe`).
 - **A weak teacher gives a weak student.** With a zero-shot teacher and no gold labels, the CLINC150 student
   (0.573) is below gold only (0.580) and SetFit (0.712); with the 16 most similar gold examples in the teacher's
-  prompt and out of scope as an `outside` label, it reaches 0.767.
+  prompt and the probe, it reaches 0.817.
 - **With very few labels, zero-shot can beat few-shot training.** On financial tweets 8 labels per class are 24
   texts: SetFit reaches 0.420 and gold only 0.318, below GLiClass zero-shot (0.676). The student, trained on
   the LLM's labels without any gold labels, reaches 0.828.
 - **GLiClass is the weakest on the many-label tasks** (0.443 on Banking77, 0.530 on CLINC150) and the slowest
   model on a CPU, because it reads every label name with every text. Label descriptions lowered its accuracy on
   both tasks where they were tried.
-- **Published 10-shot results on Banking77 are higher**: RoBERTa-Large with ICDA reports 0.898 and SetFit with
-  MPNet on expert-picked examples 0.881, against the student's 0.867 with 8 labels per class. They use 10 labels
+- **Some published 10-shot results on Banking77 are higher**: RoBERTa-Large with ICDA reports 0.898 and SetFit with
+  MPNet on expert-picked examples 0.881, against the student's 0.875 with 8 labels per class. They use 10 labels
   per class and larger models, and ICDA also uses texts written by OPT-66B, so they are listed apart and not
   rerun.
 
@@ -62,10 +63,10 @@ SetFit run with `paraphrase-mpnet-base-v2` on Banking77, trained on a GPU, reach
 | GLiClass zero-shot, `gliclass-base-v3.0` | 0 | label names | 0.443 | 0.460 | 419.7 ms | 746 MB | none | no |
 | The LLM as the classifier: `Qwen2.5-7B-Instruct`, 16 similar examples, 4-bit | 616 (in the prompt) | | 0.851 | 0.850 | 157 ms (RTX 4090) | 5.4 GB | none | yes, to run it |
 | tinydistill: `all-MiniLM-L6-v2` student of that LLM, ONNX int8 | 616 | the LLM's labels on 10,003 unlabelled texts | 0.857 ± 0.001 | 0.856 ± 0.001 | 1.3 ms | 23 MB | 35 min labelling + 58 s training (RTX 4090) | yes, to build it |
-| The LLM as the classifier: `Qwen3.5-9B`, 16 similar examples, 4-bit | 616 (in the prompt) | | 0.861 | 0.860 | 907 ms (RTX 4090) | 7.5 GB | none | yes, to run it |
-| tinydistill: `all-MiniLM-L6-v2` student of that LLM, ONNX int8 | 616 | the LLM's labels on 10,003 unlabelled texts | 0.867 ± 0.004 | 0.867 ± 0.004 | 1.1 ms | 23 MB | 3.2 h labelling + 89 s training (RTX 4090) | yes, to build it |
+| The LLM as the classifier: `Qwen2.5-7B-Instruct`, 16 similar examples, 4-bit, probe | 616 (in the prompt) | | 0.859 | 0.859 | 155 ms (RTX 4090) | 5.4 GB | none | yes, to run it |
+| tinydistill: `all-MiniLM-L6-v2` student of that LLM, ONNX int8 | 616 | the LLM's labels on 10,003 unlabelled texts | 0.875 ± 0.001 | 0.875 ± 0.001 | 1.2 ms | 23 MB | 35 min labelling + 58 s training (RTX 4090) | yes, to build it |
 
-Banking77, 3,080 test texts. Every method that trains gets the same 616 gold-labelled texts (8 per class, tinydistill's own pick with seed 0); mean ± standard deviation over 3 training seeds. Latency: batch 1, 2 threads, median over three passes through the same 100 test texts, each library's own inference (tinydistill's Predictor for the ONNX models); the LLM runs on a GPU. The gold-only and tinydistill accuracies are the PyTorch models'; their latency and size are those of the int8 export ("saved": timed when the run was made, not re-timed with the others). Build time is per model; the CPU runs trained with 16 threads. The last tinydistill row is [`examples/banking77/banking77-qwen35-9b-similar16.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/banking77/banking77-qwen35-9b-similar16.json), the most accurate of 24 saved runs on this test set that use at most 8 gold labels per class (picked on the test set); the int8 model it times scores 0.859. The LLM and tinydistill rows before it are an earlier run, kept for reference: `examples/banking77/banking77-7b-similar16.json`.
+Banking77, 3,080 test texts. Every method that trains gets the same 616 gold-labelled texts (8 per class, tinydistill's own pick with seed 0); mean ± standard deviation over 3 training seeds. Latency: batch 1, 2 threads, median over three passes through the same 100 test texts, each library's own inference (tinydistill's Predictor for the ONNX models); the LLM runs on a GPU. The gold-only and tinydistill accuracies are the PyTorch models'; their latency and size are those of the int8 export ("saved": timed when the run was made, not re-timed with the others). Build time is per model; the CPU runs trained with 16 threads. The last tinydistill row is [`examples/teachers-2026/probe/banking77-7b-similar16-probe.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe/banking77-7b-similar16-probe.json), the most accurate of 27 saved runs on this test set that use at most 8 gold labels per class (picked on the test set); the int8 model it times scores 0.872. The LLM and tinydistill rows before it are an earlier run, kept for reference: `examples/banking77/banking77-7b-similar16.json`.
 
 Reported in the papers, not rerun. The protocol differs from the table above: 10 gold labels per class (770) against our 8 (616), plus what the third column says, and larger classifiers (RoBERTa-Large, 355M parameters; MPNet, 110M). The test set is the same 3,080 texts. Lin et al. sample the 10 per class at random, average 5 seeds and train RoBERTa-Large for 40 epochs; Loukas et al. train on 10 per class that a human expert picked as representative.
 
@@ -88,10 +89,10 @@ Reported in the papers, not rerun. The protocol differs from the table above: 10
 | GLiClass zero-shot, `gliclass-base-v3.0` | 0 | label names and descriptions | 0.520 | 0.616 | 538.3 ms | 746 MB | none | no |
 | The LLM as the classifier: `Qwen2.5-7B-Instruct`, zero-shot, 4-bit | 0 | | 0.581 | 0.616 | 87 ms (RTX 4090) | 5.4 GB | none | yes, to run it |
 | tinydistill: `all-MiniLM-L6-v2` student of that LLM, ONNX int8 | 0 | the LLM's labels on 15,250 unlabelled texts | 0.573 ± 0.003 | 0.604 ± 0.005 | 1.2 ms | 23 MB | 15 min labelling + 2 min training (RTX 4090) | yes, to build it |
-| The LLM as the classifier: `Qwen2.5-7B-Instruct`, 16 similar examples, 4-bit | 1208 (in the prompt) | | 0.769 | 0.834 | 97 ms (RTX 4090) | 5.4 GB | none | yes, to run it |
-| tinydistill: `all-MiniLM-L6-v2` student of that LLM, ONNX int8 | 1208 | the LLM's labels on 15,250 unlabelled texts | 0.767 ± 0.002 | 0.832 ± 0.001 | 1.0 ms | 23 MB | 28 min labelling + 2 min training (RTX 4090) | yes, to build it |
+| The LLM as the classifier: `Qwen2.5-7B-Instruct`, 16 similar examples, 4-bit, probe | 1208 (in the prompt) | | 0.842 | 0.887 | 92 ms (RTX 4090) | 5.4 GB | none | yes, to run it |
+| tinydistill: `all-MiniLM-L6-v2` student of that LLM, ONNX int8 | 1208 | the LLM's labels on 15,250 unlabelled texts | 0.817 ± 0.007 | 0.873 ± 0.004 | 0.9 ms | 23 MB | 26 min labelling + 79 s training (RTX 4090) | yes, to build it |
 
-CLINC150 (plus, with out of scope), 5,500 test texts. Every method that trains gets the same 1208 gold-labelled texts (8 per class, tinydistill's own pick with seed 0); mean ± standard deviation over 3 training seeds. Latency: batch 1, 2 threads, median over three passes through the same 100 test texts, each library's own inference (tinydistill's Predictor for the ONNX models); the LLM runs on a GPU. The gold-only and tinydistill accuracies are the PyTorch models'; their latency and size are those of the int8 export ("saved": timed when the run was made, not re-timed with the others). Build time is per model; the CPU runs trained with 16 threads. The last tinydistill row is [`examples/clinc150/clinc150-7b-outside-similar16.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/clinc150/clinc150-7b-outside-similar16.json), the most accurate of 5 saved runs on this test set that use at most 8 gold labels per class (picked on the test set); the int8 model it times scores 0.767. That run labels the out-of-scope requests as an `outside` label, "none of these" (examples/clinc150/outside.yaml); the test texts and their gold labels are the same. The LLM and tinydistill rows before it are an earlier run, kept for reference: `examples/clinc150/clinc150-7b-shortlist20-keep-oos.json`.
+CLINC150 (plus, with out of scope), 5,500 test texts. Every method that trains gets the same 1208 gold-labelled texts (8 per class, tinydistill's own pick with seed 0); mean ± standard deviation over 3 training seeds. Latency: batch 1, 2 threads, median over three passes through the same 100 test texts, each library's own inference (tinydistill's Predictor for the ONNX models); the LLM runs on a GPU. The gold-only and tinydistill accuracies are the PyTorch models'; their latency and size are those of the int8 export ("saved": timed when the run was made, not re-timed with the others). Build time is per model; the CPU runs trained with 16 threads. The last tinydistill row is [`examples/teachers-2026/probe/clinc150-7b-similar16-probe.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe/clinc150-7b-similar16-probe.json), the most accurate of 8 saved runs on this test set that use at most 8 gold labels per class (picked on the test set); the int8 model it times scores 0.813. The LLM and tinydistill rows before it are an earlier run, kept for reference: `examples/clinc150/clinc150-7b-shortlist20-keep-oos.json`.
 <!-- /results -->
 
 ## Danish MASSIVE
