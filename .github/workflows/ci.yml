@@ -73,7 +73,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v4.3.0, the tiny test models from the Hugging Face Hub
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0, the tiny test models from the Hugging Face Hub
+        id: hf
         with:
           path: ~/.cache/huggingface
           key: hf-${{ runner.os }}-${{ hashFiles('tests/**/*.py') }}
@@ -84,7 +85,11 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ]; then pip install torch; else
             pip install torch --index-url https://download.pytorch.org/whl/cpu; fi
           pip install -e ".[dev]"
+      # with every model the tests use in the cache, run offline: each model load otherwise asks the Hub whether it
+      # changed, and the Hub rate-limits those requests from shared runners (the client then waits and retries)
       - run: pytest -q
+        env:
+          HF_HUB_OFFLINE: ${{ steps.hf.outputs.cache-hit == 'true' && '1' || '0' }}
 
   oldest:
     name: test (oldest supported dependencies)
@@ -97,6 +102,7 @@ jobs:
           python-version: "3.11"
           cache: pip
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        id: hf
         with:
           path: ~/.cache/huggingface
           key: hf-oldest-${{ hashFiles('tests/**/*.py') }}
@@ -110,6 +116,8 @@ jobs:
           pip install --no-deps -e .
           pip list | grep -iE "^(torch|numpy|transformers|onnx|onnxruntime|datasets|matplotlib) "
       - run: pytest -q
+        env:
+          HF_HUB_OFFLINE: ${{ steps.hf.outputs.cache-hit == 'true' && '1' || '0' }}
 
   package:
     name: package (built wheel, installed as users get it)
