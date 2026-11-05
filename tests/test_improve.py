@@ -81,14 +81,19 @@ def test_improve_runs_a_round_without_looking_at_the_test_set(tmp_path, monkeypa
     assert asked and not any(t in m for m in asked for t in test_texts)  # never selects on the test set
     table = json.loads((out / "improve.json").read_text(encoding="utf-8"))
     assert [r["round"] for r in table] == [0, 1] and table[0]["added"] == 0 and table[1]["added"] > 0
-    assert table[0]["test"] is not None and "| round | texts added |" in (out / "improve.md").read_text()
+    assert table[0]["test"] is not None and "| round | texts added |" in (out / "improve.md").read_text(
+        encoding="utf-8"
+    )
     for k in (0, 1):
         d = out / f"round-{k}"
         assert (d / "results.json").exists() and (d / "onnx" / "model.onnx").exists()
         trained = [r["text"] for r in read(d / "train.jsonl")]
         assert not set(trained) & set(held) and len(trained) == 12 + table[k]["added"]
     assert read(out / "round-1" / "train.jsonl")[-1]["text"].startswith("new review")
-    assert json.loads((out / "round-1" / "meta.json").read_text())["improve_added"] == table[1]["added"]
+    assert (
+        json.loads((out / "round-1" / "meta.json").read_text(encoding="utf-8"))["improve_added"]
+        == table[1]["added"]
+    )
 
 
 def test_improve_refuses_multi_label_runs(tmp_path):

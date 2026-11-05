@@ -93,7 +93,7 @@ def test_push_uploads_the_browser_files(tmp_path, hub):
     onnx = _run(tmp_path / "single")
     main(["push", str(onnx), "--repo", "me/single"])
     repo = hub / "me" / "single"
-    assert (hub / "commits").read_text() == "me/single\n"  # one commit
+    assert (hub / "commits").read_text(encoding="utf-8") == "me/single\n"  # one commit
     export = {"model.onnx", "model.int8.onnx", "config.json", "labels.json", "tokenizer.json", "README.md"}
     assert export <= _files(repo)  # the export as it was, for Predictor("hf:...")
     assert _files(repo) - _files(onnx) == {
@@ -103,14 +103,14 @@ def test_push_uploads_the_browser_files(tmp_path, hub):
     }
     assert _outputs(repo / "onnx/model_quantized.onnx") == ["logits", "layer_logits", "cls_attention"]
     assert _outputs(repo / "onnx/explorer_quantized.onnx") == EXPLORER_OUTPUTS
-    page = json.loads((repo / "tinydistill-page.json").read_text())
+    page = json.loads((repo / "tinydistill-page.json").read_text(encoding="utf-8"))
     assert page["simple"]["labels"] == ["neg", "pos"] and page["simple"]["score"] == "test accuracy 0.500"
     assert page["explainer"]["file"] == "explorer" and page["explainer"]["dtype"] == "q8"
     assert "model" not in page["simple"] and "model" not in page["explainer"]  # no local folder
 
     # --title and --note: what the pages show for this model (the footer note swaps with the model)
     main(["push", str(onnx), "--repo", "me/single", "--title", "Reviews", "--note", "Data: CC BY 4.0."])
-    page = json.loads((repo / "tinydistill-page.json").read_text())
+    page = json.loads((repo / "tinydistill-page.json").read_text(encoding="utf-8"))
     for p in ("simple", "explainer"):
         assert page[p]["text"]["title"] == "Reviews" and page[p]["text"]["note"] == "Data: CC BY 4.0."
 
@@ -121,7 +121,7 @@ def test_push_uploads_the_browser_files(tmp_path, hub):
         "onnx/explorer.onnx",
         "tinydistill-page.json",
     }
-    page = json.loads((hub / "me" / "multi" / "tinydistill-page.json").read_text())
+    page = json.loads((hub / "me" / "multi" / "tinydistill-page.json").read_text(encoding="utf-8"))
     assert page["simple"]["multi"] and page["simple"]["score"] == "test macro-F1 0.500"
     assert page["explainer"]["dtype"] == "fp32" and len(page["explainer"]["labels"]) == 3
 
@@ -132,7 +132,10 @@ def test_push_uploads_the_browser_files(tmp_path, hub):
         "tinydistill-page.json",
     }
     assert _outputs(hub / "me" / "plain" / "onnx/model_quantized.onnx") == ["logits"]
-    assert json.loads((hub / "me" / "plain" / "tinydistill-page.json").read_text())["explainer"] is None
+    assert (
+        json.loads((hub / "me" / "plain" / "tinydistill-page.json").read_text(encoding="utf-8"))["explainer"]
+        is None
+    )
 
 
 def test_web_models_and_remote(tmp_path, hub, capsys):
@@ -156,13 +159,12 @@ def test_web_models_and_remote(tmp_path, hub, capsys):
         "me/other",
         "me/plain",
     ]  # the page lists explainers
-    assert (
-        'id="picker"' in (site / "index.html").read_text()
-        and 'id="pick-list"' in (site / "simple/index.html").read_text()
-    )
+    assert 'id="picker"' in (site / "index.html").read_text(encoding="utf-8") and 'id="pick-list"' in (
+        site / "simple/index.html"
+    ).read_text(encoding="utf-8")
 
     # the page's data is the pushed page JSON, with where the model is
-    page = json.loads((hub / "me" / "other" / "tinydistill-page.json").read_text())
+    page = json.loads((hub / "me" / "other" / "tinydistill-page.json").read_text(encoding="utf-8"))
     other = tmp_path / "other-site"
     main(["web", str(tmp_path / "other-task" / "onnx"), "--out", str(other)])
     simple, inside = _data(other / "simple" / "index.html"), _data(other / "index.html")
@@ -192,7 +194,7 @@ def test_web_models_and_remote(tmp_path, hub, capsys):
     assert simple["repo"] == inside["repo"] == "me/other" and "model" not in simple
     assert inside["file"] == "explorer" and simple["labels"] == ["x", "y", "z"]
     assert [m["repo"] for m in simple["models"]] == ["me/other", "me/plain"]
-    assert '<h1 data-t="title">Remote</h1>' in (remote / "simple" / "index.html").read_text()
+    assert '<h1 data-t="title">Remote</h1>' in (remote / "simple" / "index.html").read_text(encoding="utf-8")
     main(
         ["web", "hf:me/plain", "--out", str(tmp_path / "remote-plain"), "--remote"]
     )  # no explainer: one page

@@ -22,11 +22,14 @@ OOV = ["日本語のテキスト Ωμέγα zzqx", "ÆØÅ æøå"]
 
 def _hub_tokenizer(name):
     """A real tokenizer from the Hugging Face Hub; the test is skipped when the Hub cannot be reached or
-    refuses the download (it rate-limits shared CI machines)."""
+    refuses the download (it rate-limits shared CI machines), or when this transformers version cannot load
+    it."""
     try:
         return AutoTokenizer.from_pretrained(name)
     except OSError as e:
         pytest.skip(f"could not download the {name} tokenizer: {str(e).splitlines()[0]}")
+    except ValueError as e:  # older transformers cannot convert some of these tokenizers
+        pytest.skip(f"this transformers version cannot load the {name} tokenizer: {str(e).splitlines()[0]}")
 
 
 def _tiny(family):

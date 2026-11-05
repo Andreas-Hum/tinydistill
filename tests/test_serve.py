@@ -140,6 +140,6 @@ def test_web_page_layout(tmp_path):
     assert 'class="pages"' not in text and 'class="deeper"' not in text  # no explainer: no tabs to it
     (tmp_path / "site" / "index.html").write_text("the explainer")  # `web` writes it one folder up
     text = build_site(run / "onnx", tmp_path / "site" / "simple", explainer=True).read_text(encoding="utf-8")
-    assert (tmp_path / "site" / "index.html").read_text() == "the explainer"
+    assert (tmp_path / "site" / "index.html").read_text(encoding="utf-8") == "the explainer"
     assert '<a href="./" aria-current="page">Simple</a>' in text and 'data-base="../"' in text
     assert "See inside the model on this text" in text and not re.search(r"__[A-Z_]+__", text)

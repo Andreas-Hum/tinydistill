@@ -1126,13 +1126,15 @@ def test_budget_rounds_label_the_texts_the_student_is_least_sure_of(tmp_path, mo
     first = {f"text {i}" for i in range(12)} - set(asked[0])
     second, third = set(by_i(asked[0])[:2]), set(by_i(asked[1])[:3])
     assert len(first) == 2 and len(asked[0]) == 10 and set(asked[1]) == set(asked[0]) - second
-    train = {r["text"] for r in map(json.loads, (run / "train.jsonl").read_text().splitlines())}
+    train = {
+        r["text"] for r in map(json.loads, (run / "train.jsonl").read_text(encoding="utf-8").splitlines())
+    }
     assert train == first | second | third and len(train) == 7
     (cache,) = run.glob("teacher-*.jsonl")
-    assert len(cache.read_text().splitlines()) == 7  # the teacher labelled exactly the budget
-    meta = json.loads((run / "meta.json").read_text())
+    assert len(cache.read_text(encoding="utf-8").splitlines()) == 7  # the teacher labelled exactly the budget
+    meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
     assert meta["budget"] == 7 and meta["rounds"] == 3
-    assert json.loads((run / "results.json").read_text())["training"]["budget"] == 7
+    assert json.loads((run / "results.json").read_text(encoding="utf-8"))["training"]["budget"] == 7
 
 
 def test_analyse_review_lists_gold_contradictions_then_divided_ensembles(tmp_path, capsys):

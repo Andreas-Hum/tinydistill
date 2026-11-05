@@ -89,7 +89,7 @@ def test_outside_through_a_run(tmp_path, capsys):
         + [str(tmp_path / "test.jsonl"), "--out", str(run), "--teacher", TINY_LM, "--student", TINY_ENCODER]
         + ["--epochs", "1", "--batch-size", "4", "--reps", "2", "--skip-teacher-bench", "--device", "cpu"]
     )
-    rows = [json.loads(line) for line in (run / "test.jsonl").read_text().splitlines()]
+    rows = [json.loads(line) for line in (run / "test.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [r["gold"] for r in rows] == [0, 1, 2, 0, 1, 2] and all(len(r["scores"]) == 3 for r in rows)
     results = json.loads((run / "results.json").read_text(encoding="utf-8"))
     for m in results["models"]:

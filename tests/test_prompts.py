@@ -124,7 +124,9 @@ def test_tune_proposes_instructions(tmp_path, monkeypatch, capsys):
     task = load_task(tmp_path / "task.yaml")
     good = "Sort the review into one of:\n" + rest  # the reply, then the rest as written
     assert load_task(tmp_path / "tune-1.yaml").prompt == good
-    assert load_task(tmp_path / "tune-2.yaml").prompt == "Is it a positive review or a negative review?\n" + rest
+    assert (
+        load_task(tmp_path / "tune-2.yaml").prompt == "Is it a positive review or a negative review?\n" + rest
+    )
     assert load_task(tmp_path / "tune-3.yaml").prompt == "Which sentiment does the review have?\n" + rest
     names_only = load_task(tmp_path / "tune-names-only.yaml")
     assert names_only.prompt == task.prompt and names_only.descriptions == [] and task.descriptions

@@ -133,9 +133,12 @@ def test_label_reason_meta_cache_and_prompt_members(tmp_path, capsys):
     meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
     assert meta["reason"] is True and meta["reason_tokens"] == 5 and len(meta["fingerprints"]) == 2
     for fp in meta["fingerprints"]:
-        cached = [json.loads(line) for line in (run / f"teacher-{fp}.jsonl").read_text().splitlines()]
+        cached = [
+            json.loads(line)
+            for line in (run / f"teacher-{fp}.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
         assert len(cached) == 4 and all(set(r) == {"h", "s", "r"} for r in cached)
-    why = [json.loads(line) for line in (run / "reasoning.jsonl").read_text().splitlines()]
+    why = [json.loads(line) for line in (run / "reasoning.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [r["split"] for r in why] == ["train"] * 4 + ["test"] * 4
     assert all(len(r["reasoning"]) == 2 and all(isinstance(x, str) for x in r["reasoning"]) for r in why)
 
@@ -143,18 +146,20 @@ def test_label_reason_meta_cache_and_prompt_members(tmp_path, capsys):
     assert isinstance(teacher, Ensemble)
     assert all(isinstance(m, ReasoningScorer) and m.reason_tokens == 5 for m in teacher.members)
     assert [m.fingerprint() for m in teacher.members] == meta["fingerprints"]
-    train = [json.loads(line) for line in (run / "train.jsonl").read_text().splitlines()]
+    train = [json.loads(line) for line in (run / "train.jsonl").read_text(encoding="utf-8").splitlines()]
     for r, s in zip(train, teacher.score_many([r["text"] for r in train]), strict=True):
         assert s == pytest.approx(r["scores"], abs=1e-5)
 
     main([*label, "--reason", "--reason-tokens", "5"])  # again: all from the cache, reasoning included
     assert "every text is in the cache" in capsys.readouterr().err
-    assert [json.loads(line) for line in (run / "reasoning.jsonl").read_text().splitlines()] == why
+    assert [
+        json.loads(line) for line in (run / "reasoning.jsonl").read_text(encoding="utf-8").splitlines()
+    ] == why
 
     main(label)  # without --reason: other fingerprints, plain cache rows, no reasoning file
     meta2 = json.loads((run / "meta.json").read_text(encoding="utf-8"))
     assert meta2["reason"] is False and not set(meta2["fingerprints"]) & set(meta["fingerprints"])
-    plain = (run / f"teacher-{meta2['fingerprints'][0]}.jsonl").read_text().splitlines()
+    plain = (run / f"teacher-{meta2['fingerprints'][0]}.jsonl").read_text(encoding="utf-8").splitlines()
     assert all(set(json.loads(line)) == {"h", "s"} for line in plain)
     assert not (run / "reasoning.jsonl").exists()
 

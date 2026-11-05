@@ -72,7 +72,9 @@ def test_dedup_drops_near_duplicates(tmp_path, task):
     n = synthesise(
         task, lambda m: next(replies, ""), 4, tmp_path / "s.jsonl", keep=keep, log=print, max_rounds=1
     )
-    texts = [json.loads(line)["text"] for line in (tmp_path / "s.jsonl").read_text().splitlines()]
+    texts = [
+        json.loads(line)["text"] for line in (tmp_path / "s.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     # "My card did not arrive!" has the words of the first; "up top money my" those of the --data text
     assert n == 2 and texts == ["my card did not arrive", "the card is late"] and keep.dropped == 2
 
