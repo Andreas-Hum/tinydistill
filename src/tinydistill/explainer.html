@@ -196,7 +196,8 @@
           transition: transform .4s ease, opacity .3s, visibility .3s; }
   .prow:hover { background: var(--soft); }
   .prow.out { opacity: 0; visibility: hidden; }
-  .prow .nm { font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prow > span:first-child { min-width: 0; }  /* the label cell may shrink, so a long label ends in "..." */
+  .prow .nm { display: block; font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .prow .tr { display: block; height: 3px; border-radius: 2px; background: var(--soft); margin-top: 2px; position: relative; overflow: hidden; }
   .prow .tr i { position: absolute; inset: 0 auto 0 0; background: rgb(var(--att)); opacity: .55; transition: width .4s ease; }
   .prow .pv { font: 12px ui-monospace, monospace; text-align: right; color: var(--muted); }
@@ -1091,7 +1092,7 @@
         rows.set(c, row);
       }
       const ps = r.layerP.map((p) => p[c]);
-      row.nm.textContent = name(c);
+      row.nm.textContent = row.nm.title = name(c);  // the full name when it is cut to fit
       row.bar.style.width = `${(100 * r.p[c]).toFixed(1)}%`;
       row.pv.textContent = pct(r.p[c]);
       row.line.setAttribute("points", ps.map((p, l) => `${sx(l).toFixed(1)},${sy(p).toFixed(1)}`).join(" "));
@@ -1115,7 +1116,7 @@
     $("loss").replaceChildren(el("p", { className: "note", style: "margin:0", textContent: (D.multi ? "BCE against the teacher's probabilities" :
       "KL from the teacher's probabilities") + (lam === null ? " plus a weighted gold-label term." : lam > 0 ? ` plus ${lam} x the gold-label ${D.multi ? "BCE" : "cross-entropy"}.` : ", nothing else.") }));
     if (!r.sample?.teacher) {
-      $("teacher").replaceChildren(el("p", { className: "note", style: "margin:0", textContent: `Pick an example on the left to compare the student with the teacher${D.teacher ? `, ${D.teacher},` : ""} on it.` }));
+      $("teacher").replaceChildren(el("p", { className: "note", style: "margin:0", textContent: `Pick one of the examples to compare the student with the teacher${D.teacher ? `, ${D.teacher},` : ""} on it.` }));
       return;
     }
     const tp = teacherProbs(r.sample), g = r.sample.gold ?? null, golds = [].concat(g ?? []);
@@ -1278,7 +1279,7 @@
       say: () => {
         const s = R.sample;
         if (!s?.teacher) return `The page has no teacher labels for ${D.samples.length ? "this text" : "this model"}, so there is nothing to compare here.` +
-          (D.samples.length ? " Pick an example on the left to see them." : "");
+          (D.samples.length ? " Pick one of the examples to see them." : "");
         const tp = teacherProbs(s), t = argmax(tp);
         return (TOUR.loaded ? "The tour picked an example: for its examples, " : "For its examples, ") +
           `the page holds the teacher's probabilities${D.teacher ? ` (${D.teacher})` : ""}, the soft labels the student was trained to match. ` +

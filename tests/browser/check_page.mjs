@@ -101,6 +101,17 @@ if (explainer) {
   await wait((t) => document.getElementById("loading").hidden && document.getElementById("reason").textContent.includes(t), mine);
   if ((await page.inputValue("#text")) !== mine) problems.push("the \"Try it\" tab did not bring the text back");
 }
+// a long label never runs into its percentage (both at this width and on a phone)
+for (const width of [1280, 390]) {
+  await page.setViewportSize({ width, height: 800 });
+  const clash = await page.evaluate(() => [...document.querySelectorAll(".bars li")].filter((li) => {
+    const [label, p] = [li.querySelector("span"), li.querySelector(".p")];
+    if (!label || !p || !li.offsetParent) return false;
+    const a = label.getBoundingClientRect(), b = p.getBoundingClientRect();
+    return a.right > b.left + 0.5 && a.bottom > b.top + 0.5 && b.bottom > a.top + 0.5;
+  }).map((li) => li.textContent));
+  if (clash.length) problems.push(`label over its percentage at ${width}px: ${clash.join(" | ")}`);
+}
 await browser.close();
 if (problems.length) {
   console.error(problems.join("\n"));

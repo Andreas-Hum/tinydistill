@@ -50,6 +50,12 @@ for (const url of args) {
     await need("heads", "#heads .head", 2);
     await need("probabilities", "#probs .prow:not(.out) polyline");
     if (!(await page.textContent("#answer")).trim() || (await page.textContent("#answer")) === "...") problems.push(`${where}: no answer`);
+    // a long label never runs into its percentage
+    const clash = await page.evaluate(() => [...document.querySelectorAll("#probs .prow:not(.out)")].filter((row) => {
+      const a = row.querySelector(".nm").getBoundingClientRect(), b = row.querySelector(".pv").getBoundingClientRect();
+      return a.right > b.left + 0.5;
+    }).length);
+    if (clash) problems.push(`${where}: ${clash} probability labels run into their percentage`);
 
     // hover is the main interaction: a token lights up in every column, its lines and its row in the matrix
     await page.locator("#tokens .tok").nth(1).hover();
