@@ -310,6 +310,8 @@ class Predictor:
         # a model trained on windows of long documents reads every input in the same windows
         self.chunk_tokens: int | None = config.get("tinydistill_chunk_tokens")
         self.chunk_stride: int | None = config.get("tinydistill_chunk_stride")
+        # the id of the task's `outside` label (texts that fit none of the others), if it has one
+        self.outside: str | None = config.get("tinydistill_outside")
         self.file = file
         self.int8 = int8
 
@@ -366,7 +368,8 @@ class Predictor:
 
     def describe(self, texts: list[str]) -> list[dict]:
         """Per text, as JSON-ready dicts: the label and its probability, or (multi-label) the labels and
-        every label's probability."""
+        every label's probability. A model with an `outside` label also says whether the label is it
+        (``"outside": true``: the text fits none of the other labels)."""
         out: list[dict] = []
         for p in self.predict_proba(texts):
             if self.multi_label:
@@ -379,6 +382,8 @@ class Predictor:
             else:
                 i = int(p.argmax())
                 out.append({"label": self.labels[i], "confidence": round(float(p[i]), 4)})
+                if self.outside:
+                    out[-1]["outside"] = self.labels[i] == self.outside
         return out
 
 
@@ -411,6 +416,8 @@ class Cascade:
                     "confidence": float(p.max()),
                     "by": "teacher",
                 }
+        if self.student.outside:  # as Predictor.describe
+            out = [r | {"outside": r["label"] == self.student.outside} for r in out]
         return out
 
     def _ask(self, texts: list[str]) -> list[list[float]]:

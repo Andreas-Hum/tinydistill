@@ -13,7 +13,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from .web import TRANSFORMERS_JS, _samples, _summary, _teacher_probs
+from .web import TRANSFORMERS_JS, _outside, _samples, _summary, _teacher_probs
 
 KATEX = "https://cdn.jsdelivr.net/npm/katex@0.16.47/dist"
 
@@ -79,6 +79,7 @@ def build_explainer(
         "model": model_dir.name,
         # every head's attention is tokens x tokens, so the page reads at most 128 tokens
         "max_length": min(config.get("tinydistill_max_length") or 128, 128),
+        "outside": _outside(config, labels),
         "config": {k: config.get(k) for k in keys},
         "teacher": meta.get("teacher") or res.get("teacher"),
         "training": {k: (res.get("training") or {}).get(k) for k in ("ce_weight", "n_gold")} if res else None,

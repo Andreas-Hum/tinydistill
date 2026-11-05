@@ -266,7 +266,9 @@ PAGE = r"""<!doctype html>
     return e;
   };
   const name = (i) => D.labels[i].replaceAll("_", " ");
-  const names = (list) => (list.length ? list.map(name).join(", ") : "none of the labels");
+  // an answer in words; the task's `outside` label (D.outside) means the text fits none of the others
+  const said = (i) => (i === D.outside ? "None of the labels fits" : name(i));
+  const names = (list) => (list.length ? list.map(said).join(", ") : "none of the labels");
   const pct = (x) => (100 * x).toFixed(x >= 0.995 || x < 0.001 ? 0 : 1) + "%";
   const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -753,6 +755,12 @@ def _bundle(rows: list[dict], n: int = BUNDLE, chars: int = BUNDLE_CHARS) -> tup
     return picked, sum(id(r) in seen for r in first)
 
 
+def _outside(config: dict, labels: list[str]) -> int | None:
+    """The index of the model's `outside` label (texts that fit none of the others), or None."""
+    lid = config.get("tinydistill_outside")
+    return labels.index(lid) if lid in labels else None
+
+
 def _teacher_probs(scores: list[float], multi: bool, k: int = 10) -> list[list]:
     """The teacher's top-k label probabilities as [index, probability] pairs (scores are log-probabilities,
     or log-odds for multi-label)."""
@@ -919,6 +927,7 @@ def build_site(
         "dtype": "q8" if int8 else "fp32",
         "model": model_dir.name,
         "max_length": config.get("tinydistill_max_length") or 128,
+        "outside": _outside(config, labels),
         "samples": [
             {
                 "text": r["text"],

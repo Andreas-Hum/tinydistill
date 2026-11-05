@@ -26,6 +26,9 @@ A label such as "other" or "out of scope" resembles no particular text, so it is
 tinydistill run task.yaml ... --shortlist 20 --shortlist-keep oos --out run
 ```
 
+The task file's `outside` label ([Texts that fit no label](task-file.md#texts-that-fit-no-label)) is such a
+label too: keep it by its id.
+
 ## On CLINC150
 
 CLINC150 has 150 intents plus "out of scope", with `Qwen/Qwen2.5-7B-Instruct` as the teacher:

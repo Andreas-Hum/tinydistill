@@ -62,6 +62,21 @@ def ordinal_metrics(pred: Sequence[int], gold: Sequence[int]) -> dict:
     return {"mae": sum(d) / len(d), "within_one": sum(x <= 1 for x in d) / len(d)} if d else {}
 
 
+def outside_metrics(pred: Sequence[int], gold: Sequence[int], outside: int) -> dict:
+    """For a task with an `outside` label (index ``outside``), when the gold labels contain it: the accuracy
+    on the texts whose gold label is another one (a prediction of `outside` counts as wrong there), and the
+    recall and precision of `outside` (0 without a correct `outside` prediction, as in :func:`macro_f1`)."""
+    if outside not in gold:
+        return {}
+    inside = [(p, g) for p, g in zip(pred, gold, strict=True) if g != outside]
+    tp = sum(p == g == outside for p, g in zip(pred, gold, strict=True))
+    return {
+        "in_scope_accuracy": accuracy([p for p, _ in inside], [g for _, g in inside]),
+        "outside_recall": tp / sum(g == outside for g in gold) if tp else 0.0,
+        "outside_precision": tp / sum(p == outside for p in pred) if tp else 0.0,
+    }
+
+
 def time_calls(fn: Callable[[list[str]], object], texts: list[str], batch: int, reps: int) -> float:
     """Median wall time (ms) of fn on `reps` different batches of `batch` texts, after one warm-up call."""
 
@@ -155,6 +170,9 @@ EXTRA_COLUMNS = (
     ("micro_f1", "Micro-F1"),
     ("mae", "MAE (label steps)"),
     ("within_one", "Within one step"),
+    ("in_scope_accuracy", "In-scope accuracy"),
+    ("outside_recall", "Out-of-scope recall"),
+    ("outside_precision", "Out-of-scope precision"),
 )
 
 
@@ -242,6 +260,12 @@ def markdown_table(results: dict) -> str:
             f" Texts longer than {tr['chunk_tokens']} tokens are read in windows of that many tokens, "
             f"{tr.get('chunk_stride')} apart: the training texts are windows, and a test text's prediction "
             "is the mean of its windows' probabilities."
+        )
+    if any("outside_recall" in r for r in rows):
+        trained += (
+            " In-scope accuracy is the accuracy on the test texts whose gold label is not the `outside` "
+            "label (texts that fit none of the others); out-of-scope recall and precision are those of that "
+            "label."
         )
     if (tr.get("seeds") or 1) > 1:
         trained += (

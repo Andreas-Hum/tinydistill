@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Task files take an optional `outside` key: one more label, listed last, for texts that fit none of the others
+  ("none of these" by default; `id`, `name` and `description` can be set). The teacher scores it and the
+  student learns it like any other label. `eval` and `results` add in-scope accuracy and out-of-scope recall
+  and precision when the test labels include it; `describe()`, `predict` and `serve` mark it with
+  `"outside": true`, and the web pages answer "None of the labels fits". Multi-label tasks refuse it.
+  `examples/clinc150/outside.sh` runs CLINC150 with it.
 - `web`: the main page and the explainer have tabs to each other ("Try it", "Inside the model"), and the main
   page links to the explainer under the answer; the links carry the current text (`?text=`). The tabs appear only
   when the explainer was written. The explainer has a guided tour (its "Guided tour" button, or `?tour=1`): eleven

@@ -72,6 +72,44 @@ scored over its common surface forms: the name as written, lowercase, Capitalise
 without a leading space. `surface_forms` chooses which (`[lowercase, capitalised]` drops UPPERCASE, which
 tokenises into many pieces; `[]` scores the name as written only).
 
+## Texts that fit no label
+
+Some texts fit none of the labels, such as a request to a banking assistant about the weather. `outside: true`
+adds one more label for them, after the others:
+
+```yaml
+outside: true           # the label `outside`, named "none of these"
+# or with your own id, name or description (all optional):
+outside:
+  id: oos               # the id your gold labels use for such texts
+  name: none of these
+  description: the text fits none of the other categories
+```
+
+It is an ordinary label. The prompt lists it last, the teacher scores its name like any other, and the student
+learns it from the teacher's soft labels like any other. There is no confidence threshold. By default its id is
+`outside`, its name "none of these" and its description "the text fits none of the other categories"; an empty
+description leaves it out. Its id and name must differ from the other labels'.
+
+Predictions return it like any other label. For such a model, `tinydistill predict`, `serve` and `describe()`
+also say `"outside": true` or `false`, so an application can route these texts, and the web pages
+answer "None of the labels fits" (the probability bars still show the label). When the test texts' gold labels
+include it, `eval` and `results` add three columns: the accuracy on the other test texts (in scope), and the
+recall and precision of the outside label.
+
+With `--shortlist`, add `--shortlist-keep outside` (or your id): the name "none of these" resembles no text, so
+the shortlist would rarely pick it ([Many labels](many-labels.md#catch-all-labels)).
+`examples/clinc150/outside.sh` runs CLINC150 this way.
+
+`outside` is for single-label tasks only; in a multi-label task a text with no label already fits none of them,
+so a task file with both is refused.
+
+!!! note "The student learns the teacher's idea of 'none of these'"
+    The outside label is only as good as the teacher's judgement of what falls outside your labels. Where the
+    teacher answers "none of these" for texts that do fit a label, or picks a label for texts that fit none,
+    the student learns the same. Check the out-of-scope recall and precision on gold-labelled test texts that
+    include such texts before relying on it.
+
 ## Attributes for synthetic texts
 
 `tinydistill synth --vary` names a length, a tone and a writer's situation in each request for texts
