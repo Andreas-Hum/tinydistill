@@ -399,6 +399,31 @@ Reasoning makes the teacher more accurate (0.778 against 0.755) and its student 
 student is not more accurate (0.785 both ways, with a slightly lower macro-F1), so here the extra labelling time
 buys nothing for the deployed model.
 
+### The teacher rewrites its own instruction
+
+[`examples/ag-news/propose.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/ag-news/propose.sh)
+has the 1.5B teacher rewrite the instruction before the prompt's first placeholder (`tune --propose 5 --rounds 3`,
+shown its mistakes on 100 dev texts and scored on 100 others;
+[`propose-1.5b.md`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/ag-news/propose-1.5b.md)).
+Its best rewrite, "What is this news headline primarily about?", scored 0.880 on the dev texts against 0.850. The
+best task file is then used alone and with the original as a prompt ensemble, with the settings of the first
+run above:
+
+<!-- results: ag-news/propose-runs.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ag-news-1.5b | zero-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.749 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.775 ± 0.009 | 0.777 ± 0.009 | 0.830 ± 0.004 | ONNX int8 | 3.7 | 268.9 | 23 |
+| ag-news-1.5b-proposed | zero-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.778 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.803 ± 0.002 | 0.806 ± 0.002 | 0.863 ± 0.002 | ONNX int8 | 4.2 | 309.6 | 23 |
+| ag-news-1.5b-ensemble | zero-shot, 2 prompts `Qwen/Qwen2.5-1.5B-Instruct` | 0.770 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.796 ± 0.005 | 0.798 ± 0.005 | 0.852 ± 0.001 | ONNX int8 | 3.8 | 308.8 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+The rewritten instruction lifts the teacher by three points on the test set (0.778 against 0.749) and the
+student by about as much (0.803 against 0.775). Adding the original prompt as a second member gains nothing over
+the rewrite alone. Most rewrites were worse than the original on the dev texts, so the dev score, not the
+teacher's choice, picks the prompt.
+
 ## Financial tweets: an easier task
 
 Sentiment of financial news tweets, 3 classes

@@ -2,11 +2,28 @@
 
 ## Unreleased
 
-- Contrastive warm-up: `train --warmup-pairs N` first trains the student's encoder on N SetFit-style pairs
-  (Tunstall et al., 2022), half of the same class and half of different classes, with a cosine-similarity loss,
-  then distils as usual. Classes are the gold labels and, for other texts, the teacher's top label where its
-  probability is at least `--warmup-confidence` (default 0.9). `--warmup-epochs` (default 1). Single-label tasks
-  only. Off by default; `meta.json` records the settings and `refresh` and `improve` reuse them.
+Highlights:
+
+- Two new teacher options from the literature: demonstration ensembling (`--few-shot-sets`) and a linear probe
+  on the teacher's hidden states as one more ensemble member (`--probe`). Their benchmark runs are scripted
+  (`examples/teachers-2026/`) and their results go to RESULTS.md when they finish.
+- Measured in RESULTS.md: with each text's 16 most similar gold examples and "none of these" as the outside
+  label, the CLINC150 student went from 0.574 to 0.767 deployed; on AG News, the fixed `tune --propose` lifted
+  the 1.5B teacher's student from 0.781 to 0.804 deployed; Qwen3.5-9B as the Banking77 teacher, 0.859 deployed.
+- A model menu on the browser pages, with the models loading from the Hugging Face Hub (`web --models`,
+  `--remote`; `push` uploads what the pages need).
+- A SetFit-style contrastive warm-up for the student (`train --warmup-pairs`). It helps on a small labelling
+  budget only, so it is off by default.
+
+Upgrade notes:
+
+- `run --budget N` now picks a random sample by default (`--rounds` defaults to 1, was 4); pass `--rounds 4` for
+  the earlier behaviour.
+- `--gold-per-class` and `--gold-file` are now also `label` options.
+- Score caches stay valid: without the new options, teacher fingerprints are unchanged.
+
+### Teachers and labelling
+
 - Demonstration ensembling: `label --few-shot-similar M --few-shot-sets K` scores each text K times, set k
   showing it ranks k·M+1 to (k+1)·M of its most similar gold examples, and averages the label probabilities
   (Khalifa et al., 2023). Each set is a member of the teacher with its own score cache, as in a prompt ensemble.
@@ -20,6 +37,17 @@
 - `run --budget N` labels a random sample of N texts by default (`--rounds` now defaults to 1, was 4): on Banking77
   the uncertainty rounds were worse than a random sample of the same size at every budget tried (1,000, 2,500 and
   5,000 of 10,003 texts). `--rounds R` still picks each later round's texts by the student's uncertainty.
+
+### Students
+
+- Contrastive warm-up: `train --warmup-pairs N` first trains the student's encoder on N SetFit-style pairs
+  (Tunstall et al., 2022), half of the same class and half of different classes, with a cosine-similarity loss,
+  then distils as usual. Classes are the gold labels and, for other texts, the teacher's top label where its
+  probability is at least `--warmup-confidence` (default 0.9). `--warmup-epochs` (default 1). Single-label tasks
+  only. Off by default; `meta.json` records the settings and `refresh` and `improve` reuse them.
+
+### Browser pages and the Hub
+
 - Several models in one site, loaded from the Hub: `web --models hf:user/a,hf:user/b` adds a "Switch model"
   menu to both pages (task, student, size and test score of each, read from its `tinydistill-page.json` at build
   time; a model without one is skipped). A pick loads in the browser from the Hub without a reload, with
@@ -29,11 +57,21 @@
   same commit: `onnx/model_quantized.onnx` (or `onnx/model.onnx`), the explainer's
   `onnx/explorer_quantized.onnx` and `tinydistill-page.json`, the data each page embeds (`web.site_data`,
   `explainer.explainer_data`). `Predictor("hf:...")` skips the `onnx/` copies.
+- `push --title` and `--note`: the model's name and the footer line the pages show for it, saved in its
+  `tinydistill-page.json`; the footer note now changes with the model picked in the menu.
+
+### Fixes
+
 - Fix: `tune --propose` kept no rewrites from small teachers (Qwen2.5-1.5B-Instruct dropped or invented
   placeholders, so every rewrite was dropped). The teacher now rewrites only the instruction before the
   prompt's first placeholder, shown the rest with the placeholders as plain descriptions, and the rest is kept as
   written. `tune` logs why each dropped reply was dropped. A prompt that starts with a placeholder is still
   rewritten whole.
+- `tune --propose` no longer drops a two-label rewrite for naming both labels; a copied option list is dropped
+  only from three labels on.
+- Tests read their files as UTF-8, so they pass on Windows, and skip a tokenizer that older transformers versions
+  cannot convert.
+- CI runs the tests offline when the Hub model cache is a full hit, so Hub rate limits no longer slow them down.
 
 ## 0.4.0 (2026-11-05)
 

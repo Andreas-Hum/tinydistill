@@ -30,6 +30,7 @@ rows.append(
 rows.append("")
 rows.append(
     "Banking77, 3080 test texts; the teacher of similar.sh (16 most similar examples), its labels read from "
-    "the score cache. Student accuracy (PyTorch unless marked), mean ± standard deviation over 3 training seeds."
+    "the score cache. Student accuracy (PyTorch unless marked), mean ± standard deviation over 3 training "
+    "seeds."
 )
 (here / "warmup.md").write_text("\n".join(rows) + "\n", encoding="utf-8")

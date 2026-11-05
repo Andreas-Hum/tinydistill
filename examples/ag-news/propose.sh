@@ -17,3 +17,4 @@ for r in proposed ensemble; do
   cp "runs/ag-news-1.5b-$r/results.json" "examples/ag-news/ag-news-1.5b-$r.json"
   cp "runs/ag-news-1.5b-$r/results.md" "examples/ag-news/ag-news-1.5b-$r.md"
 done
+tinydistill compare runs/ag-news-1.5b runs/ag-news-1.5b-proposed runs/ag-news-1.5b-ensemble > examples/ag-news/propose-runs.md

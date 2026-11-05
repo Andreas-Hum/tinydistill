@@ -1,0 +1,28 @@
+name: ag-news
+text_field: text
+label_field: label
+prompt: 'What topic does this news headline discuss?
+
+  Options:
+
+  {labels}
+
+
+  News: {text}
+
+
+  Reply with one option, exactly as written.'
+surface_forms:
+- lowercase
+- capitalised
+- uppercase
+ordinal: false
+multi_label: false
+answers:
+- 'yes'
+- 'no'
+labels:
+  World: world
+  Sports: sports
+  Business: business
+  Sci/Tech: science and technology
