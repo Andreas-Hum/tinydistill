@@ -2,100 +2,35 @@
 
 ## Unreleased
 
-- `web`: "Inside the model" (the explainer) is the main page, `site/index.html`, and the simpler page moves to
-  `site/simple/`; the tabs read "Inside the model" and "Simple". A student without the layer view gets only the
-  simple page. An old `site/explainer/` forwards to the new address.
-- Task files take an optional `outside` key: one more label, listed last, for texts that fit none of the others
-  ("none of these" by default; `id`, `name` and `description` can be set). The teacher scores it and the
-  student learns it like any other label. `eval` and `results` add in-scope accuracy and out-of-scope recall
-  and precision when the test labels include it; `describe()`, `predict` and `serve` mark it with
-  `"outside": true`, and the web pages answer "None of the labels fits". Multi-label tasks refuse it.
-  `examples/clinc150/outside.sh` runs CLINC150 with it.
-- Teachers that cannot pack texts (linear-attention or sliding-window layers, such as Qwen3.5 and Gemma 4) score
-  many texts per forward pass instead of one: each text and each label continuation is a batch row of its own,
-  texts of the same token length run together, and their continuations then run as rows against copies of each
-  text's cache. Rows never see each other and need no padding before a scored token, so the scores are the same.
-  A pass holds as many rows as fit in a quarter of the free GPU memory (at least 2 GiB, as before) and
-  `--teacher-tokens`.
-- `train --trim-vocab` cuts the student's vocabulary to the tokens of the run's training texts before
-  training (vocabulary trimming, Ushio et al., 2023), plus the special tokens and the `--trim-keep K` (default
-  1000) most frequent tokens of the original vocabulary. The embedding matrix keeps only those rows and the
-  tokenizer (`tokenizer.json`, and `vocab.txt` where one is written) is rebuilt to match, so the exported ONNX
-  model, `Predictor`, `serve` and `web` use it unchanged. It works for WordPiece (BERT, MiniLM), Unigram (XLM-R,
-  the multilingual MiniLM) and BPE (mmBERT's Gemma tokenizer, byte-level BPE) tokenizers and for the static
-  student. A text whose tokens were all kept gets the same tokens and logits as with the full vocabulary; other
-  texts fall back to kept pieces, bytes or the unknown token. `meta.json` records `trim_vocab`, `trim_keep` and
-  the student's `vocab_size`; `refresh` and `improve` keep the setting. In Python: `student.trim_vocab` and
-  `train_student(trim_texts=...)`.
-- `web`: the main page and the explainer have tabs to each other ("Try it", "Inside the model"), and the main
-  page links to the explainer under the answer; the links carry the current text (`?text=`). The tabs appear only
-  when the explainer was written. The explainer has a guided tour (its "Guided tour" button, or `?tour=1`): eleven
-  steps that spotlight each part of the page and work it, with numbers from the current run. `build_site` takes
-  `explainer=True` for the tabs, in place of the link `web` used to add to the footer.
-- The README and docs link the [Distillation Playground](https://andreas-hum.github.io/distillation-playground/), which trains small networks in the
-  browser on 2D toy data and compares a student from scratch, one on the teacher's hard labels and a distilled one.
-- `refresh` trains the new student with the run's own training settings (as `improve` does) instead of the
-  defaults; a training flag given with another value than its default still wins.
-- `web`: the page leads with a card of teacher against student (model, size, time per text, test accuracy;
-  from `results.json`, with the student's time measured in the browser), classifies as you type (no Classify
-  button), and highlights the words that support the answer under it. It holds up to 200 test texts with
-  their gold and teacher labels, for "Random test text" and "Check it yourself" (accuracy or macro-F1,
-  agreement with the teacher and milliseconds per text on that sample, in the browser). Example buttons show
-  their text. Also a searchable list of labels, a note when no label reaches 50%, download progress, and
-  "Show the math", which adds each step's formula with the current text's numbers (KaTeX, loaded on first
-  use). "Inside the model" is folded under "How does it work?". When the student alone is at least as
-  accurate as the teacher, the cascade step says sending texts to the teacher does not help.
-- `web`: the explainer page is now a one-screen playground: text (rerun as you type), a diagram of the whole network
-  (a column of token nodes per layer, attention lines from the chosen head or the mean over heads) and the output
-  (probabilities with a sparkline per label across the layers, teacher against student, the loss). Hovering a token
-  highlights it everywhere; hovering a layer shows its heads, clicking one pins it. The attention matrix, embeddings,
-  token map, classifier terms and the math moved into tabs under the diagram. On a phone the panes stack.
-- `web` also writes `OUT/explainer/`, a guided walk through the student as it reads the visitor's text: an
-  overview of every stage drawn from the current run, then tokens and embeddings, every attention head of every
-  layer, what the classifier would answer after each layer, a PCA map of the token vectors per layer, the
-  classifier's terms, the probabilities and the training loss, each with its formula and current numbers
-  (KaTeX). It runs `explorer.onnx` (`export.export_explorer`: every head's attention, the hidden states and the
-  classifier's input as extra outputs) and reads at most 128 tokens. BERT-, RoBERTa- and MPNet-style students with
-  the run's `student/` folder; otherwise `web` says why it skipped the page. The main page is unchanged.
-- `run --budget N [--rounds R]`: the teacher labels only N training texts, in R rounds (default 4): N/R at
-  random, then in each round the N/R unlabelled texts the student trained so far is least sure of (highest
-  entropy; multi-label, mean binary entropy), retraining after each round. For paid API teachers. Training
-  itself is unchanged. Without `--budget` nothing changes.
-- `label --api-url URL --dry-run [--price-in P --price-out Q]`: prints the requests and approximate tokens
-  (characters / 4) labelling the texts not in the cache would take, and with prices per million tokens the
-  cost; scores nothing.
-- `analyse RUN --review OUT.csv`: a CSV of training texts for a person to check, the texts whose gold label the
-  teacher contradicts (its most confident first), then for ensembles the texts its members disagree on most.
-- `improve RUN --rounds R --per-round N`: rounds of performance-guided distillation (PGKD, Di Palo et al.,
-  2024). Each round finds the label pairs the student confuses most on a held-out share of the training texts
-  (`--held-out`, default 0.1, against the teacher's labels; never the test set), has the teacher write N texts
-  that are easy to mistake for the other label of a pair, labels them with the run's teacher and trains,
-  exports and evaluates a new student with the run's training settings in `RUN-improve/round-k`. Round 0 is
-  the run retrained without the held-out texts. It stops when the held-out agreement does not improve and
-  writes `RUN-improve/improve.md` and `improve.json`. Single-label runs with a local teacher.
-- `synth --vary`: each request also names a length, a tone and a writer's situation, sampled with `--seed`
-  (AttrPrompt, Yu et al., 2023); a task file's `attributes` mapping replaces them. `synth --dedup T [--data
-  FILE]` drops texts whose cosine similarity to a text kept earlier, or to one in FILE, is T or more. Without
-  the flags the output is unchanged.
-- `train --init-head names`: before training, each label's classifier weights are set to the student's own
-  representation of the label's name (and description), normalised and scaled, with zero bias, so the untrained
-  student ranks labels by similarity to their names. BERT, RoBERTa/MPNet, ModernBERT and static students. Off by
-  default; recorded in `meta.json`.
-- Static students from Model2Vec models: `--student static:minishlab/potion-base-8M` (or any folder or Hub model
-  with `model_type: model2vec`) starts from the model's own token vectors, read from its files without the
-  `model2vec` package. Tokens the Model2Vec model has no vector for (such as `<s>` in potion-multilingual)
-  start at zero.
-- Ettin (`jhu-clsp/ettin-encoder-17m`, `-32m`) and mmBERT (`jhu-clsp/mmBERT-small`) students are checked:
-  they train, export to ONNX and int8, and run in `Predictor` with no changes. Sizes and CPU latencies, with
-  those of the potion static students, are in `examples/students-cpu/encoders.json` and the student table.
-- `label --reason [--reason-tokens K]`: the teacher thinks briefly before it answers (greedy, up to K tokens,
-  default 256), and every label is scored as the continuation of prompt + reasoning + `Answer:` with the usual
-  scoring. The reasoning is cached with the scores and written to `reasoning.jsonl`; `analyse` shows it for the
-  teacher's mistakes. The setting is part of the cache fingerprint and of `meta.json`. Local and vLLM teachers,
-  single-label tasks; much slower than scoring alone. Without the flag nothing changes.
-- `label --api-url URL --api-samples N [--api-temperature T]`: for hosted APIs without log-probabilities, the
-  teacher samples N answers per text (default temperature 0.7) and each label's soft label is its share of the
-  answers whose first word is an option letter. N and T are part of the cache fingerprint and of `meta.json`.
+Highlights:
+
+- Better teachers: each text's prompt can show the gold examples most similar to it (on Banking77 the 7B
+  teacher went from 0.783 with 8 examples per class to 0.851 with the 16 most similar), prompt ensembles, a
+  teacher that rewrites its own instruction (`tune --propose --rounds`), a reasoning step before the answer,
+  and newer models such as Qwen3.5 and Gemma 4.
+- Cheaper labelling: a budget of texts chosen by the student's uncertainty, cost estimates before calling a paid
+  API, and hosted APIs without log-probabilities.
+- New kinds of task: long documents read in windows, an "outside" label for texts that fit none of the
+  others, and much smaller multilingual students with vocabulary trimming.
+- Rounds of teacher-written texts for the student's confusions (`improve`), and a review list for a person.
+- "Inside the model": a browser page that shows every layer and attention head of the student as it reads a
+  text, with a guided tour.
+
+Upgrade notes:
+
+- `web` now writes "Inside the model" as `site/index.html` and the earlier page as `site/simple/`. Running it
+  over a folder from an earlier version turns `site/explainer/` into a page that forwards to the new address.
+- `refresh` trains with the run's own training settings instead of the defaults.
+- Score caches stay valid, except for teachers whose chat template opens a thinking block by default (Qwen3
+  style): their prompt changed (see Fixes), so they score again.
+
+### Teachers and labelling
+
+- `label --few-shot-similar M`: each text's prompt shows the M gold training examples most similar to it
+  (sentence embeddings, as for `--shortlist`; `--few-shot-model` picks the model), most similar last, never the
+  text itself (Liu et al., 2021). With `--few-shot K` they are picked from those K per class. The prompt needs
+  `{examples}` before `{text}`; the part before it stays cached. Local, vLLM and hosted API teachers. Score
+  caches of runs without it are unchanged.
 - Prompt ensembles: `label --prompts b.yaml,c.yaml` scores every text with the task's prompt and with each
   variant task file (same label ids in the same order) on one loaded teacher, and averages the label
   probabilities. With several teachers the members are every teacher with every prompt; each member has its
@@ -110,19 +45,133 @@
   first round without an improvement. Mistakes come from one half of the dev split and all candidates are
   scored on the other. The report and `tune.json` give each candidate's round; `OUT-best.yaml` is the best of
   all rounds. Without `--rounds` nothing changes.
+- `label --reason [--reason-tokens K]`: the teacher thinks briefly before it answers (greedy, up to K tokens,
+  default 256), and every label is scored as the continuation of prompt + reasoning + `Answer:` with the usual
+  scoring. The reasoning is cached with the scores and written to `reasoning.jsonl`; `analyse` shows it for the
+  teacher's mistakes. The setting is part of the cache fingerprint and of `meta.json`. Local and vLLM teachers,
+  single-label tasks; much slower than scoring alone. Without the flag nothing changes.
+- Teachers that cannot pack texts (linear-attention or sliding-window layers, such as Qwen3.5 and Gemma 4) score
+  many texts per forward pass instead of one: each text and each label continuation is a batch row of its own,
+  texts of the same token length run together, and their continuations then run as rows against copies of each
+  text's cache. Rows never see each other and need no padding before a scored token, so the scores are the same.
+  A pass holds as many rows as fit in a quarter of the free GPU memory (at least 2 GiB, as before) and
+  `--teacher-tokens`.
+- Hosted API teachers: `label --api-url URL --teacher MODEL` scores with an OpenAI-compatible chat API
+  (OpenAI, DeepInfra, Together, a llama.cpp server, ...). The labels are shown as lettered options and scored
+  by the answer letter's log-probability (single-label tasks, at most 20 labels); the key comes from the
+  environment variable named by `--api-key-env` and is never written to disk.
+- `label --api-url URL --api-samples N [--api-temperature T]`: for hosted APIs without log-probabilities, the
+  teacher samples N answers per text (default temperature 0.7) and each label's soft label is its share of the
+  answers whose first word is an option letter. N and T are part of the cache fingerprint and of `meta.json`.
+- `label --api-url URL --dry-run [--price-in P --price-out Q]`: prints the requests and approximate tokens
+  (characters / 4) labelling the texts not in the cache would take, and with prices per million tokens the
+  cost; scores nothing.
+- `run --budget N [--rounds R]`: the teacher labels only N training texts, in R rounds (default 4): N/R at
+  random, then in each round the N/R unlabelled texts the student trained so far is least sure of (highest
+  entropy; multi-label, mean binary entropy), retraining after each round. For paid API teachers. Training
+  itself is unchanged. Without `--budget` nothing changes.
 - Long documents: `label --chunk-tokens T [--chunk-stride S]` cuts texts longer than T tokens of the student's
   tokenizer (`--chunk-tokenizer`) into overlapping windows, S tokens apart (default T // 2). The teacher scores
   every window and the student trains on them; a test document's teacher scores are the mean of its windows'
   probabilities. T and S are stored with the model, and `Predictor`, `predict`, `serve`, the cascade, `eval`
   and `Distiller` read every input in the same windows and average their probabilities, one row per input.
   The web page reads only the first window. Without the flag nothing changes.
-- `label --few-shot-similar M`: each text's prompt shows the M gold training examples most similar to it
-  (sentence embeddings, as for `--shortlist`; `--few-shot-model` picks the model), most similar last, never the
-  text itself (Liu et al., 2021). With `--few-shot K` they are picked from those K per class. The prompt needs
-  `{examples}` before `{text}`; the part before it stays cached. Local, vLLM and hosted API teachers. Score
-  caches of runs without it are unchanged.
+- Task files take an optional `outside` key: one more label, listed last, for texts that fit none of the others
+  ("none of these" by default; `id`, `name` and `description` can be set). The teacher scores it and the
+  student learns it like any other label. `eval` and `results` add in-scope accuracy and out-of-scope recall
+  and precision when the test labels include it; `describe()`, `predict` and `serve` mark it with
+  `"outside": true`, and the web pages answer "None of the labels fits". Multi-label tasks refuse it.
+  `examples/clinc150/outside.sh` runs CLINC150 with it.
+
+### Improving a run
+
+- `improve RUN --rounds R --per-round N`: rounds of performance-guided distillation (PGKD, Di Palo et al.,
+  2024). Each round finds the label pairs the student confuses most on a held-out share of the training texts
+  (`--held-out`, default 0.1, against the teacher's labels; never the test set), has the teacher write N texts
+  that are easy to mistake for the other label of a pair, labels them with the run's teacher and trains,
+  exports and evaluates a new student with the run's training settings in `RUN-improve/round-k`. Round 0 is
+  the run retrained without the held-out texts. It stops when the held-out agreement does not improve and
+  writes `RUN-improve/improve.md` and `improve.json`. Single-label runs with a local teacher.
+- `refresh` trains the new student with the run's own training settings (as `improve` does) instead of the
+  defaults; a training flag given with another value than its default still wins.
+- `synth --vary`: each request also names a length, a tone and a writer's situation, sampled with `--seed`
+  (AttrPrompt, Yu et al., 2023); a task file's `attributes` mapping replaces them. `synth --dedup T [--data
+  FILE]` drops texts whose cosine similarity to a text kept earlier, or to one in FILE, is T or more. Without
+  the flags the output is unchanged.
+- `analyse RUN --review OUT.csv`: a CSV of training texts for a person to check, the texts whose gold label the
+  teacher contradicts (its most confident first), then for ensembles the texts its members disagree on most.
+
+### Students
+
+- `train --trim-vocab` cuts the student's vocabulary to the tokens of the run's training texts before
+  training (vocabulary trimming, Ushio et al., 2023), plus the special tokens and the `--trim-keep K` (default
+  1000) most frequent tokens of the original vocabulary. The embedding matrix keeps only those rows and the
+  tokenizer (`tokenizer.json`, and `vocab.txt` where one is written) is rebuilt to match, so the exported ONNX
+  model, `Predictor`, `serve` and `web` use it unchanged. It works for WordPiece (BERT, MiniLM), Unigram (XLM-R,
+  the multilingual MiniLM) and BPE (mmBERT's Gemma tokenizer, byte-level BPE) tokenizers and for the static
+  student. A text whose tokens were all kept gets the same tokens and logits as with the full vocabulary; other
+  texts fall back to kept pieces, bytes or the unknown token. `meta.json` records `trim_vocab`, `trim_keep` and
+  the student's `vocab_size`; `refresh` and `improve` keep the setting. In Python: `student.trim_vocab` and
+  `train_student(trim_texts=...)`.
+- `train --init-head names`: before training, each label's classifier weights are set to the student's own
+  representation of the label's name (and description), normalised and scaled, with zero bias, so the untrained
+  student ranks labels by similarity to their names. BERT, RoBERTa/MPNet, ModernBERT and static students. Off by
+  default; recorded in `meta.json`.
+- Static students from Model2Vec models: `--student static:minishlab/potion-base-8M` (or any folder or Hub model
+  with `model_type: model2vec`) starts from the model's own token vectors, read from its files without the
+  `model2vec` package. Tokens the Model2Vec model has no vector for (such as `<s>` in potion-multilingual)
+  start at zero.
+- Ettin (`jhu-clsp/ettin-encoder-17m`, `-32m`) and mmBERT (`jhu-clsp/mmBERT-small`) students are checked:
+  they train, export to ONNX and int8, and run in `Predictor` with no changes. Sizes and CPU latencies, with
+  those of the potion static students, are in `examples/students-cpu/encoders.json` and the student table.
 - ModernBERT students are tested (training, ONNX and int8 export). On Banking77, ModernBERT-base reached the
   accuracy of MiniLM-L6 at about eight times the latency.
+
+### Browser pages
+
+- `web` writes two pages, and the visitor's text goes along between them (`?text=`):
+  - "Inside the model", the main page (`site/index.html`): one screen with the text (rerun as you type), the
+    whole network as a column of token nodes per layer with the attention lines of the chosen head (or the
+    mean over heads), and the probabilities with a sparkline per label across the layers, teacher against
+    student and the training loss. Hovering a token highlights it everywhere; hovering a layer shows its heads,
+    clicking one pins it. Tabs under the network hold one head's attention matrix, the embeddings, a PCA map of
+    the token vectors per layer and the classifier's terms, with "Math" for each one's formulas and current
+    numbers (KaTeX). A guided tour ("Guided tour", or `?tour=1`) walks through it in eleven steps, with numbers
+    from the current run. It runs `explorer.onnx` (`export.export_explorer`: every head's attention, the hidden
+    states and the classifier's input as extra outputs) and reads at most 128 tokens; BERT-, RoBERTa-, MPNet-
+    and DeBERTa-style students with the run's `student/` folder.
+  - "Simple" (`site/simple/`): a card of teacher against student (model, size, time per text, test accuracy;
+    the student's time measured in the browser), classification as you type, the words that support the
+    answer, up to 200 bundled test texts for "Random test text" and "Check it yourself" (accuracy or macro-F1,
+    agreement with the teacher and milliseconds per text on that sample), a searchable list of labels, a note
+    when no label reaches 50%, download progress, and "Show the math" for each step of the inference. When the
+    student alone is at least as accurate as the teacher, the cascade step says so.
+
+  A student without the layer view (static, ModernBERT, a Hub model without its run folder) gets only the simple
+  page, as `site/index.html`. `build_site(..., explainer=True)` adds the tabs.
+
+### Python, tooling and documentation
+
+- `Distiller`: the pipeline as a scikit-learn style estimator, `Distiller("task.yaml").fit(texts)` then
+  `predict`, `predict_proba`, `describe`, `score`, `save` and `Distiller.load`, with `get_params` and
+  `set_params` for scikit-learn tools (without depending on scikit-learn). With `cache_dir` it shares the
+  teacher's score cache with `tinydistill label --cache-dir`.
+- The package ships type information (`py.typed`) and is checked with mypy in CI.
+- `tinydistill env` prints the tinydistill, Python, torch and dependency versions, the platform and the GPU,
+  for bug reports. Contributing: a pull request template with a code agent policy, issue forms that ask for
+  `tinydistill env` and a minimal reproduction, a check that labels likely automated pull requests for a
+  maintainer to review, pre-commit hooks for ruff, Dependabot, and workflow actions pinned to commit SHAs.
+- Documentation site at https://andreas-hum.github.io/tinydistill/ (MkDocs): getting started, a guide per
+  topic, how it works, benchmarks, and a command-line and Python API reference generated from the code. The
+  live demo moved to https://andreas-hum.github.io/tinydistill/demo/.
+- The README and docs link the [Distillation Playground](https://andreas-hum.github.io/distillation-playground/), which trains small networks in the
+  browser on 2D toy data and compares a student from scratch, one on the teacher's hard labels and a distilled one.
+
+### Fixes
+
+- Fix: a teacher whose chat template opens a thinking block by default (Qwen3 style) scored the labels inside
+  that block; thinking is now turned off for the teacher's prompt and for `synth`. Other templates are
+  unchanged.
 - Fix: the input length a student was trained with (`--max-length`) is stored with the model, and `Predictor`,
   `eval` and the web page use it; before, they always cut inputs at 128 tokens.
 - Fix: an ensemble (teachers, `--prompts` or a document's windows) gave `-Infinity` to a label no member
@@ -132,22 +181,6 @@
   and lost when the cache was read again. The cut-off line is now ended first.
 - Fix: a prompt with no tokens before `{text}` (no chat template and no BOS token) failed with an internal
   error; it is now refused with a message.
-- The package ships type information (`py.typed`) and is checked with mypy in CI.
-- `Distiller`: the pipeline as a scikit-learn style estimator, `Distiller("task.yaml").fit(texts)` then
-  `predict`, `predict_proba`, `describe`, `score`, `save` and `Distiller.load`, with `get_params` and
-  `set_params` for scikit-learn tools (without depending on scikit-learn). With `cache_dir` it shares the
-  teacher's score cache with `tinydistill label --cache-dir`.
-- Hosted API teachers: `label --api-url URL --teacher MODEL` scores with an OpenAI-compatible chat API
-  (OpenAI, DeepInfra, Together, a llama.cpp server, ...). The labels are shown as lettered options and scored
-  by the answer letter's log-probability (single-label tasks, at most 20 labels); the key comes from the
-  environment variable named by `--api-key-env` and is never written to disk.
-- Documentation site at https://andreas-hum.github.io/tinydistill/ (MkDocs): getting started, a guide per
-  topic, how it works, benchmarks, and a command-line and Python API reference generated from the code. The
-  live demo moved to https://andreas-hum.github.io/tinydistill/demo/.
-- `tinydistill env` prints the tinydistill, Python, torch and dependency versions, the platform and the GPU,
-  for bug reports. Contributing: a pull request template with a code agent policy, issue forms that ask for
-  `tinydistill env` and a minimal reproduction, a check that labels likely automated pull requests for a
-  maintainer to review, pre-commit hooks for ruff, Dependabot, and workflow actions pinned to commit SHAs.
 - Fix: labelling a run again without `--few-shot` (or without `--test`) left the earlier `examples.jsonl` (or
   `test.jsonl`), so `eval` and the cascade showed the teacher examples it had not labelled with (or `eval`
   reported on the earlier test labels). They are now removed.
@@ -169,6 +202,7 @@
   cascade keeps.
 - Fix: `Distiller.save` into a folder holding an earlier int8 model removes that file when the saved model has
   none; before, `Predictor` and `Distiller.load` read the old int8 model.
+
 
 ## 0.3.4 (2026-11-04)
 
