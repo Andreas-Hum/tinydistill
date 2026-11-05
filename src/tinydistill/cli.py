@@ -67,7 +67,8 @@ def _variants(task: Task, paths: list[str]) -> list[Task]:
 
 
 def _run_members(run: Path, meta: dict, task: Task, name: str, device: str, examples) -> list:
-    """One teacher of a run as it labelled: a scorer per prompt (the task's, then its variants)."""
+    """One teacher of a run as it labelled: a scorer per prompt (the task's, then its variants), and for
+    the first teacher of a run labelled with --probe its probe (with --probe-only, the probe alone)."""
     from .teacher import load_teacher, prompt_members
 
     scorer = load_teacher(
@@ -89,7 +90,17 @@ def _run_members(run: Path, meta: dict, task: Task, name: str, device: str, exam
         meta.get("few_shot_model"),
         meta.get("reason_tokens", 0) if meta.get("reason") else 0,
     )
-    return prompt_members(scorer, [load_task(run / f) for f in meta.get("prompts") or []])
+    members = prompt_members(scorer, [load_task(run / f) for f in meta.get("prompts") or []])
+    probe = meta.get("probe")
+    if probe and name == (meta.get("teachers") or [meta["teacher"]])[0]:  # the probe reads its states
+        import torch
+
+        from .teacher import LabelScorer, ProbeScorer
+
+        fit = torch.load(run / "probe.pt", weights_only=True)
+        member = ProbeScorer(cast(LabelScorer, members[0]), fit["weight"], fit["bias"])
+        members = [member] if probe.get("only") else [*members, member]
+    return members
 
 
 def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
@@ -121,6 +132,23 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     reason = a.reason_tokens if a.reason else 0
     if a.reason and a.reason_tokens < 1:
         raise SystemExit("--reason-tokens must be positive")
+    probe = a.probe or a.probe_only
+    if probe:
+        if a.vllm_url or a.api_url:
+            raise SystemExit(
+                "--probe reads the teacher's hidden states, so it needs a local teacher (not --vllm-url or "
+                "--api-url)"
+            )
+        if a.chunk_tokens:
+            raise SystemExit("--probe cannot be used with --chunk-tokens")
+        if not (a.gold_per_class or a.gold_file):
+            raise SystemExit(
+                "--probe needs gold labels to fit on: --gold-per-class K or --gold-file FILE (as for train)"
+            )
+        if a.probe_only and (variants or len(_teachers(a.teacher)) > 1):
+            raise SystemExit("--probe-only uses one teacher with the task's own prompt: drop --prompts")
+        if not 0 <= a.probe_dev < 1:
+            raise SystemExit("--probe-dev must be at least 0 and below 1")
     if a.few_shot_similar and a.chunk_tokens:
         raise SystemExit(
             "--few-shot-similar cannot be used with --chunk-tokens: a window is not its document's text, so "
@@ -170,11 +198,18 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     def texts_of(split, spec, limit):  # what the teacher scores: every text, or every window of it
         return (w for e in rows_of(split, spec, limit, False) for w in cut(e.text))
 
-    caches, fingerprints, device, costs = [], [], "cpu", []
+    probe_gold: list[tuple[str, Any]] = []
+    if probe:
+        tests = {e.text for e in rows_of("test", a.test, a.test_limit, False)} if a.test else set()
+        probe_gold = _probe_gold(a, task, list(rows_of("train", a.data, a.limit)), tests)
+
+    caches: list[ScoreCache] = []
+    fingerprints, device, costs = [], "cpu", []
     seconds, scored = 0.0, 0
     keys_file = cache_dir / "teacher-keys.json"  # quick key (tokenizer only) -> full fingerprint
     keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
     for name in _teachers(a.teacher):  # one teacher in memory at a time, one member per prompt
+        states = probe and not caches  # the probe reads the first member's states
         quick: list[str | None] = [None] * (1 + len(variants))
         if not a.vllm_url and not a.api_url:  # a server's tokenizer and setup are not known locally
             quick = [
@@ -194,9 +229,13 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
                 for t in (task, *variants)
             ]
             known = [keys.get(q) for q in quick]
-            cached = [ScoreCache(cache_dir / f"teacher-{k}.jsonl") for k in known if k]
+            cached = [
+                ScoreCache(cache_dir / f"teacher-{k}.jsonl", states and i == 0)
+                for i, k in enumerate(known)
+                if k
+            ]
             if len(cached) == len(known) and all(
-                text_hash(t) in c.scores
+                c.has(t)
                 for split, spec, limit in splits
                 for t in texts_of(split, spec, limit)
                 for c in cached
@@ -243,7 +282,10 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
                 tmp = keys_file.with_suffix(".tmp")
                 tmp.write_text(json.dumps(keys, indent=1), encoding="utf-8")
                 tmp.replace(keys_file)
-            cache = ScoreCache(cache_dir / f"teacher-{fingerprints[-1]}.jsonl")
+            keep = states and pi == 0  # (a local teacher: --probe refuses the others)
+            if keep:
+                cast(Any, member).keep_states = True
+            cache = ScoreCache(cache_dir / f"teacher-{fingerprints[-1]}.jsonl", keep)
             if cache.scores:
                 log(f"resuming: {len(cache.scores)} texts already scored")
             if a.dry_run:
@@ -280,6 +322,13 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
         )
         return
 
+    probe_of: dict[str, list[float]] = {}  # text hash -> the probe's scores
+    probe_meta = None
+    (run / "probe.pt").unlink(missing_ok=True)
+    if probe:
+        every = [t for s in splits for t in texts_of(*s)]
+        probe_of, probe_meta = _probe(a, task, caches, probe_gold, every, run)
+
     # the run's files, written only now so that a dry run leaves the run as it was; none left from earlier
     _write_task(run / "task.yaml", task)
     for file, v in zip(prompt_files, variants, strict=True):
@@ -302,6 +351,8 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
                 else:  # the student trains on the windows
                     pieces = [(w, [c.get(w) for c in caches]) for w in wins]
                 for text, per in pieces:
+                    if probe:  # the probe is one more member (with --probe-only the only one)
+                        per = ([] if a.probe_only else per) + [probe_of[text_hash(text)]]
                     row: dict[str, Any] = {"text": text, "gold": e.gold, "scores": combine_scores(per, multi)}
                     if len(per) > 1:
                         row["teacher_scores"] = per
@@ -349,9 +400,99 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
             "shortlist_keep": a.shortlist_keep,
             "reason": a.reason,
             "reason_tokens": a.reason_tokens,
+            "probe": probe_meta,
             **({"chunk_tokens": None, "chunk_stride": None, "chunk_tokenizer": None} | chunk),
         },
     )
+
+
+def _probe_gold(a: argparse.Namespace, task: Task, rows: list, tests: set[str]) -> list[tuple[str, Any]]:
+    """The (text, gold) pairs label --probe fits on: the gold labels train uses (--gold-per-class K, picked
+    from the training rows with --seed as train picks them, and --gold-file), each text once, no test text."""
+    from .data import read_examples
+    from .student import few_gold, few_gold_sets
+
+    texts, gold = [e.text for e in rows], [e.gold for e in rows]
+    pick: Any = few_gold_sets if task.multi_label else few_gold
+    chosen = pick(gold, a.gold_per_class, a.seed) if a.gold_per_class else [None] * len(texts)
+    if a.gold_file:
+        given = {e.text: e.gold for e in read_examples(a.gold_file, task) if e.gold not in (None, [])}
+        chosen = [given.get(t, g) for t, g in zip(texts, chosen, strict=True)]
+    pairs: dict[str, Any] = {}
+    for t, g in zip(texts, chosen, strict=True):
+        if g not in (None, []) and t not in tests:
+            pairs.setdefault(t, g)
+    if not pairs:
+        raise SystemExit("--probe found no gold-labelled training texts to fit on")
+    return list(pairs.items())
+
+
+def _probe(
+    a: argparse.Namespace, task: Task, caches: list, gold: list[tuple[str, Any]], texts: list[str], run: Path
+) -> tuple[dict[str, list[float]], dict]:
+    """label --probe: fit the probe on the gold texts' states (from the first member's cache), first without
+    a --probe-dev share of them to report teacher accuracy there, then on all; save it as RUN/probe.pt.
+    Returns its scores per text hash and the meta.json entry."""
+    import random
+
+    import numpy as np
+    import torch
+
+    from .teacher import PROBE_STEPS, combine_scores, fit_probe, probe_scores, text_hash
+
+    multi, n_labels = task.multi_label, len(task.labels)
+
+    def states(ts: list[str]) -> torch.Tensor:
+        return torch.from_numpy(np.stack([caches[0].state(t) for t in ts]).astype(np.float32))
+
+    def fit(pairs: list[tuple[str, Any]]) -> tuple[torch.Tensor, torch.Tensor]:
+        return fit_probe(states([t for t, _ in pairs]), [g for _, g in pairs], n_labels, multi, a.probe_l2)
+
+    def accuracy(scores: list, pairs: list[tuple[str, Any]]) -> float:
+        """Share right: the top label, or (multi-label) exactly the gold set."""
+
+        def right(s: list[float], g: Any) -> bool:
+            return {i for i, x in enumerate(s) if x > 0} == set(g) if multi else _argmax(s) == g
+
+        return sum(right(s, g) for s, (_, g) in zip(scores, pairs, strict=True)) / len(pairs)
+
+    entry: dict[str, Any] = {
+        "only": a.probe_only,
+        "l2": a.probe_l2,
+        "steps": PROBE_STEPS,
+        "dev_share": a.probe_dev,
+        "gold_per_class": a.gold_per_class,
+        "gold_file": a.gold_file,
+        "n_gold": len(gold),
+        "dev": None,
+    }
+    order = list(range(len(gold)))
+    random.Random(a.seed).shuffle(order)
+    n_dev = round(a.probe_dev * len(gold))
+    dev, rest = [gold[i] for i in order[:n_dev]], [gold[i] for i in order[n_dev:]]
+    if dev and rest:
+        w, b = fit(rest)
+        alone = probe_scores(w, b, states([t for t, _ in dev]), multi)
+        context = [[c.get(t) for c in caches] for t, _ in dev]
+        d = entry["dev"] = {
+            "n_fit": len(rest),
+            "n_dev": len(dev),
+            "in_context": accuracy([combine_scores(p, multi) for p in context], dev),
+            "probe": accuracy(alone, dev),
+            "combined": accuracy(
+                [combine_scores([*p, s], multi) for p, s in zip(context, alone, strict=True)], dev
+            ),
+        }
+        log(
+            f"probe: teacher accuracy on {len(dev)} held-out gold texts (fit on {len(rest)}): in context "
+            f"{d['in_context']:.3f}, probe {d['probe']:.3f}, combined {d['combined']:.3f}"
+        )
+    w, b = fit(gold)
+    log(f"probe: fit on all {len(gold)} gold texts for labelling")
+    torch.save({"weight": w, "bias": b}, run / "probe.pt")
+    unique = list(dict.fromkeys(texts))
+    scores = probe_scores(w, b, states(unique), multi) if unique else []
+    return {text_hash(t): s for t, s in zip(unique, scores, strict=True)}, entry
 
 
 def _api_cost(member, texts: list[str], samples: int | None) -> tuple[int, int, int, int]:
@@ -681,6 +822,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
         + (f", {n_prompts} prompts" if n_prompts > 1 else "")
         + (", 4-bit" if meta.get("load_4bit") else "")
         + (", reasoning" if meta.get("reason") else "")
+        + ((", probe only" if meta["probe"].get("only") else ", probe") if meta.get("probe") else "")
     )
     if meta.get("few_shot_similar"):
         prompt = f"{meta['few_shot_similar']} similar examples" + prompt.partition("-shot")[2]
@@ -845,6 +987,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "chunk_stride",
                 "budget",
                 "rounds",
+                "probe",
             )
         },
         "environment": environment(threads),
@@ -1207,6 +1350,7 @@ def _new_run(src: Path, dst: Path, train: list[dict]) -> None:
         "meta.json",
         "examples.jsonl",
         "test.jsonl",
+        "probe.pt",
         *(_meta(src).get("prompts") or []),
     ):
         if (src / name).exists():
@@ -1327,6 +1471,7 @@ def cmd_improve(a: argparse.Namespace) -> None:
                 # the teacher stays loaded while the students train
                 teacher = _run_teacher(src, a.device)
                 lm = getattr(teacher, "members", [teacher])[0]
+                lm = getattr(lm, "base", lm)  # a probe: its local scorer
                 if not isinstance(lm, LabelScorer):
                     raise SystemExit("improve needs the run's teacher as a local model")
                 generate = generator(lm.model, lm.tok, a.temperature)
@@ -1652,6 +1797,49 @@ def build_parser() -> argparse.ArgumentParser:
         help="with --dry-run: the API's price per million output tokens",
     )
 
+    label.add_argument(
+        "--probe",
+        action="store_true",
+        help="also fit a linear probe on the teacher's hidden state at each text's last token, on the gold "
+        "labels train uses (--gold-per-class, --gold-file), and add its probabilities to the teacher's "
+        "(prompt-augmented linear probing); local teachers only",
+    )
+    label.add_argument(
+        "--probe-only",
+        action="store_true",
+        help="like --probe, but the probe alone is the teacher (a baseline); one teacher, no --prompts",
+    )
+    label.add_argument(
+        "--probe-dev",
+        type=float,
+        default=0.2,
+        metavar="S",
+        help="with --probe: first fit on all but this share of the gold texts and report teacher accuracy on "
+        "the rest (in context, probe, combined), then refit on all of them (default 0.2; 0: no report)",
+    )
+    label.add_argument(
+        "--probe-l2",
+        type=float,
+        default=1e-3,  # teacher.PROBE_L2
+        metavar="L",
+        help="with --probe: weight of the L2 penalty on the probe's weights (default 0.001)",
+    )
+
+    gold = argparse.ArgumentParser(add_help=False)
+    gold.add_argument(
+        "--gold-file",
+        help="gold labels for some training texts (same text and label fields as the task), e.g. the texts "
+        "`tinydistill suggest` picked, labelled by a person; used like --gold-per-class",
+    )
+    gold.add_argument(
+        "--gold-per-class",
+        type=int,
+        default=0,
+        metavar="K",
+        help="also use the gold labels of K training examples per class (picked with --seed): train adds a "
+        "cross-entropy term on them, label --probe fits on them",
+    )
+
     train = argparse.ArgumentParser(add_help=False)
     train.add_argument(
         "--student",
@@ -1680,18 +1868,6 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--batch-size", type=int, default=32)
     train.add_argument("--lr", type=float, default=1e-4)
     train.add_argument("--max-length", type=int, default=128)
-    train.add_argument(
-        "--gold-file",
-        help="gold labels for some training texts (same text and label fields as the task), e.g. the texts "
-        "`tinydistill suggest` picked, labelled by a person; used like --gold-per-class",
-    )
-    train.add_argument(
-        "--gold-per-class",
-        type=int,
-        default=0,
-        metavar="K",
-        help="also use the gold labels of K training examples per class (cross-entropy term)",
-    )
     train.add_argument("--ce-weight", type=float, default=1.0, help="weight of that cross-entropy term")
     train.add_argument(
         "--gold-only",
@@ -1742,10 +1918,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="tinydistill", description="Distil an LLM classification prompt into a small, fast model."
     )
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("label", parents=[label, common], help="score every label with the teacher").set_defaults(
-        fn=cmd_label
-    )
-    sub.add_parser("train", parents=[run_dir, train, common], help="distil the student").set_defaults(
+    sub.add_parser(
+        "label", parents=[label, gold, common], help="score every label with the teacher"
+    ).set_defaults(fn=cmd_label)
+    sub.add_parser("train", parents=[run_dir, train, gold, common], help="distil the student").set_defaults(
         fn=cmd_train
     )
     sub.add_parser(
@@ -1884,7 +2060,7 @@ def build_parser() -> argparse.ArgumentParser:
     tun.set_defaults(fn=cmd_tune)
     ref = sub.add_parser(
         "refresh",
-        parents=[run_dir, train, export, ev, common],
+        parents=[run_dir, train, gold, export, ev, common],
         help="retrain RUN with the texts its cascade sent to the teacher (a new run directory)",
     )
     ref.add_argument("--log", required=True, help="the log written by predict/serve --cascade RUN --log FILE")
@@ -1935,7 +2111,7 @@ def build_parser() -> argparse.ArgumentParser:
     cmp.set_defaults(fn=cmd_compare)
     sub.add_parser("env", help="versions and hardware, for bug reports").set_defaults(fn=cmd_env)
     rn = sub.add_parser(
-        "run", parents=[label, train, export, ev, common], help="label, train, export and eval"
+        "run", parents=[label, train, gold, export, ev, common], help="label, train, export and eval"
     )
     rn.add_argument(
         "--budget",

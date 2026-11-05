@@ -42,6 +42,12 @@ tinydistill label task.yaml --data train.csv --teacher Qwen/Qwen2.5-7B-Instruct 
 - It works with local, vLLM and hosted API teachers. The examples it picks from are saved in the run
   (`examples.jsonl`), so `eval` and the cascade rebuild the same teacher.
 
+## In a probe on the teacher
+
+`label --probe` fits a linear probe on the teacher's hidden states with the gold labels of `--gold-per-class`
+and `--gold-file`, and averages its probabilities with the teacher's. See
+[Choosing the teacher](teacher.md#a-probe-on-the-teachers-hidden-states).
+
 ## In the student's loss
 
 `train --gold-per-class K` adds a cross-entropy term on those gold labels to the distillation loss (weight

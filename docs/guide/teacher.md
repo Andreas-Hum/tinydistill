@@ -81,6 +81,47 @@ On AG News, reasoning made the 1.5B teacher more accurate (0.778 against 0.755) 
 ways; [Benchmarks](../results.md#a-reasoning-step-before-the-answer)). Compare both on a sample (`--limit`) before
 paying for reasoning on all your texts.
 
+## A probe on the teacher's hidden states
+
+`label --probe` adds a second signal from the gold labels a run already has. It fits a linear classifier on the
+teacher's own hidden state for the prompt plus each text, and its probabilities are one more ensemble member.
+This is prompt-augmented linear probing (PALP; Cho et al., AAAI 2023,
+[arXiv 2212.10873](https://arxiv.org/abs/2212.10873)): it matches in-context learning at a few labels per class
+and keeps improving as labels are added, where in-context learning levels off.
+
+```sh
+tinydistill run task.yaml --data train.csv --test test.csv --gold-per-class 8 --probe --out run
+```
+
+- The state is the input of the teacher's LM head at the text's last token: the last layer's normed hidden
+  state, from the position that predicts the first label token. The label logits are a linear function of
+  exactly this vector. It is recorded during the normal scoring pass (a hook on the LM head, for packed and
+  batch-row scoring alike), so there is no extra forward pass and the scores are unchanged.
+- The states are cached next to the scores, as `teacher-<fingerprint>.states.npz` (text hashes and float16
+  states). The fingerprint is the same as without `--probe`. A text whose scores are cached but not its state is
+  scored again once, for the state.
+- The probe fits on the gold labels `train` uses: `--gold-per-class K` (the same texts, picked with `--seed`)
+  and `--gold-file`. A test text is never used. It is multinomial logistic regression (multi-label: one sigmoid
+  per label), fit full batch with LBFGS from zero weights, with an L2 penalty `--probe-l2` (default 0.001) on
+  standardised states. There are no class weights.
+- Its log-probabilities are combined with the in-context scores by the same mean of probabilities as any
+  ensemble, and stored as the last entry of `teacher_scores`. `--probe-only` makes the probe the whole teacher,
+  as a baseline; it needs one teacher and no `--prompts`. With several teachers, the probe reads the first
+  teacher's states for the task's own prompt.
+- `--probe-dev` (default 0.2) first holds out that share of the gold texts, fits on the rest and logs teacher
+  accuracy on the held-out ones: in context, probe alone and combined. The report goes to `meta.json` (`probe`)
+  and the results notes. Then the probe is fit again on all the gold texts for labelling.
+- The fitted probe is saved as `probe.pt` in the run and its settings in `meta.json`, so `eval` and the cascade
+  rebuild the same teacher without fitting again. In an ensemble it reuses the states of its teacher's own pass.
+
+The training rows of the gold texts get the probe's prediction for a text it was fit on, which is more
+confident than it would be for a new text. That is fine for distillation, since those rows also have the gold
+cross-entropy term, but the teacher's agreement with gold on those rows says nothing about its accuracy: use
+the `--probe-dev` report or the test set for that.
+
+The probe needs a local teacher: hosted APIs and vLLM return no hidden states, so `--api-url` and `--vllm-url`
+refuse it. It does not work with `--chunk-tokens`.
+
 ## A vLLM server
 
 A vLLM server can be the teacher instead of a local model, so a large model on a GPU cluster does the

@@ -27,9 +27,10 @@ import os
 from collections.abc import Iterable, Iterator
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol, cast
 from urllib.parse import urlsplit
 
+import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -295,6 +296,11 @@ class LabelScorer(_Prompt):
         self._prepare(tokenizer, task, use_chat_template, surface_forms, examples, limit, similar)
         self._build_tree()
         self._prefix_cache: Any = None  # the prompt prefix's KV cache (a transformers Cache)
+        self._prefix_state: torch.Tensor | None = None
+        # with keep_states, score_many also keeps each text's state (see _forward) in ``states``
+        self.keep_states = False
+        self.states: dict[str, torch.Tensor] = {}
+        self._new_states: list[torch.Tensor] = []
 
     def _build_tree(self) -> None:
         """Prefix tree over the labels' input tokens (every label token except the last).
@@ -385,13 +391,18 @@ class LabelScorer(_Prompt):
     def form_scores_many(self, texts: list[str]) -> torch.Tensor:
         """(len(texts), len(self.forms)) log-probabilities, packing texts up to ``max_tokens`` per pass.
         With a shortlist, continuations of labels outside a text's shortlist get NOT_SCORED."""
-        if self._prefix_cache is None:
+        if self._prefix_cache is None or (self.keep_states and self._prefix_state is None):
             self._encode_prefix()
         ids = [self.text_ids(t, h) for t, h in zip(texts, self.heads(texts), strict=True)]
         labels = self.shortlist(texts) if self.shortlist is not None else [None] * len(texts)
         views = [self._view(lab) for lab in labels]
-        if not self._packable:
-            return self._score_batched(ids, views)
+        self._new_states = []
+        scores = self._score_packs(ids, views) if self._packable else self._score_batched(ids, views)
+        if self.keep_states:
+            self.states = dict(zip(texts, torch.cat(self._new_states).cpu() if texts else [], strict=True))
+        return scores
+
+    def _score_packs(self, ids: list[list[int]], views: list[_View]) -> torch.Tensor:
         out: list[torch.Tensor] = []
         pack: list[tuple[list[int], _View]] = []
         used = 0
@@ -406,6 +417,23 @@ class LabelScorer(_Prompt):
             out.append(self._score_pack(pack))
         return torch.cat(out) if out else torch.empty((0, len(self.forms)), device=self.device)
 
+    def _forward(self, keep: bool, **kwargs) -> tuple[Any, torch.Tensor | None]:
+        """The model's output and, with ``keep``, the input of its LM head in that same pass: the last
+        layer's normed hidden states of the rows the logits are computed for (``logits_to_keep``). A hook
+        records it, so there is no second pass and no hidden states of other layers or rows."""
+        if not keep:
+            return self.model(**kwargs), None
+        head = self.model.get_output_embeddings()
+        if head is None:
+            raise ValueError("--probe needs a teacher with an LM head to read its hidden states")
+        seen: list[torch.Tensor] = []
+        hook = head.register_forward_pre_hook(lambda _, args: seen.append(args[0]))
+        try:
+            out = self.model(**kwargs)
+        finally:
+            hook.remove()
+        return out, seen[-1]
+
     @torch.no_grad()
     def _encode_prefix(self, chunk: int = 1024) -> None:
         """Run the prompt prefix once, in chunks against the growing cache, so that a long (few-shot) prompt
@@ -413,10 +441,16 @@ class LabelScorer(_Prompt):
         ids = torch.tensor([self.prefix_ids], device=self.device)
         cache = None
         for start in range(0, ids.shape[1], chunk):
-            out = self.model(ids[:, start : start + chunk], past_key_values=cache, use_cache=True)
+            out, head = self._forward(
+                self.keep_states,
+                input_ids=ids[:, start : start + chunk],
+                past_key_values=cache,
+                use_cache=True,
+            )
             cache = out.past_key_values
         self._prefix_cache = cache
         self._prefix_last = torch.log_softmax(out.logits[0, -1].float(), -1)
+        self._prefix_state = None if head is None else head[0, -1].float()  # an empty text's state
         from transformers.cache_utils import DynamicLayer
 
         # Packing masks texts from each other and rolls the cache back to the prompt afterwards. Both need
@@ -455,6 +489,7 @@ class LabelScorer(_Prompt):
         for i, x in enumerate(ids):
             by_length.setdefault(len(x), []).append(i)
         per = max(1, rows_bytes // max(_nbytes(self._prefix_cache), 1))
+        kept: list[tuple[list[int], torch.Tensor]] = []  # with keep_states: (texts, their states)
         for n, same in by_length.items():
             step = max(1, min(per, self.max_tokens // max(n, 1)))
             for s in range(0, len(same), step):
@@ -462,12 +497,24 @@ class LabelScorer(_Prompt):
                 if n:
                     cache = _rows(self._prefix_cache, torch.zeros(len(group), dtype=torch.long, device=dev))
                     xs = torch.tensor([ids[i] for i in group], device=dev)
-                    logits = self.model(xs, past_key_values=cache, use_cache=True, logits_to_keep=1).logits
-                    first = torch.log_softmax(logits[:, -1].float(), -1)
+                    res, head = self._forward(
+                        self.keep_states,
+                        input_ids=xs,
+                        past_key_values=cache,
+                        use_cache=True,
+                        logits_to_keep=1,
+                    )
+                    first = torch.log_softmax(res.logits[:, -1].float(), -1)
                     src = list(range(len(group)))  # each text's row in the cache
+                    if head is not None:
+                        kept.append((group, head[:, -1].float()))
                 else:  # empty texts: the prompt itself predicts the first tokens
                     cache, src = self._prefix_cache, [0] * len(group)
                     first = self._prefix_last[None].expand(len(group), -1)
+                    if self.keep_states:
+                        kept.append(
+                            (group, cast(torch.Tensor, self._prefix_state)[None].expand(len(group), -1))
+                        )
                 out[group] = first[:, heads]
                 jobs: list[tuple[int, int, int]] = []  # (text, its cache row, continuation)
                 for r, i in enumerate(group):
@@ -495,6 +542,10 @@ class LabelScorer(_Prompt):
                         out.index_put_(
                             (texts[k : k + 64], sel), (lp * valid[k : k + 64]).sum(1), accumulate=True
                         )
+        if kept:  # back in the texts' order
+            order = torch.tensor([i for group, _ in kept for i in group], device=dev)
+            states = torch.cat([x for _, x in kept])
+            self._new_states.append(torch.empty_like(states).index_copy_(0, order, states))
         return out
 
     def _additive(self, allow: torch.Tensor) -> torch.Tensor:
@@ -543,20 +594,30 @@ class LabelScorer(_Prompt):
             keep.extend(range(o + n, o + n + N))
             o += n + N
         if not keep:  # empty texts and single-token continuations: the prompt predicts everything
+            if self.keep_states:
+                self._new_states.append(cast(torch.Tensor, self._prefix_state)[None].expand(len(pack), -1))
             return torch.stack([self._totals(self._prefix_last[v.targets], v) for _, v in pack])
         try:
-            logits = self.model(
-                tokens[None],
+            res, head = self._forward(
+                self.keep_states,
+                input_ids=tokens[None],
                 attention_mask=self._additive(allow)[None, None],
                 position_ids=positions[None],
                 past_key_values=self._prefix_cache,
                 use_cache=True,
                 logits_to_keep=torch.tensor(keep, device=dev),
-            ).logits[0]
+            )
+            logits = res.logits[0]
         finally:
             extra = self._prefix_cache.get_seq_length() - P
             if extra:
                 self._prefix_cache.crop(-extra)  # back to the prompt prefix
+        if head is not None:  # each text's state: the kept row that predicts its first label token
+            self._new_states.append(
+                torch.stack(
+                    [head[0, f].float() if f >= 0 else cast(torch.Tensor, self._prefix_state) for f in first]
+                )
+            )
         # log p(target) = logit(target) - logsumexp(logits): only the targets' logits are needed, so the
         # vocabulary-sized softmax is never materialised for all rows at once (with many labels a pass keeps
         # thousands of rows, and full float32 log-softmaxes fragment GPU memory until it spills to system RAM)
@@ -1025,6 +1086,77 @@ class Ensemble:
         return self.score_many([text])[0]
 
 
+PROBE_STEPS = 200  # LBFGS iterations of a probe fit (it stops earlier once converged)
+PROBE_L2 = 1e-3  # default weight of the probe's L2 penalty (on the standardised features)
+
+
+def fit_probe(
+    x: torch.Tensor, gold: list, n_labels: int, multi_label: bool = False, l2: float = PROBE_L2
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """A linear probe on teacher states (prompt-augmented linear probing, Cho et al., 2023): multinomial
+    logistic regression on the gold texts' states ``x`` (texts, hidden) and labels ``gold``, or with
+    ``multi_label`` one sigmoid per label on the gold label sets. Full batch, LBFGS from zero weights (so no
+    seed is needed), mean cross-entropy plus ``l2`` times the squared weights. The features are standardised
+    for the fit and the scaling folded into the result, (weight (labels, hidden), bias (labels,)), which
+    applies to raw states."""
+    x = x.double().cpu()
+    mean, std = x.mean(0), x.std(0, unbiased=False).clamp_min(1e-6)
+    z = (x - mean) / std
+    w = torch.zeros((n_labels, x.shape[1]), dtype=torch.float64, requires_grad=True)
+    b = torch.zeros(n_labels, dtype=torch.float64, requires_grad=True)
+    if multi_label:
+        y = torch.zeros((len(gold), n_labels), dtype=torch.float64)
+        for i, g in enumerate(gold):
+            y[i, list(g)] = 1.0
+        loss_of: Any = torch.nn.functional.binary_cross_entropy_with_logits
+    else:
+        y, loss_of = torch.tensor(gold, dtype=torch.long), torch.nn.functional.cross_entropy
+    opt = torch.optim.LBFGS([w, b], lr=1, max_iter=PROBE_STEPS, line_search_fn="strong_wolfe")
+
+    def closure() -> torch.Tensor:
+        opt.zero_grad()
+        loss = loss_of(z @ w.T + b, y) + l2 * w.pow(2).sum()
+        loss.backward()
+        return loss
+
+    opt.step(closure)
+    weight = (w / std).detach()
+    return weight.float(), (b - weight @ mean).detach().float()
+
+
+def probe_scores(weight: torch.Tensor, bias: torch.Tensor, x: torch.Tensor, multi_label: bool) -> list:
+    """The probe's label scores for states ``x``: log-probabilities, or (multi-label) log-odds. The states
+    are rounded to float16, as cached, so that a rebuilt teacher scores as the labelling did."""
+    z = x.cpu().half().float() @ weight.T + bias
+    return (z if multi_label else z.log_softmax(-1)).double().tolist()
+
+
+class ProbeScorer:
+    """A fitted probe as a teacher: ``base`` (a local scorer, set to keep its states) scores the texts, and
+    the probe reads their states. In an ensemble after ``base`` it reuses the states of base's own pass for
+    the same texts, so it costs no forward pass of its own."""
+
+    def __init__(self, base: LabelScorer, weight: torch.Tensor, bias: torch.Tensor):
+        base.keep_states = True
+        self.base, self.task, self.model, self.device = base, base.task, base.model, base.device
+        self.weight, self.bias = weight, bias
+
+    def fingerprint(self) -> str:
+        key = self.base.fingerprint().encode() + self.weight.numpy().tobytes() + self.bias.numpy().tobytes()
+        return hashlib.sha256(b"probe-v1" + key).hexdigest()[:16]
+
+    def score_many(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        if any(t not in self.base.states for t in texts):
+            self.base.score_many(texts)
+        x = torch.stack([self.base.states[t] for t in texts])
+        return probe_scores(self.weight, self.bias, x, self.task.multi_label)
+
+    def score(self, text: str) -> list[float]:
+        return self.score_many([text])[0]
+
+
 def load_teacher(
     name: str,
     task: Task,
@@ -1195,14 +1327,27 @@ def quick_key(
     return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
 
+STATES_SAVE_EVERY = 2048  # newly scored texts between rewrites of a state cache
+
+
 class ScoreCache:
     """Append-only JSONL of {"h": text hash, "s": label scores} (and "r": the reasoning, for a teacher that
-    reasons); reopening it resumes where it stopped."""
+    reasons); reopening it resumes where it stopped. With ``states`` (for ``label --probe``), also each
+    text's teacher state (``LabelScorer.keep_states``) in ``<cache>.states.npz``: the text hashes ``h`` and
+    the states ``x`` (float16), rewritten every STATES_SAVE_EVERY texts and when filling ends; a text counts
+    as cached only with both."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, states: bool = False):
         self.path = path
         self.scores: dict[str, list[float]] = {}
         self.reasoning: dict[str, str] = {}
+        self.states: dict[str, np.ndarray] | None = None
+        self.states_path = path.with_name(path.stem + ".states.npz")
+        if states:
+            self.states = {}
+            if self.states_path.exists():
+                with np.load(self.states_path) as z:
+                    self.states = dict(zip(z["h"].tolist(), z["x"], strict=True))
         self._cut = False  # the file ends in a line cut off by an interrupted run
         if path.exists():
             with path.open(encoding="utf-8") as f:
@@ -1230,29 +1375,54 @@ class ScoreCache:
                 nonlocal n
                 scores = scorer.score_many(pending)
                 why = getattr(scorer, "reasoning", {})  # a reasoning teacher's text before its answer
+                states = getattr(scorer, "states", {})
                 for text, s in zip(pending, scores, strict=True):
                     h = text_hash(text)
-                    self.scores[h] = s
-                    row: dict[str, Any] = {"h": h, "s": s}
-                    if text in why:
-                        row["r"] = self.reasoning[h] = why[text]
-                    f.write(json.dumps(row) + "\n")
+                    if self.states is not None:
+                        self.states[h] = states[text].numpy().astype(np.float16)
+                    if h not in self.scores:  # (a cached text scored again for its state keeps its row)
+                        self.scores[h] = s
+                        row: dict[str, Any] = {"h": h, "s": s}
+                        if text in why:
+                            row["r"] = self.reasoning[h] = why[text]
+                        f.write(json.dumps(row) + "\n")
                     n += 1
                     if progress:
                         progress(n)
                 f.flush()
+                if self.states is not None and n % STATES_SAVE_EVERY < len(pending):
+                    self.save_states()
                 pending.clear()
 
-            for text in texts:
-                if on_read:
-                    on_read()  # every text read, cached or not (for progress and time left)
-                if text_hash(text) not in self.scores and text not in pending:
-                    pending.append(text)
-                    if len(pending) == batch:
-                        flush()
-            if pending:
-                flush()
+            try:
+                for text in texts:
+                    if on_read:
+                        on_read()  # every text read, cached or not (for progress and time left)
+                    if not self.has(text) and text not in pending:
+                        pending.append(text)
+                        if len(pending) == batch:
+                            flush()
+                if pending:
+                    flush()
+            finally:  # an interrupted run keeps the states it has
+                if n and self.states is not None:
+                    self.save_states()
         return n
+
+    def has(self, text: str) -> bool:
+        h = text_hash(text)
+        return h in self.scores and (self.states is None or h in self.states)
+
+    def save_states(self) -> None:
+        # ponytail: rewrites the whole file; shard it if state caches grow past a few GB
+        states = cast(dict[str, np.ndarray], self.states)
+        tmp = self.states_path.with_suffix(".tmp")
+        with tmp.open("wb") as f:
+            np.savez(f, h=np.array(list(states)), x=np.stack(list(states.values())))
+        tmp.replace(self.states_path)
+
+    def state(self, text: str) -> np.ndarray:
+        return cast(dict[str, np.ndarray], self.states)[text_hash(text)]
 
     def get(self, text: str) -> list[float]:
         return self.scores[text_hash(text)]

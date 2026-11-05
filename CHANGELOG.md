@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `label --probe`: a linear probe on the teacher's hidden state at each text's last token (prompt-augmented
+  linear probing, Cho et al. 2023), fit on the gold labels train uses (`--gold-per-class`, `--gold-file`), is one
+  more ensemble member. The states are recorded during the normal scoring pass and cached next to the scores.
+  `--probe-dev` reports teacher accuracy on held-out gold texts (in context, probe, combined), `--probe-only`
+  uses the probe alone, and `probe.pt` lets `eval` and the cascade rebuild the teacher. `--gold-per-class` and
+  `--gold-file` are now also `label` options. Local teachers only.
 - `run --budget N` labels a random sample of N texts by default (`--rounds` now defaults to 1, was 4): on Banking77
   the uncertainty rounds were worse than a random sample of the same size at every budget tried (1,000, 2,500 and
   5,000 of 10,003 texts). `--rounds R` still picks each later round's texts by the student's uncertainty.
