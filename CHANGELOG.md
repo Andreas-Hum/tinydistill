@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Teachers that cannot pack texts (linear-attention or sliding-window layers, such as Qwen3.5 and Gemma 4) score
+  many texts per forward pass instead of one: each text and each label continuation is a batch row of its own,
+  texts of the same token length run together, and their continuations then run as rows against copies of each
+  text's cache. Rows never see each other and need no padding before a scored token, so the scores are the same.
+  A pass holds as many rows as fit in a quarter of the free GPU memory (at least 2 GiB, as before) and
+  `--teacher-tokens`.
 - `web`: the main page and the explainer have tabs to each other ("Try it", "Inside the model"), and the main
   page links to the explainer under the answer; the links carry the current text (`?text=`). The tabs appear only
   when the explainer was written. The explainer has a guided tour (its "Guided tour" button, or `?tour=1`): eleven

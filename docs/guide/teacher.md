@@ -6,7 +6,7 @@ helps more than anything on the student side.
 ## Any causal language model
 
 `--teacher` takes any Hugging Face causal LM with a chat template. The tests check the scoring against a plain
-forward pass for Llama, Mistral, Phi, Gemma 2 and GPT-2 style models as well as Qwen.
+forward pass for Llama, Mistral, Phi, Gemma 2, Gemma 4 and GPT-2 style models as well as Qwen and Qwen3.5.
 
 ```sh
 tinydistill label task.yaml --data train.csv --teacher Qwen/Qwen2.5-7B-Instruct --load-4bit --out run
@@ -168,8 +168,12 @@ tinydistill label task.yaml --data train.csv --teacher some-model \
 
 The part of the prompt before the text is run once and cached; each text then needs one forward pass that
 covers all labels together, and short texts are packed several to a pass (`--teacher-tokens`, default 2048
-tokens per pass). Scores are cached by text in `--cache-dir`: an interrupted run resumes, runs that share the
-directory label each text only once, and a run whose texts are all cached does not load the teacher at all.
+tokens per pass). Models with linear-attention or sliding-window layers (such as Qwen3.5 and Gemma 2 to 4)
+cannot be packed: each text and each label continuation is a batch row of its own instead, texts of the same
+token length run together, and each row holds its own copy of the cached prompt. A pass takes as many rows as
+fit in a quarter of the free GPU memory (2 GiB on CPU) and `--teacher-tokens`. Scores are cached by text in
+`--cache-dir`: an interrupted run resumes, runs that share the directory label each text only once, and a run
+whose texts are all cached does not load the teacher at all.
 With very many labels, see [Many labels](many-labels.md). For documents longer than the student reads,
 `--chunk-tokens` has the teacher score windows of each one; see [Long texts](training.md#long-texts).
 

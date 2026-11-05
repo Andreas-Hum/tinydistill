@@ -12,6 +12,9 @@ tree of the continuations' tokens (continuations that start alike share nodes). 
 into one sequence, up to a token budget, and a 4D attention mask lets every position attend to the cached
 prompt plus, within its own segment, the text (causally) and its own tree ancestors. One forward pass scores
 the whole pack; there is no padding and no copy of the cache, which is cropped back to the prompt afterwards.
+Models with recurrent (linear-attention) or sliding-window layers cannot pack: they run every text and every
+continuation as a batch row of its own, against row copies of the cached prompt (texts of the same token
+length together, then their continuations).
 """
 
 from __future__ import annotations
@@ -388,7 +391,7 @@ class LabelScorer(_Prompt):
         labels = self.shortlist(texts) if self.shortlist is not None else [None] * len(texts)
         views = [self._view(lab) for lab in labels]
         if not self._packable:
-            return torch.stack([self._score_alone(x, v) for x, v in zip(ids, views, strict=True)])
+            return self._score_batched(ids, views)
         out: list[torch.Tensor] = []
         pack: list[tuple[list[int], _View]] = []
         used = 0
@@ -418,47 +421,81 @@ class LabelScorer(_Prompt):
 
         # Packing masks texts from each other and rolls the cache back to the prompt afterwards. Both need
         # plain attention layers: recurrent (linear attention) layers ignore the mask and cannot be rolled
-        # back, and sliding-window layers drop old tokens. Other models score one text at a time.
+        # back, and sliding-window layers drop old tokens. Other models run texts as batch rows instead.
         layers = getattr(cache, "layers", None) or []
         self._packable = bool(layers) and all(type(layer) is DynamicLayer for layer in layers)
 
     @torch.no_grad()
-    def _score_alone(self, x: list[int], view: _View, rows_bytes: int = 2**31) -> torch.Tensor:
-        """One text's continuation scores without packing: the text runs against a copy of the prompt's
-        cache, then the multi-token continuations run in batches against copies of the text's cache (as
-        many rows as fit in ``rows_bytes`` of cache)."""
-        dev = self.device
-        forms = range(len(self.forms)) if view.scored is None else view.scored.nonzero().flatten().tolist()
-        total = torch.full((len(self.forms),), NOT_SCORED, dtype=torch.float32, device=dev)
-        cache = copy.deepcopy(self._prefix_cache)
-        first = self._prefix_last
-        if x:
-            out = self.model(torch.tensor([x], device=dev), past_key_values=cache, use_cache=True)
-            first = torch.log_softmax(out.logits[0, -1].float(), -1)
-        for f in forms:
-            total[f] = first[self.forms[f][0]]
-        longer = [f for f in forms if len(self.forms[f]) > 1]
-        size = sum(t.numel() * t.element_size() for t in _tensors(cache))
-        per = max(1, rows_bytes // max(size, 1))
-        past = len(self.prefix_ids) + len(x)
-        for i in range(0, len(longer), per):
-            batch = longer[i : i + per]
-            width = max(len(self.forms[f]) - 1 for f in batch)
-            inp = torch.zeros((len(batch), width), dtype=torch.long, device=dev)
-            mask = torch.zeros((len(batch), past + width), dtype=torch.long, device=dev)
-            mask[:, :past] = 1
-            for r, f in enumerate(batch):  # right-padded: the padding comes after every scored position
-                n = len(self.forms[f]) - 1
-                inp[r, :n] = torch.tensor(self.forms[f][:-1], device=dev)
-                mask[r, past : past + n] = 1
-            c = copy.deepcopy(cache)
-            c.reorder_cache(torch.zeros(len(batch), dtype=torch.long, device=dev))  # one copy per row
-            logits = self.model(inp, attention_mask=mask, past_key_values=c, use_cache=True).logits.float()
-            for r, f in enumerate(batch):
-                tgt = torch.tensor(self.forms[f][1:], device=dev)
-                rows = logits[r, : len(tgt)]
-                total[f] += (rows.gather(1, tgt[:, None])[:, 0] - torch.logsumexp(rows, -1)).sum()
-        return total
+    def _score_batched(
+        self, ids: list[list[int]], views: list[_View], rows_bytes: int | None = None
+    ) -> torch.Tensor:
+        """Continuation scores without packing: every text and every continuation is a batch row of its own,
+        so rows never see each other. Texts of the same token length run together against copies of the
+        prompt's cache (no padding, so a recurrent state stops at the text's last token); then their
+        multi-token continuations run as right-padded rows against copies of their text's row of that cache
+        (padding comes after every scored position). A pass's rows hold at most ``rows_bytes`` of cache
+        (default: a quarter of the free GPU memory, at least 2 GiB) and at most ``max_tokens`` tokens."""
+        dev, P = self.device, len(self.prefix_ids)
+        if rows_bytes is None:
+            rows_bytes = 2**31
+            if dev.type == "cuda":  # the texts' cache and its rows' copies both live during a pass
+                free = torch.cuda.mem_get_info(dev)[0] + torch.cuda.memory_reserved(dev)
+                rows_bytes = max(rows_bytes, (free - torch.cuda.memory_allocated(dev)) // 4)
+        steps = [len(form) - 1 for form in self.forms]  # tokens a continuation's row runs
+        width = max(max(steps), 1)
+        inp = torch.zeros((len(self.forms), width), dtype=torch.long, device=dev)  # right-padded inputs
+        tgt = torch.zeros_like(inp)  # and the tokens they predict
+        for f, form in enumerate(self.forms):
+            inp[f, : steps[f]] = torch.tensor(form[:-1], dtype=torch.long)
+            tgt[f, : steps[f]] = torch.tensor(form[1:], dtype=torch.long)
+        lengths = torch.tensor(steps, device=dev)
+        heads = torch.tensor([form[0] for form in self.forms], device=dev)
+        out = torch.full((len(ids), len(self.forms)), NOT_SCORED, dtype=torch.float32, device=dev)
+        by_length: dict[int, list[int]] = {}
+        for i, x in enumerate(ids):
+            by_length.setdefault(len(x), []).append(i)
+        per = max(1, rows_bytes // max(_nbytes(self._prefix_cache), 1))
+        for n, same in by_length.items():
+            step = max(1, min(per, self.max_tokens // max(n, 1)))
+            for s in range(0, len(same), step):
+                group = same[s : s + step]
+                if n:
+                    cache = _rows(self._prefix_cache, torch.zeros(len(group), dtype=torch.long, device=dev))
+                    xs = torch.tensor([ids[i] for i in group], device=dev)
+                    logits = self.model(xs, past_key_values=cache, use_cache=True, logits_to_keep=1).logits
+                    first = torch.log_softmax(logits[:, -1].float(), -1)
+                    src = list(range(len(group)))  # each text's row in the cache
+                else:  # empty texts: the prompt itself predicts the first tokens
+                    cache, src = self._prefix_cache, [0] * len(group)
+                    first = self._prefix_last[None].expand(len(group), -1)
+                out[group] = first[:, heads]
+                jobs: list[tuple[int, int, int]] = []  # (text, its cache row, continuation)
+                for r, i in enumerate(group):
+                    scored = views[i].scored
+                    if scored is not None:
+                        out[i, ~scored] = NOT_SCORED
+                    forms = range(len(self.forms)) if scored is None else scored.nonzero().flatten().tolist()
+                    jobs.extend((i, src[r], f) for f in forms if steps[f])
+                jobs.sort(key=lambda job: steps[job[2]])  # rows of similar length pass together: less padding
+                size = _nbytes(cache) // len(set(src))  # bytes per cache row
+                rows = max(1, min(rows_bytes // max(size, 1), self.max_tokens // width))
+                for j in range(0, len(jobs), rows):
+                    batch = jobs[j : j + rows]
+                    texts, at, fs = (torch.tensor(c, device=dev) for c in zip(*batch, strict=True))
+                    w = steps[batch[-1][2]]  # the longest, as the jobs are sorted
+                    valid = torch.arange(w, device=dev)[None] < lengths[fs][:, None]
+                    mask = torch.ones((len(fs), P + n + w), dtype=torch.long, device=dev)
+                    mask[:, P + n :] = valid
+                    logits = self.model(
+                        inp[fs, :w], attention_mask=mask, past_key_values=_rows(cache, at), use_cache=True
+                    ).logits
+                    for k in range(0, len(fs), 64):  # log p(target) = logit(target) - logsumexp, in float32
+                        part, sel = logits[k : k + 64].float(), fs[k : k + 64]
+                        lp = part.gather(-1, tgt[sel, :w, None])[..., 0] - torch.logsumexp(part, -1)
+                        out.index_put_(
+                            (texts[k : k + 64], sel), (lp * valid[k : k + 64]).sum(1), accumulate=True
+                        )
+        return out
 
     def _additive(self, allow: torch.Tensor) -> torch.Tensor:
         """The mask as additive biases (0 where attention is allowed): every attention implementation reads
@@ -551,6 +588,18 @@ def _tensors(obj) -> Iterator[torch.Tensor]:
         yield from _tensors(obj.layers)
     elif hasattr(obj, "__dict__"):
         yield from _tensors(vars(obj))
+
+
+def _nbytes(cache) -> int:
+    return sum(t.numel() * t.element_size() for t in _tensors(cache))
+
+
+def _rows(cache, index: torch.Tensor):
+    """A new cache of the given batch rows of ``cache``, which stays as it was: the copy shares its tensors
+    until ``reorder_cache`` replaces each one with a new tensor of the selected rows."""
+    new = copy.deepcopy(cache, {id(t): t for t in _tensors(cache)})
+    new.reorder_cache(index)
+    return new
 
 
 def combine_scores(per_teacher: list[list[float]], multi_label: bool = False) -> list[float]:

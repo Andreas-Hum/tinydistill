@@ -8,7 +8,7 @@ from conftest import TINY_ENCODER, TINY_LM
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 
-from tinydistill.teacher import NOT_SCORED, LabelScorer, surface_variants
+from tinydistill.teacher import NOT_SCORED, LabelScorer, _tensors, surface_variants
 
 
 @pytest.fixture(scope="module")
@@ -531,27 +531,94 @@ def hybrid(lm):
     return AutoModelForCausalLM.from_config(cfg).eval(), tok
 
 
-@pytest.mark.skipif(
-    "qwen3_5_text" not in CONFIG_MAPPING, reason="this transformers version has no Qwen3.5 models"
-)
-def test_recurrent_teachers_score_one_text_at_a_time(lm, hybrid, task):
-    """Linear-attention layers ignore the packing mask and cannot roll their state back, so such teachers
-    score each text alone; the scores equal a plain forward pass over prompt + text + continuation."""
-    model, tok = hybrid
-    texts = ["great product, would buy again", "", "meh"]
-    scorer = LabelScorer(model, tok, task, max_tokens=10_000)
+@pytest.fixture(scope="module")
+def sliding(lm):
+    """A tiny random Gemma 4 whose sliding-window layers see 8 tokens, fewer than any prompt here, and whose
+    last layer reuses an earlier layer's keys and values."""
+    from transformers import AutoConfig
+
+    tok = lm[1]
+    cfg = AutoConfig.for_model(
+        "gemma4_text",
+        vocab_size=len(tok),
+        vocab_size_per_layer_input=len(tok),
+        hidden_size_per_layer_input=8,
+        pad_token_id=0,
+        hidden_size=32,
+        intermediate_size=64,
+        num_hidden_layers=4,
+        num_attention_heads=2,
+        num_key_value_heads=1,
+        head_dim=16,
+        global_head_dim=16,
+        sliding_window=8,
+        num_kv_shared_layers=1,
+        layer_types=["sliding_attention", "full_attention", "sliding_attention", "full_attention"],
+    )
+    torch.manual_seed(0)
+    return AutoModelForCausalLM.from_config(cfg).eval(), tok
+
+
+def unpackable(name):
+    model_type = {"hybrid": "qwen3_5_text", "sliding": "gemma4_text"}[name]
+    return pytest.param(
+        name,
+        marks=pytest.mark.skipif(
+            model_type not in CONFIG_MAPPING, reason=f"this transformers version has no {model_type} models"
+        ),
+    )
+
+
+@pytest.mark.parametrize("teacher", [unpackable("hybrid"), unpackable("sliding")])
+def test_unpackable_teachers_score_texts_as_batch_rows(lm, teacher, task, request):
+    """Linear-attention layers ignore the packing mask and cannot roll their state back, and sliding-window
+    layers drop old tokens, so such teachers run each text and each continuation as a batch row of its own;
+    the scores equal a plain forward pass over prompt + text + continuation."""
+    model, tok = request.getfixturevalue(teacher)
+    shots = type(task)(**{**task.__dict__, "prompt": SHOTS})
+    texts = ["great product, would buy again", "", "meh", "bad", "", "awful", "ok then", "a"]
+    scorer = LabelScorer(model, tok, shots, examples=POOL, max_tokens=12)  # several passes per length
+    scorer._encode_prefix()
+    assert not scorer._packable and len(scorer.prefix_ids) > 40  # the prompt is longer than the window
+    before = [t.clone() for t in _tensors(scorer._prefix_cache)]
     got = scorer.form_scores_many(texts)
-    assert not scorer._packable
+    assert len({len(scorer.text_ids(t)) for t in texts}) < len(texts)  # texts of the same length share passes
     for t, row in zip(texts, got, strict=True):
         assert row.tolist() == pytest.approx(reference(scorer, t), abs=1e-4)
-    # one continuation per batch gives the same scores
-    one = scorer._score_alone(scorer.text_ids("meh"), scorer._full, rows_bytes=1)
-    assert one.tolist() == pytest.approx(got[2].tolist(), abs=1e-4)
+    after = list(_tensors(scorer._prefix_cache))
+    assert len(after) == len(before) and all(torch.equal(x, y) for x, y in zip(before, after, strict=True))
+    # one row per pass, one text at a time, and everything in one pass give the same scores
+    ids = [scorer.text_ids(t) for t in texts]
+    alone = [scorer._score_batched([x], [scorer._full], rows_bytes=1)[0] for x in ids]
+    torch.testing.assert_close(torch.stack(alone), got, atol=1e-4, rtol=0)
+    scorer.max_tokens = 10_000
+    torch.testing.assert_close(scorer.form_scores_many(texts), got, atol=1e-4, rtol=0)
     # a shortlist scores only its labels
-    short = LabelScorer(model, tok, task, shortlist=FixedShortlist({"meh": [1]}))
-    row = short.score_many(["meh"])[0]
-    assert row[1] == pytest.approx(scorer.score("meh")[1], abs=1e-4)
-    assert row[0] < NOT_SCORED / 2
+    picks = {"meh": [1], "bad": [0, 2], "": [2], "a": [0, 1, 2]}
+    short = LabelScorer(model, tok, shots, examples=POOL, shortlist=FixedShortlist(picks))
+    for t, row in zip(picks, short.score_many(list(picks)), strict=True):
+        want = scorer.score(t)
+        for li in range(len(task.labels)):
+            if li in picks[t]:
+                assert row[li] == pytest.approx(want[li], abs=1e-4)
+            else:
+                assert row[li] < NOT_SCORED / 2
     plain = LabelScorer(*lm, task)
     plain.form_scores("x")
     assert plain._packable  # plain attention layers still pack
+
+
+@pytest.mark.parametrize("teacher", [unpackable("hybrid"), unpackable("sliding")])
+def test_unpackable_teachers_score_multi_label_and_similar_examples(lm, teacher, task, multi_task, request):
+    from tinydistill.shortlist import Retriever
+
+    model, tok = request.getfixturevalue(teacher)
+    texts = ["the price was fine but delivery slow", "", "quality", "price"]
+    multi = LabelScorer(model, tok, multi_task, max_tokens=40)
+    for t, row in zip(texts, multi.form_scores_many(texts), strict=True):
+        assert row.tolist() == pytest.approx(reference(multi, t), abs=1e-4)
+    shots = type(task)(**{**task.__dict__, "prompt": SHOTS})
+    similar = LabelScorer(model, tok, shots, similar=Retriever(POOL, 2, TINY_ENCODER))
+    texts = ["a good movie", "awful plot", ""]  # each text with its own examples after the cached prefix
+    for t, head, row in zip(texts, similar.heads(texts), similar.form_scores_many(texts), strict=True):
+        assert row.tolist() == pytest.approx(reference(similar, t, head), abs=1e-4)
