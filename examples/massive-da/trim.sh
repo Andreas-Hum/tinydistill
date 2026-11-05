@@ -12,3 +12,4 @@ tinydistill run examples/massive-da/task.yaml --data "$data:train" --test "$data
   --trim-vocab --out $out --skip-teacher-bench
 cp $out/results.json examples/massive-da/paraphrase-multilingual-MiniLM-L12-v2-trimmed.json
 cp $out/results.md examples/massive-da/paraphrase-multilingual-MiniLM-L12-v2-trimmed.md
+tinydistill compare runs/massive-da-students/paraphrase-multilingual-MiniLM-L12-v2 runs/massive-da-students/paraphrase-multilingual-MiniLM-L12-v2-trimmed > examples/massive-da/trim.md

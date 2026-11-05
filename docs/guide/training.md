@@ -56,6 +56,9 @@ tokenizer produces on the run's training texts, plus the special tokens and the 
 tinydistill train run --student sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 --trim-vocab
 ```
 
+On Danish MASSIVE this cut the int8 student from 118 MB to 24 MB with the same test accuracy (0.761) and
+latency ([Benchmarks](../results.md#danish-massive-an-english-prompt-over-danish-texts)).
+
 The tokenizer is rebuilt to match: its `tokenizer.json` (and `vocab.txt`, where one is written) holds only the
 kept tokens, in their old order, at ids that index the kept rows. The student then trains, and is saved,
 exported and served, as a model with that smaller vocabulary; `Predictor`, `serve` and `web` need nothing new.

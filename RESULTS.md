@@ -414,6 +414,22 @@ English MiniLM student gets within about a point of its teacher; the multilingua
 `paraphrase-multilingual-MiniLM-L12-v2` student is more accurate than the teacher (0.761 against 0.736), at
 twice the latency and five times the size.
 
+Most of the multilingual student's size is its vocabulary of 250,000 tokens, of which a Danish task uses few.
+[`examples/massive-da/trim.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/massive-da/trim.sh)
+trains the same student on the same labels with `train --trim-vocab`, which keeps only the tokens of the
+training texts (and the 1,000 most frequent others):
+
+<!-- results: massive-da/trim.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| paraphrase-multilingual-MiniLM-L12-v2 | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.736 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 118 | 0.761 ± 0.002 | 0.707 ± 0.003 | 0.804 ± 0.006 | ONNX int8 | 1.9 | 39.3 | 118 |
+| paraphrase-multilingual-MiniLM-L12-v2-trimmed | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.736 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 24 | 0.761 ± 0.001 | 0.708 ± 0.003 | 0.802 ± 0.006 | ONNX int8 | 1.8 | 40.2 | 24 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+Trimmed, it is a fifth of the size (24 MB, as small as the English MiniLM-L6) at the same accuracy and latency.
+
 ## IMDB: long reviews
 
 Film reviews are often several hundred tokens long, while the student reads 128
