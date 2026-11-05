@@ -8,6 +8,8 @@
 // in its box without the panel scrolling (with and without the math), the tab bar and the controls in sight after
 // the wheel, the handle (arrow keys, remembered, double-click, drag) and the large view behind "Expand".
 //   node tests/browser/check_explainer.mjs http://127.0.0.1:8000/ [more URLs] [--shot explainer.png]
+// HUB=http://.../hub/ loads Hub models from a local copy of the Hub (build_tiny_site.py writes one), and PICKER=1
+// also checks the model picker of the first URL against the repositories in it.
 import { chromium } from "playwright";
 
 const args = process.argv.slice(2), shotAt = args.indexOf("--shot");
@@ -21,11 +23,17 @@ const tabs = {  // per detail tab, something it must draw
 // a few frames: a resize redraws the drawings on the frame after it
 const frames = (page) => page.evaluate(() => new Promise((ok) => { let n = 0; const f = () => (++n < 4 ? requestAnimationFrame(f) : ok()); requestAnimationFrame(f); }));
 const browser = await chromium.launch();
+const newPage = async (options) => {
+  const p = await browser.newPage(options);
+  if (process.env.HUB) await p.addInitScript((hub) => { window.TINYDISTILL_HUB = hub; }, process.env.HUB);
+  return p;
+};
 const problems = [];
+if (process.env.PICKER) await picker(args[0]);
 for (const url of args) {
   for (const [width, scheme, reducedMotion] of [[390, "light", "reduce"], [1280, "dark", "no-preference"]]) {
     const where = `${url} at ${width}px, ${scheme}`;
-    const page = await browser.newPage({ viewport: { width, height: 820 }, colorScheme: scheme, reducedMotion });
+    const page = await newPage({ viewport: { width, height: 820 }, colorScheme: scheme, reducedMotion });
     page.on("pageerror", (e) => problems.push(`${where}: page error: ${e}`));
     page.on("console", (m) => m.type() === "error" && problems.push(`${where}: console error: ${m.text()}`));
     await page.goto(url);
@@ -320,4 +328,53 @@ async function tour(page, url, where) {
   await page.waitForFunction(() => !document.getElementById("tour").hidden && document.getElementById("tour-n").textContent.startsWith("Step 1 of"));
   await page.keyboard.press("Escape");
   if (!(await page.isHidden("#tour"))) problems.push(`${where}: Escape does not end the tour`);
+}
+
+// the model picker of `web --models`, with the local Hub of build_tiny_site.py: test/multi (three labels), test/plain
+// (no explainer, so not in this page's menu) and test/broken (its model files are missing)
+async function picker(url) {
+  const p = await newPage({ viewport: { width: 1280, height: 820 } });
+  let broken = false;  // the 404s of test/broken's model files are on purpose
+  p.on("pageerror", (e) => problems.push(`picker: page error: ${e}`));
+  p.on("console", (m) => m.type() === "error" && !(broken && /404|Failed to load resource/.test(m.text()))
+    && problems.push(`picker: console error: ${m.text()}`));
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 60000 });
+  const rows = () => p.locator("#probs .prow:not(.out)").count();
+  const model = () => new URL(p.url()).searchParams.get("model");
+  const pick = async (repo) => { await p.click("#pick > summary"); await p.click(`#pick-list button[data-repo="${repo}"]`); };
+  await p.goto(url);
+  await until(() => document.body.dataset.ready === "1");
+  const repos = await p.$$eval("#pick-list button", (b) => b.map((x) => x.dataset.repo));
+  if (repos.join() !== ",test/multi,test/broken") problems.push(`picker: the menu has ${repos.join()}`);
+  const mine = "a text of my own, kept when the model changes";
+  await p.fill("#text", mine);
+  await until(() => document.getElementById("status").textContent.includes("ms in your browser"));
+
+  await pick("test/multi");
+  await until(() => document.querySelectorAll("#probs .prow:not(.out)").length === 3 && document.querySelector("h1").textContent === "News Topics")
+    .catch(async () => problems.push(`picker: test/multi did not load: ${await rows()} label rows, title ${await p.textContent("h1")}`));
+  if (model() !== "test/multi") problems.push(`picker: the URL says ?model=${model()}`);
+  if ((await p.inputValue("#text")) !== mine) problems.push("picker: the text changed with the model");
+  const tab = new URL(await p.getAttribute("nav.pages a:not([aria-current])", "href"));
+  if (tab.searchParams.get("model") !== "test/multi") problems.push(`picker: the "Simple" tab does not carry the model (${tab})`);
+  if (!(await p.textContent("#samples")).includes("minister")) problems.push("picker: the examples did not change");
+  await p.locator("#tokens .tok").nth(1).hover();  // the network is drawn for the new model, and hovering works
+  if (!(await p.locator("#net .node.hl").count())) problems.push("picker: hovering a token after the switch highlights nothing");
+
+  broken = true;
+  await pick("test/broken");
+  await until(() => document.getElementById("pick-msg").classList.contains("err") && !document.getElementById("pick-msg").hidden)
+    .catch(() => problems.push("picker: no message for a model that does not load"));
+  console.log("picker, broken model:", await p.textContent("#pick-msg"));
+  if (model() !== "test/multi" || (await rows()) !== 3) problems.push("picker: a failed model did not keep the old one");
+  broken = false;
+
+  // a model without the explainer opens on the simple page, which says why
+  await p.goto(`${url}?model=test/plain&text=hello`);
+  await until(() => location.pathname.endsWith("/simple/") && document.getElementById("loading").hidden)
+    .catch(() => problems.push(`picker: ?model=test/plain stayed at ${p.url()}`));
+  if (await p.isHidden("#no-inside")) problems.push("picker: no note that test/plain has no explainer");
+  if ((await p.inputValue("#text")) !== "hello") problems.push("picker: the text did not come along to the simple page");
+  await p.close();
+  console.log("picker ok");
 }

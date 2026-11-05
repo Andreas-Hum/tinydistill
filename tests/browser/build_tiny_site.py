@@ -3,6 +3,11 @@ multi-label one, for check_page.mjs and check_explainer.mjs (the CI browser test
 
 python tests/browser/build_tiny_site.py site
 python tests/browser/build_tiny_site.py site-multi --multi   # multi-label, no layer or attention outputs
+
+The first also writes site/hub/, a local copy of the Hugging Face Hub with three repositories as `tinydistill
+push` uploads them (test/multi, test/plain without an explainer, and test/broken, whose model files are
+missing), which the pages list in their model picker (`web --models`), and site/remote/, the pages of
+`web hf:test/multi --remote`. The checks point the pages at it with HUB=http://.../hub/.
 """
 
 import json
@@ -10,10 +15,14 @@ import shutil
 import sys
 from pathlib import Path
 
+import huggingface_hub
+from huggingface_hub.errors import EntryNotFoundError
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from tinydistill.cli import main
 from tinydistill.explainer import build_explainer
 from tinydistill.export import export_onnx
+from tinydistill.hub import repo_files
 from tinydistill.web import build_site
 
 ENCODER = "hf-internal-testing/tiny-random-BertForSequenceClassification"
@@ -21,16 +30,22 @@ ENCODER = "hf-internal-testing/tiny-random-BertForSequenceClassification"
 out = Path(sys.argv[1] if len(sys.argv) > 1 else "site")
 multi = "--multi" in sys.argv
 run = out.parent / f"{out.name}-run"
-model = AutoModelForSequenceClassification.from_pretrained(
-    ENCODER,
-    num_labels=2,
-    id2label={0: "negative", 1: "positive"},
-    ignore_mismatched_sizes=True,
-    problem_type="multi_label_classification" if multi else None,
-)
-model.save_pretrained(run / "student")
-AutoTokenizer.from_pretrained(ENCODER).save_pretrained(run / "student")
-export_onnx(run / "student", run / "onnx", int8=True)
+
+
+def student(path, labels, multi=False):
+    model = AutoModelForSequenceClassification.from_pretrained(
+        ENCODER,
+        num_labels=len(labels),
+        id2label=dict(enumerate(labels)),
+        ignore_mismatched_sizes=True,
+        problem_type="multi_label_classification" if multi else None,
+    )
+    model.save_pretrained(path / "student")
+    AutoTokenizer.from_pretrained(ENCODER).save_pretrained(path / "student")
+    export_onnx(path / "student", path / "onnx", int8=True)
+
+
+student(run, ["negative", "positive"], multi)
 if multi:  # without the PyTorch student the page has no layer or attention outputs
     shutil.rmtree(run / "student")
 rows = [
@@ -69,27 +84,52 @@ if not multi:
         {"share_to_teacher": 1.0, "threshold": 1.0, "accuracy": 1.0},
     ]
 (run / "results.json").write_text(json.dumps(results), encoding="utf-8")
-# as `tinydistill web` does: the explainer is the main page and the plain page goes to simple/; the
-# multi-label model has no PyTorch student (removed above), so its plain page is its only page
-if not multi:
-    print(build_explainer(run / "onnx", out, title="Browser test"))
-simple = out if multi else out / "simple"
-print(build_site(run / "onnx", simple, title="Browser test", explainer=not multi))
-if multi:
+if multi:  # the multi-label model has no PyTorch student (removed above), so its plain page is its only page
+    print(build_site(run / "onnx", out, title="Browser test"))
     raise SystemExit
 
-# a multi-label model for the explainer too, at out/explainer-multi
+# a multi-label model with an explainer, at out/explainer-multi, and on the local Hub as test/multi
 multi = out.parent / f"{out.name}-multi"
-model = AutoModelForSequenceClassification.from_pretrained(
-    ENCODER,
-    num_labels=3,
-    id2label={0: "sports", 1: "politics", 2: "money"},
-    problem_type="multi_label_classification",
-    ignore_mismatched_sizes=True,
-)
-model.save_pretrained(multi / "student")
-AutoTokenizer.from_pretrained(ENCODER).save_pretrained(multi / "student")
-export_onnx(multi / "student", multi / "onnx", int8=True)
+student(multi, ["sports", "politics", "money"], multi=True)
 row = {"text": "the minister bought the football club", "gold": [0, 1, 2], "scores": [1.5, 2.0, 0.3]}
 (multi / "test.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
 print(build_explainer(multi / "onnx", out / "explainer-multi", title="Browser test, multi-label"))
+results["student"] = "a second student"
+results["models"][1] |= {"macro_f1": 0.7}
+(multi / "results.json").write_text(json.dumps(results), encoding="utf-8")
+(multi / "meta.json").write_text(json.dumps({"task": "news topics"}), encoding="utf-8")
+
+# a model without the PyTorch student, so without an explainer, on the local Hub as test/plain
+plain = out.parent / f"{out.name}-plain"
+student(plain, ["spam", "ham"])
+shutil.rmtree(plain / "student")
+row = {"text": "win a free phone now", "gold": 0}
+(plain / "test.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+(plain / "meta.json").write_text(json.dumps({"task": "spam or ham"}), encoding="utf-8")
+
+# the local Hub, laid out as the Hub serves a repository: hub/<repo>/resolve/main/<file>
+hub = out / "hub"
+shutil.rmtree(hub, ignore_errors=True)
+for repo, folder in (("test/multi", multi), ("test/plain", plain)):
+    files = repo_files(folder / "onnx", folder / "browser")
+    for name, f in files.items():
+        (hub / repo / "resolve/main" / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(f, hub / repo / "resolve/main" / name)
+(hub / "test/broken/resolve/main").mkdir(parents=True)
+broken = json.loads((hub / "test/multi/resolve/main/tinydistill-page.json").read_text(encoding="utf-8"))
+broken["simple"]["text"]["title"] = broken["explainer"]["text"]["title"] = "A broken model"
+(hub / "test/broken/resolve/main/tinydistill-page.json").write_text(json.dumps(broken), encoding="utf-8")
+
+
+def download(repo, filename):  # hf_hub_download from the local Hub
+    f = hub / repo / "resolve/main" / filename
+    if not f.exists():
+        raise EntryNotFoundError(f"{repo} has no {filename}")
+    return str(f)
+
+
+huggingface_hub.hf_hub_download = download
+# as `tinydistill web` does: the explainer is the main page and the plain page goes to simple/
+models = "hf:test/multi,hf:test/plain,hf:test/broken"
+main(["web", str(run / "onnx"), "--out", str(out), "--title", "Browser test", "--models", models])
+main(["web", "hf:test/multi", "--out", str(out / "remote"), "--remote", "--models", "hf:test/plain"])

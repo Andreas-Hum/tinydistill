@@ -961,30 +961,54 @@ def cmd_plot(a: argparse.Namespace) -> None:
 
 
 def cmd_web(a: argparse.Namespace) -> None:
-    from .export import model_path
-    from .web import build_site
-
-    folder = model_path(a.model)
-    config = folder / "config.json"
-    if config.exists() and json.loads(config.read_text(encoding="utf-8")).get("tinydistill_chunk_tokens"):
-        log(
-            "warning: this model reads long texts in windows, but the page reads only the first one "
-            "(predict, serve and Predictor read them all)"
-        )
     import shutil
 
-    from .explainer import build_explainer
+    from .explainer import build_explainer, render_explainer
+    from .export import model_path
+    from .hub import page_json
+    from .web import build_site, clear_models, render_site
 
+    hub = {}  # the other models for the picker: repo -> tinydistill-page.json
+    for name in filter(None, (m.strip() for m in (a.models or "").split(","))):
+        found = page_json(name.removeprefix("hf:"))
+        if found is None:
+            log(f"skipping {name}: it has no tinydistill-page.json (upload it again with `tinydistill push`)")
+        else:
+            hub[name.removeprefix("hf:")] = found
     # the explainer is the main page (out/index.html) and the plain page goes to out/simple/; a model with no
     # explainer (static, ModernBERT) gets the plain page as its only page
     out = Path(a.out)
-    try:
-        explainer = build_explainer(folder, out, a.title, note=a.note)
-    except ValueError as e:
-        explainer = None
-        log(f"no explainer page: {e}")
-    simple = out / "simple" if explainer else out
-    page = build_site(folder, simple, a.title, note=a.note, explainer=bool(explainer))
+    explainer: Path | None = None
+    if a.remote:  # the pages' data from the repo's tinydistill-page.json; the model loads from the Hub
+        if not a.model.startswith("hf:"):
+            raise SystemExit("--remote needs a model on the Hub: hf:user/name")
+        repo = a.model.removeprefix("hf:")
+        data = page_json(repo)
+        if data is None:
+            raise SystemExit(f"{a.model} has no tinydistill-page.json: upload it again with `push`")
+        for d in filter(None, (data["simple"], data.get("explainer"))):
+            d["repo"] = repo
+            d["text"]["title"] = a.title or d["text"]["title"]
+        clear_models(out)  # an earlier build's model folders
+        if data.get("explainer"):
+            explainer = render_explainer(data["explainer"], out, a.note, hub)
+        simple = out / "simple" if explainer else out
+        clear_models(simple)
+        page = render_site(data["simple"], simple, bool(explainer), a.note, hub)
+    else:
+        folder = model_path(a.model)
+        config = folder / "config.json"
+        if config.exists() and json.loads(config.read_text(encoding="utf-8")).get("tinydistill_chunk_tokens"):
+            log(
+                "warning: this model reads long texts in windows, but the page reads only the first one "
+                "(predict, serve and Predictor read them all)"
+            )
+        try:
+            explainer = build_explainer(folder, out, a.title, note=a.note, hub=hub)
+        except ValueError as e:
+            log(f"no explainer page: {e}")
+        simple = out / "simple" if explainer else out
+        page = build_site(folder, simple, a.title, note=a.note, explainer=bool(explainer), hub=hub)
     if explainer:
         old = out / "explainer"  # where the explainer was before: its links (with ?text=, ?tour=1) still work
         if old.is_dir():
@@ -1771,6 +1795,16 @@ def build_parser() -> argparse.ArgumentParser:
     web.add_argument("--out", default="site", help="folder to write the page and model into")
     web.add_argument("--title", help="page title (default: from the task name)")
     web.add_argument("--note", help="an extra footer line, e.g. the dataset's licence and source")
+    web.add_argument(
+        "--models",
+        help="other models for a menu in the pages, comma-separated: hf:user/a,hf:user/b (uploaded with "
+        "`push`); visitors pick one and it loads from the Hub",
+    )
+    web.add_argument(
+        "--remote",
+        action="store_true",
+        help="for MODEL=hf:user/name: write the pages with no model files; the model loads from the Hub",
+    )
     web.set_defaults(fn=cmd_web)
     syn = sub.add_parser("synth", parents=[common], help="have the teacher write unlabelled example texts")
     syn.add_argument("task", help="task YAML file")

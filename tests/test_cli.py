@@ -329,8 +329,8 @@ def test_push_writes_a_model_card_and_uploads(tmp_path, monkeypatch):
             calls.append(("create", repo, private))
             return f"https://huggingface.co/{repo}"
 
-        def upload_folder(self, folder_path, repo_id, commit_message):
-            calls.append(("upload", folder_path, repo_id))
+        def create_commit(self, repo, operations, commit_message):
+            calls.append(("upload", sorted(op.path_in_repo for op in operations), repo))
 
     monkeypatch.setattr(huggingface_hub, "HfApi", FakeApi)
     onnx = tmp_path / "run" / "onnx"
@@ -344,7 +344,8 @@ def test_push_writes_a_model_card_and_uploads(tmp_path, monkeypatch):
     card = (onnx / "README.md").read_text(encoding="utf-8")
     assert "license: apache-2.0" in card and "`T`" in card and "## Results" in card and '"hf:me/clf"' in card
     assert "base_model: org/S" in card and "datasets:\n- org/ds\n---" in card
-    assert calls == [("create", "me/clf", True), ("upload", str(onnx), "me/clf")]
+    # no config.json: an export from before 0.3, so no browser files (test_hub_pages.py has those)
+    assert calls == [("create", "me/clf", True), ("upload", ["README.md", "labels.json"], "me/clf")]
 
 
 def test_python_api_exports():
@@ -957,8 +958,9 @@ def test_models_load_from_the_hub(tmp_path, monkeypatch, capsys):
     export_onnx(tmp_path / "student", tmp_path / "onnx")
     asked = []
 
-    def fake_download(repo, allow_patterns):
+    def fake_download(repo, allow_patterns, ignore_patterns):
         asked.append(repo)
+        assert ignore_patterns == ["onnx/*"]  # not the browser pages' copies of the model
         return str(tmp_path / "onnx")
 
     monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_download)

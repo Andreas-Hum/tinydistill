@@ -299,14 +299,16 @@
     #sel { margin-left: 0; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+  __PICKER_CSS__
 </style>
 </head>
 <body>
 <div class="app">
   <header class="top">
     <nav class="pages" aria-label="Pages"><a href="./" aria-current="page">Inside the model</a><a href="simple/" data-base="simple/">Simple</a></nav>
-    <h1>__TITLE__</h1>
-    <p class="sub">The distilled student, running in your browser on your text. __SUMMARY__</p>
+    <h1 data-t="title">__TITLE__</h1>
+    __PICKER__
+    <p class="sub">The distilled student, running in your browser on your text. <span data-t="summary">__SUMMARY__</span></p>
     <button id="tour-start" disabled title="Walk through the page step by step">Guided tour</button>
     <button class="info" aria-expanded="false" aria-controls="i-page" aria-label="About this page">i</button>
   </header>
@@ -411,8 +413,8 @@
   env.localModelPath = "./";
   const katexReady = import("__KATEX__/katex.mjs").then((m) => m.default, () => null);  // without it: TeX source
 
-  const D = JSON.parse(document.getElementById("data").textContent), C = D.config;
-  const L = C.num_hidden_layers, H = C.num_attention_heads, DIM = C.hidden_size, NL = D.labels.length;
+  let D = JSON.parse(document.getElementById("data").textContent), C = D.config;  // let: another model can be picked
+  let L = C.num_hidden_layers, H = C.num_attention_heads, DIM = C.hidden_size, NL = D.labels.length;
   const $ = (id) => document.getElementById(id);
   const el = (tag, props = {}, ...kids) => {
     const e = document.createElement(tag);
@@ -426,6 +428,13 @@
     e.append(...kids);
     return e;
   };
+__PICKER_JS__
+  if (!pickNow.explainer) {  // ?model= names a model without this page: its simple page, which says so
+    const u = new URL("simple/", location.href);
+    u.search = location.search;
+    location.replace(u);
+    await new Promise(() => {});  // nothing more to do here
+  }
   const range = (n) => Array.from({ length: n }, (_, i) => i);
   const name = (i) => D.labels[i].replaceAll("_", " ");
   const short = (s, n) => (s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s);
@@ -1270,14 +1279,25 @@
     if (R && s !== size) { size = s; drawNet(R); }
   }).observe(netbox);
   const text = $("text"), status = $("status");
-  $("samples").replaceChildren(...D.samples.map((s) => el("button", { className: "chip", title: s.text,
-    "aria-pressed": "false", onclick: () => { text.value = s.text; run(); } }, el("span", { textContent: s.text }))));
+  function useData(d) {  // a model's data, at the start and when another model is picked
+    D = d; C = D.config; L = C.num_hidden_layers; H = C.num_attention_heads; DIM = C.hidden_size; NL = D.labels.length;
+    Object.assign(ST, { layer: L - 1, head: -1, peek: null, hover: null, pin: null, mapLayer: L, label: 0 });
+    document.title = `${D.text.title}: inside the model`;
+    for (const e of document.querySelectorAll("[data-t]")) e.textContent = D.text[e.dataset.t];
+    $("samples").replaceChildren(...D.samples.map((s) => el("button", { className: "chip", title: s.text,
+      "aria-pressed": "false", onclick: () => { text.value = s.text; run(); } }, el("span", { textContent: s.text }))));
+  }
+  if (pickNow !== MODELS[0]) {  // ?model= asks for one of the other models
+    try { D = await pageData(pickNow, "explainer"); } catch (e) { fallBack(e); }
+  }
+  useData(D);
   const params = new URLSearchParams(location.search);  // ?text= opens the page on a text, ?tour=1 starts the tour
   text.value = params.get("text")?.trim() ? params.get("text") : D.samples[0]?.text ?? "";
-  const withText = () => {  // the tab to the simple page carries the current text
+  const withText = () => {  // the tab to the simple page carries the current text and model
     for (const a of document.querySelectorAll("a[data-base]")) {
       const u = new URL(a.dataset.base, location.href), v = text.value.trim();
       if (v) u.searchParams.set("text", v);
+      withModel(u);
       a.href = u.href;
     }
   };
@@ -1499,13 +1519,18 @@
     if (e.key === "ArrowLeft") { e.preventDefault(); back(); }
   });
   text.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); } });
+  const progress = (a, b) => { status.textContent = `Downloading the model: ${(a / 1e6).toFixed(1)} of ${(b / 1e6).toFixed(1)} MB`; };
   try {
-    tok = await AutoTokenizer.from_pretrained(D.model);
-    model = await AutoModel.from_pretrained(D.model, { dtype: D.dtype });
-  } catch (e) {
-    status.textContent = `The model did not load: ${e.message}`;
-    throw e;
+    [tok, model] = await loadModel(D, progress);
+  } catch (e) {  // the model ?model= asked for did not load: this page's own instead
+    if (D === D0) { status.textContent = `The model did not load: ${e.message}`; throw e; }
+    fallBack(e); useData(D0);
+    [tok, model] = await loadModel(D, progress);
   }
+  picker(MODELS.filter((m) => m.explainer), (m) => switchTo(m, "explainer", async (d, t, mod) => {
+    useData(d); tok = t; model = mod;
+    await run();
+  }));
   if (text.value) await run(); else status.textContent = "Type a text.";
   if (params.get("tour") === "1") startTour();
 </script>

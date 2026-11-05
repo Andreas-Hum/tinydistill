@@ -3,13 +3,20 @@
 // "Inside the model" view (with the math) fills in, with no errors. When the folder has an explainer page, the page
 // has tabs to it and a link that opens it on the current text, and its "Simple" tab brings the text back.
 //   node tests/browser/check_page.mjs http://127.0.0.1:8000/ [screenshot.png]
-// NO_EXPLAIN=1 for a page whose model has no layer or attention outputs.
+// NO_EXPLAIN=1 for a page whose model has no layer or attention outputs. HUB=http://.../hub/ loads Hub models
+// from a local copy of the Hub (build_tiny_site.py writes one), and PICKER=1 also checks the model picker
+// against the repositories in it.
 import { chromium } from "playwright";
 
 const [url, screenshot] = process.argv.slice(2);
 const explain = !process.env.NO_EXPLAIN;
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 390, height: 900 } });
+const newPage = async (viewport) => {
+  const p = await browser.newPage({ viewport });
+  if (process.env.HUB) await p.addInitScript((hub) => { window.TINYDISTILL_HUB = hub; }, process.env.HUB);
+  return p;
+};
+const page = await newPage({ width: 390, height: 900 });
 const problems = [];
 page.on("pageerror", (e) => problems.push(`page error: ${e}`));
 page.on("console", (m) => m.type() === "error" && problems.push(`console error: ${m.text()}`));
@@ -64,7 +71,7 @@ if (!/(accuracy|macro-F1) .*agreement with the teacher .* ms per text/.test(chec
 
 // the searchable list of labels
 await page.click("#all-labels > summary");
-await page.fill("#label-q", "posit");
+await page.fill("#label-q", (await text("#label-list li")).slice(0, 5));
 if ((await page.locator("#label-list li:visible").count()) !== 1) problems.push("the label search does not filter");
 
 // "How does it work?" is folded; show the steps, another layer's attention, and the math
@@ -114,9 +121,82 @@ for (const width of [1280, 390]) {
   }).map((li) => li.textContent));
   if (clash.length) problems.push(`label over its percentage at ${width}px: ${clash.join(" | ")}`);
 }
+if (process.env.PICKER) await picker();
 await browser.close();
 if (problems.length) {
   console.error(problems.join("\n"));
   process.exit(1);
 }
 console.log("page ok");
+
+// the model picker of `web --models`, with the local Hub of build_tiny_site.py: test/multi (three labels), test/plain
+// (no "Inside the model" view) and test/broken (its model files are missing)
+async function picker() {
+  const p = await newPage({ width: 1280, height: 900 });
+  let broken = false;  // the 404s of test/broken's model files are on purpose
+  p.on("pageerror", (e) => problems.push(`picker: page error: ${e}`));
+  p.on("console", (m) => m.type() === "error" && !(broken && /404|Failed to load resource/.test(m.text()))
+    && problems.push(`picker: console error: ${m.text()}`));
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 60000 });
+  const labels = () => p.$$eval("#label-list li", (li) => li.map((x) => x.textContent));
+  const model = () => new URL(p.url()).searchParams.get("model");
+  const inside = async () => new URL(await p.getAttribute("nav.pages a:not([aria-current])", "href")).searchParams.get("model");
+  const pick = async (repo) => { await p.click("#pick > summary"); await p.click(`#pick-list button[data-repo="${repo}"]`); };
+  await p.goto(url);
+  await until(() => document.getElementById("loading").hidden && document.getElementById("answer").textContent);
+  const n = await p.locator("#pick-list button").count();
+  if (n !== 4) problems.push(`picker: ${n} models in the menu, not 4`);
+  const mine = "a text of my own, kept when the model changes";
+  await p.fill("#text", mine);
+  await until((t) => document.getElementById("reason").textContent.includes(t), mine);
+  const card = await p.textContent("#card");
+
+  // another model: its labels, card, answer and title, the same text, and ?model= in the URL and the tabs
+  await pick("test/multi");
+  await until(() => [...document.querySelectorAll("#label-list li")].some((li) => li.textContent === "sports")
+    && /sports|politics|money|none of the labels/.test(document.getElementById("answer").textContent));
+  if (model() !== "test/multi") problems.push(`picker: the URL says ?model=${model()}`);
+  if ((await labels()).join() !== "sports,politics,money") problems.push(`picker: labels ${await labels()}`);
+  if ((await p.textContent("#card")) === card || !(await p.textContent("#card")).includes("a second student")) problems.push("picker: the card did not change");
+  if ((await p.textContent("h1")) !== "News Topics") problems.push(`picker: the title is ${await p.textContent("h1")}`);
+  if ((await p.inputValue("#text")) !== mine) problems.push("picker: the text changed with the model");
+  if ((await inside()) !== "test/multi") problems.push("picker: the \"Inside the model\" tab does not carry the model");
+  if (!(await p.getAttribute('#pick-list button[data-repo="test/multi"]', "aria-current") === "true")) problems.push("picker: the menu does not mark the model on show");
+
+  // a model that does not load: a message, and the page keeps the one it had
+  broken = true;
+  await pick("test/broken");
+  await until(() => document.getElementById("pick-msg").classList.contains("err") && !document.getElementById("pick-msg").hidden)
+    .catch(() => problems.push("picker: no message for a model that does not load"));
+  const msg = await p.textContent("#pick-msg");
+  console.log("picker, broken model:", msg);
+  if (!/did not load.*still runs News Topics/.test(msg)) problems.push(`picker: the message says "${msg}"`);
+  if (model() !== "test/multi" || (await labels()).join() !== "sports,politics,money") problems.push("picker: a failed model did not keep the old one");
+  await p.fill("#text", "the club signed a new player");
+  await until(() => document.getElementById("reason").textContent.includes("new player"))
+    .catch(() => problems.push("picker: the old model stopped answering after a failed one"));
+  await p.context().setOffline(true);  // offline: the Hub cannot be reached
+  await pick("test/plain");
+  await until(() => /could not be reached/.test(document.getElementById("pick-msg").textContent))
+    .catch(async () => problems.push(`picker: offline, the message says "${await p.textContent("#pick-msg")}"`));
+  await p.context().setOffline(false);
+  if (model() !== "test/multi") problems.push("picker: going offline lost the model");
+  broken = false;
+
+  // ?model= opens the page on a model; one without the explainer says so and its tab goes to the page's own model
+  await p.goto(`${url}?model=test/plain`);
+  await until(() => document.getElementById("loading").hidden && document.getElementById("answer").textContent);
+  if ((await labels()).join() !== "spam,ham") problems.push(`picker: ?model=test/plain shows labels ${await labels()}`);
+  if (await p.isHidden("#no-inside")) problems.push("picker: no note that test/plain has no \"Inside the model\" view");
+  if ((await inside()) !== null) problems.push("picker: the tab carries a model that has no explainer");
+
+  // the tabs keep the model: over to the explainer with ?model=test/multi
+  await p.goto(`${url}?model=test/multi`);
+  await until(() => document.getElementById("loading").hidden && document.getElementById("answer").textContent);
+  await p.click("nav.pages a:not([aria-current])");
+  await until(() => document.body.dataset.ready === "1" && document.querySelectorAll("#probs .prow:not(.out)").length === 3)
+    .catch(() => problems.push("picker: the explainer did not open on test/multi"));
+  if (model() !== "test/multi") problems.push(`picker: the explainer's URL says ?model=${model()}`);
+  await p.close();
+  console.log("picker ok");
+}

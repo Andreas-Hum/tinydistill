@@ -154,6 +154,15 @@ Upgrade notes:
 
   A student without the layer view (static, ModernBERT, a Hub model without its run folder) gets only the simple
   page, as `site/index.html`. `build_site(..., explainer=True)` adds the tabs.
+- Several models in one site, loaded from the Hub: `web --models hf:user/a,hf:user/b` adds a "Switch model"
+  menu to both pages (task, student, size and test score of each, read from its `tinydistill-page.json` at build
+  time; a model without one is skipped). A pick loads in the browser from the Hub without a reload, with
+  download progress; `?model=user/name` links to it, the tabs keep it, and a model that fails to load leaves the
+  previous one. "Inside the model" lists only models with its view. `web hf:user/name --remote` writes the pages
+  with no model files; the page's own model loads from the Hub too. `push` uploads the files this needs in the
+  same commit: `onnx/model_quantized.onnx` (or `onnx/model.onnx`), the explainer's
+  `onnx/explorer_quantized.onnx` and `tinydistill-page.json`, the data each page embeds (`web.site_data`,
+  `explainer.explainer_data`). `Predictor("hf:...")` skips the `onnx/` copies.
 
 ### Python, tooling and documentation
 

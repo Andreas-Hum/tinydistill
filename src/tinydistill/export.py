@@ -264,7 +264,13 @@ def model_path(path: str | Path) -> Path:
         from huggingface_hub import snapshot_download
 
         repo = str(path).removeprefix("hf:")
-        return Path(snapshot_download(repo, allow_patterns=["*.onnx", "*.json", "*.txt", "*.model"]))
+        return Path(
+            snapshot_download(
+                repo,
+                allow_patterns=["*.onnx", "*.json", "*.txt", "*.model"],
+                ignore_patterns=["onnx/*"],  # the browser pages' copies (`push`), not needed here
+            )
+        )
     if not Path(path).is_dir():
         raise FileNotFoundError(
             f"{path} is not a folder; for a model on the Hugging Face Hub write hf:user/name"
