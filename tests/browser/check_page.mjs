@@ -1,6 +1,7 @@
 // Opens a page written by `tinydistill web` in Chromium at phone width and checks that the model runs in the
 // browser, classifies as you type, checks itself on the bundled test texts, and that every step of the
-// "Inside the model" view (with the math) fills in, with no errors.
+// "Inside the model" view (with the math) fills in, with no errors. When the folder has an explainer page, the page
+// has tabs to it and a link that opens it on the current text, and its "Try it" tab brings the text back.
 //   node tests/browser/check_page.mjs http://127.0.0.1:8000/ [screenshot.png]
 // NO_EXPLAIN=1 for a page whose model has no layer or attention outputs.
 import { chromium } from "playwright";
@@ -78,6 +79,28 @@ if (math.length) problems.push(`KaTeX errors: ${math.join("; ")}`);
 const width = await page.evaluate(() => document.documentElement.scrollWidth);
 if (width > 390) problems.push(`the page is ${width}px wide on a 390px screen`);
 if (screenshot) await page.screenshot({ path: screenshot, fullPage: true });
+
+// the tabs, only when `web` wrote the explainer, and the text going there and back
+const explainer = (await page.request.get(new URL("explainer/", url).href)).ok();
+const tabs = await page.locator("nav.pages a").count();
+if (tabs !== (explainer ? 2 : 0)) problems.push(`${tabs} page tabs, with${explainer ? "" : "out"} an explainer page`);
+if (!explainer && (await page.locator(".deeper").count())) problems.push("a link to the explainer, which does not exist");
+if (explainer) {
+  if ((await text('nav.pages a[aria-current="page"]')) !== "Try it") problems.push("the tabs do not mark this page");
+  const mine = "a text of my own, there and back";
+  await page.fill("#text", mine);
+  for (const sel of [".deeper a.go", "nav.pages a:not([aria-current])"]) {
+    const href = new URL(await page.getAttribute(sel, "href"));
+    if (href.searchParams.get("text") !== mine) problems.push(`${sel} does not carry the text: ${href}`);
+  }
+  await page.click(".deeper a.go");
+  await page.waitForFunction(() => document.body.dataset.ready === "1", null, { timeout: 180000 });
+  if ((await page.inputValue("#text")) !== mine) problems.push("the explainer did not open on the text");
+  if ((await text('nav.pages a[aria-current="page"]')) !== "Inside the model") problems.push("the explainer's tabs do not mark it");
+  await page.click("nav.pages a:not([aria-current])");
+  await wait((t) => document.getElementById("loading").hidden && document.getElementById("reason").textContent.includes(t), mine);
+  if ((await page.inputValue("#text")) !== mine) problems.push("the \"Try it\" tab did not bring the text back");
+}
 await browser.close();
 if (problems.length) {
   console.error(problems.join("\n"));

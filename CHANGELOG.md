@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `web`: the main page and the explainer have tabs to each other ("Try it", "Inside the model"), and the main
+  page links to the explainer under the answer; the links carry the current text (`?text=`). The tabs appear only
+  when the explainer was written. The explainer has a guided tour (its "Guided tour" button, or `?tour=1`): eleven
+  steps that spotlight each part of the page and work it, with numbers from the current run. `build_site` takes
+  `explainer=True` for the tabs, in place of the link `web` used to add to the footer.
 - The README and docs link the [Distillation Playground](https://andreas-hum.github.io/distillation-playground/), which trains small networks in the
   browser on 2D toy data and compares a student from scratch, one on the teacher's hard labels and a distilled one.
 - `refresh` trains the new student with the run's own training settings (as `improve` does) instead of the

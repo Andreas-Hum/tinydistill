@@ -2,6 +2,8 @@
 // and at desktop width in dark mode. It checks that the network, the heads, the output and every detail tab draw
 // something, that hovering a token highlights it everywhere, that typing reruns the model, that the formulas
 // render, that the page never scrolls sideways (and fits one screen on the desktop) and that nothing logs an error.
+// Then it opens the page with ?tour=1&text=... and runs the guided tour through every step (each spotlight on
+// screen and the page driven as the step says) and out again, with the tabs and the text they carry.
 //   node tests/browser/check_explainer.mjs http://127.0.0.1:8000/explainer/ [more URLs] [--shot explainer.png]
 import { chromium } from "playwright";
 
@@ -16,9 +18,9 @@ const tabs = {  // per detail tab, something it must draw
 const browser = await chromium.launch();
 const problems = [];
 for (const url of args) {
-  for (const [width, scheme] of [[390, "light"], [1280, "dark"]]) {
+  for (const [width, scheme, reducedMotion] of [[390, "light", "reduce"], [1280, "dark", "no-preference"]]) {
     const where = `${url} at ${width}px, ${scheme}`;
-    const page = await browser.newPage({ viewport: { width, height: 820 }, colorScheme: scheme });
+    const page = await browser.newPage({ viewport: { width, height: 820 }, colorScheme: scheme, reducedMotion });
     page.on("pageerror", (e) => problems.push(`${where}: page error: ${e}`));
     page.on("console", (m) => m.type() === "error" && problems.push(`${where}: console error: ${m.text()}`));
     await page.goto(url);
@@ -102,6 +104,7 @@ for (const url of args) {
       await page.waitForTimeout(500);
       await page.screenshot({ path: shot });
     }
+    await tour(page, url, where);
     await page.close();
   }
 }
@@ -111,3 +114,64 @@ if (problems.length) {
   process.exit(1);
 }
 console.log("explainer ok");
+
+// the guided tour, started from the URL on a text of our own, then once more from its button
+async function tour(page, url, where) {
+  const mine = "a text of my own, for the tour";
+  await page.goto(`${url}?tour=1&text=${encodeURIComponent(mine)}`);
+  await page.waitForFunction(() => document.body.dataset.ready === "1" && !document.getElementById("tour").hidden, null, { timeout: 180000 });
+  if ((await page.inputValue("#text")) !== mine) problems.push(`${where}: ?text= did not fill the text box`);
+  if ((await page.textContent('nav.pages a[aria-current="page"]')) !== "Inside the model") problems.push(`${where}: the tabs do not mark this page`);
+  const back = new URL(await page.getAttribute("nav.pages a:not([aria-current])", "href"));
+  if (back.searchParams.get("text") !== mine) problems.push(`${where}: the "Try it" tab does not carry the text (${back})`);
+  const cols = await page.locator("#netbox .colhead").count(), n = Number((await page.textContent("#tour-n")).split(" of ")[1]);
+  if (!(n >= 8 && n <= 11)) problems.push(`${where}: the tour has ${n} steps`);
+  const titles = [];
+  for (let k = 1; k <= n; k++) {
+    await page.waitForFunction((k) => document.getElementById("tour-n").textContent.startsWith(`Step ${k} of`)
+      && document.getElementById("tour-text").textContent.length > 40, k, { timeout: 30000 })
+      .catch(() => problems.push(`${where}: tour step ${k} never got its text`));
+    const title = await page.textContent("#tour-title");
+    titles.push(title);
+    // the spotlight is on screen and above the card (on a phone the card docks at the bottom)
+    const seen = await page.waitForFunction(() => {
+      const s = document.getElementById("tour-spot").getBoundingClientRect(), c = document.getElementById("tour-card").getBoundingClientRect();
+      const bottom = c.left < 10 && c.right > innerWidth - 10 ? c.top : innerHeight;  // docked: above the card
+      const h = Math.min(s.bottom, bottom) - Math.max(s.top, 0);
+      return !document.getElementById("tour-spot").hidden && s.width > 10 && h >= Math.min(60, s.height * 0.5) && s.left >= -10 && s.right <= innerWidth + 10;
+    }, null, { timeout: 5000 }).then(() => true, () => false);
+    if (!seen) problems.push(`${where}: tour step ${k} (${title}): the spotlight is not on screen`);
+    if (!(await page.evaluate(() => document.getElementById("tour-card").contains(document.activeElement)))) problems.push(`${where}: tour step ${k}: the focus is not in the card`);
+    const tab = async (t) => { if ((await page.getAttribute(`#tab-${t}`, "aria-selected")) !== "true") problems.push(`${where}: tour step "${title}" did not open the ${t} tab`); };
+    if (/one token/.test(title)) {
+      if ((await page.locator("#net .node.pin").count()) !== cols) problems.push(`${where}: "${title}" selected no token`);
+      if (!(await page.locator("#net .edge.hl").count())) problems.push(`${where}: "${title}" lights up no attention line`);
+    }
+    if (/heads/.test(title) && !(await page.locator('#heads .head[aria-pressed="true"]:not([data-h="-1"])').count())) problems.push(`${where}: "${title}" pinned no head`);
+    if (/matrix/.test(title)) await tab("matrix");
+    if (/map/.test(title)) await tab("map");
+    if (/classifier/.test(title)) await tab("cls");
+    if (/teacher/i.test(title) && !(await page.locator("#teacher .pair li").count())) problems.push(`${where}: "${title}" shows no teacher`);
+    if (k === 3) {  // back and forth with the arrow keys
+      await page.keyboard.press("ArrowLeft");
+      await page.waitForFunction(() => document.getElementById("tour-n").textContent.startsWith("Step 2 of"));
+      await page.keyboard.press("ArrowRight");
+      await page.waitForFunction(() => document.getElementById("tour-n").textContent.startsWith("Step 3 of"));
+    }
+    if (k < n) await page.keyboard.press("ArrowRight");
+  }
+  console.log(where, "tour:", titles.join(" / "));
+  // the last step's button ends it, and the page is as it was: the visitor's text, nothing pinned, the first tab
+  await page.click("#tour-next");
+  await page.waitForFunction((t) => document.getElementById("tour").hidden && document.getElementById("text").value === t
+    && [...document.querySelectorAll(".chip")].every((b) => b.getAttribute("aria-pressed") === "false"), mine, { timeout: 30000 })
+    .catch(() => problems.push(`${where}: ending the tour did not bring back the visitor's text`));
+  if (await page.locator("#net .node.pin").count()) problems.push(`${where}: a token stays selected after the tour`);
+  if ((await page.getAttribute('#heads .head[data-h="-1"]', "aria-pressed")) !== "true") problems.push(`${where}: a head stays pinned after the tour`);
+  if ((await page.getAttribute("#tab-matrix", "aria-selected")) !== "true") problems.push(`${where}: the tour left another tab open`);
+  // the header button starts it again; Escape leaves it
+  await page.click("#tour-start");
+  await page.waitForFunction(() => !document.getElementById("tour").hidden && document.getElementById("tour-n").textContent.startsWith("Step 1 of"));
+  await page.keyboard.press("Escape");
+  if (!(await page.isHidden("#tour"))) problems.push(`${where}: Escape does not end the tour`);
+}

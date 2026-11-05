@@ -135,11 +135,25 @@ PAGE = r"""<!doctype html>
   .verdict { font-weight: 650; }
   footer { margin-top: 40px; color: var(--muted); font-size: .9rem; }
   a { color: var(--accent); }
+  nav.pages { display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 20px; border: 1px solid var(--line);
+              border-radius: 999px; background: var(--card); font-size: .92rem; }
+  nav.pages a { padding: 3px 14px; border-radius: 999px; color: var(--muted); text-decoration: none; }
+  nav.pages a:hover { color: var(--fg); background: var(--soft); }
+  nav.pages a[aria-current="page"] { background: var(--accent); color: #fff; font-weight: 600; }
+  .deeper { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 14px 0 0; padding: 14px 16px;
+            border: 1px solid var(--accent); border-radius: 10px; background: var(--card); }
+  .deeper p { flex: 1 1 260px; margin: 0; color: var(--muted); font-size: .92rem; }
+  .deeper p b { display: block; color: var(--fg); font-size: 1.02rem; }
+  .deeper a { white-space: nowrap; }
+  .deeper a.go { padding: 7px 14px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none;
+                 font-weight: 600; }
+  .deeper a.go:hover { filter: brightness(1.1); }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
 <body>
 <main>
+  __TABS__
   <h1>__TITLE__</h1>
   <p class="sub">A __SIZE__ MB model distilled from a large language model with tinydistill. It runs in your
     browser, and nothing you type leaves this page. __SUMMARY__</p>
@@ -168,6 +182,7 @@ PAGE = r"""<!doctype html>
       <span>text</span><span>tokens</span><span>layers</span><span>classifier</span><span>probabilities</span>
     </div>
   </div>
+  __INSIDE__
 
   <section id="check-it">
     <h2>Check it yourself</h2>
@@ -257,6 +272,18 @@ PAGE = r"""<!doctype html>
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // ---- what works before the model is loaded ----
+  // ?text= opens the page on a text; the links to the explainer carry the current one
+  const asked = new URLSearchParams(location.search).get("text");
+  if (asked?.trim()) $("text").value = asked;
+  const withText = () => {
+    for (const a of document.querySelectorAll("a[data-base]")) {
+      const u = new URL(a.dataset.base, location.href), q = $("text").value.trim();
+      if (q) u.searchParams.set("text", q);
+      a.href = u.href;
+    }
+  };
+  withText();
+  $("text").addEventListener("input", withText);
   const labelList = $("label-list");
   labelList.append(...D.labels.map((_, i) => el("li", { textContent: name(i) })));
   $("label-q").oninput = (e) => {
@@ -622,6 +649,7 @@ PAGE = r"""<!doctype html>
 
   async function classify(animate = false) {
     const value = text.value;
+    withText();
     if (!value.trim()) return;
     const id = ++runId;
     const r = await analyse(value);
@@ -801,18 +829,38 @@ def _card(res: dict | None, deployed: str, multi: bool) -> str:
     )
 
 
+# the tabs between the two pages and the way into the explainer, when `web` wrote one
+TABS = (
+    '<nav class="pages" aria-label="Pages"><a href="./" aria-current="page">Try it</a>'
+    '<a href="explainer/" data-base="explainer/">Inside the model</a></nav>'
+)
+INSIDE = """<div class="deeper">
+    <p><b>See inside the model on this text</b>Every layer, every attention head and the math, as the model
+      reads it, in your browser.</p>
+    <a href="explainer/?tour=1" data-base="explainer/?tour=1">Guided tour</a>
+    <a class="go" href="explainer/" data-base="explainer/">See inside</a>
+  </div>"""
+
+
 def _short(text: str, n: int = 40) -> str:
     return text if len(text) <= n else text[: n - 3].rstrip() + "..."
 
 
 def build_site(
-    onnx_dir: Path, out: Path, title: str | None = None, samples: int = 6, note: str | None = None
+    onnx_dir: Path,
+    out: Path,
+    title: str | None = None,
+    samples: int = 6,
+    note: str | None = None,
+    explainer: bool = False,
 ) -> Path:
     """Write ``out/index.html`` and ``out/model-<hash>/`` (config, tokenizer, ONNX) for transformers.js. When the run's
     PyTorch student is next to the export, the page's model also returns each layer's answer and the
     attention of the first token, for the "Inside the model" view. ``samples`` example buttons (one per gold
     label); the page also holds up to ``BUNDLE`` test texts with their gold and teacher labels. ``note`` is an
-    extra line for the footer, such as the dataset's licence."""
+    extra line for the footer, such as the dataset's licence. ``explainer``: ``out/explainer/`` holds the explainer
+    page (``explainer.build_explainer``), so the page gets tabs to it and a link that opens it on the current
+    text."""
     from .export import export_explain
     from .static import is_static
 
@@ -906,7 +954,9 @@ def build_site(
         for r in rows[: min(samples, n_first)]
     )
     page = (
-        PAGE.replace("__TITLE__", html.escape(name))
+        PAGE.replace("__TABS__", TABS if explainer else "")
+        .replace("__INSIDE__", INSIDE if explainer else "")
+        .replace("__TITLE__", html.escape(name))
         .replace("__SIZE__", f"{target.stat().st_size / 1e6:.0f}")
         .replace("__CARD__", _card(res, deployed, multi))
         .replace("__FIRST__", html.escape(rows[0]["text"]) if rows else "")

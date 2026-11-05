@@ -97,6 +97,7 @@ def test_explainer_page(tmp_path, multi):
     assert data["training"] == {"ce_weight": 0.5, "n_gold": 20}
     assert len(data["samples"][0]["teacher"]) == 2  # every label's soft label, for the loss in the page
     assert "katex@0.16." in text and not re.search(r"__[A-Z_]+__", text)  # every placeholder filled
+    assert '<a href="../" data-base="../">Try it</a>' in text and 'id="tour-start"' in text  # tabs, tour
 
 
 def test_explainer_needs_the_pytorch_student(tmp_path):

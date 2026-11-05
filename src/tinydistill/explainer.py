@@ -28,6 +28,8 @@ def build_explainer(
     from .static import is_static
 
     run = onnx_dir.parent
+    if not (onnx_dir / "config.json").exists():
+        raise ValueError(f"{onnx_dir} has no config.json")
     if is_static(onnx_dir):
         raise ValueError("a static student has no layers to show")
     if not (run / "student" / "config.json").exists():

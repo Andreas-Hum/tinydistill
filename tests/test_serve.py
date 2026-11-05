@@ -137,3 +137,10 @@ def test_web_page_layout(tmp_path):
     assert 'id="live-ms"' in text and "Size</td>" not in text  # time measured in the page; no sizes: no row
     assert "Test accuracy 0.500 on 6 held-out texts. Distilled from T (8-shot) into S." in text
     assert "Data: CC BY 4.0 &lt;x&gt;" in text
+    assert 'class="pages"' not in text and 'class="deeper"' not in text  # no explainer: no tabs to it
+    (tmp_path / "site" / "explainer" / "index.html").parent.mkdir()
+    (tmp_path / "site" / "explainer" / "index.html").write_text("the explainer")
+    text = build_site(run / "onnx", tmp_path / "site", explainer=True).read_text(encoding="utf-8")
+    assert (tmp_path / "site" / "explainer" / "index.html").exists()  # a rebuild replaces only model folders
+    assert '<a href="./" aria-current="page">Try it</a>' in text and 'data-base="explainer/"' in text
+    assert "See inside the model on this text" in text and not re.search(r"__[A-Z_]+__", text)

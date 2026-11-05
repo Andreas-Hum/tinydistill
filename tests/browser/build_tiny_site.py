@@ -69,10 +69,12 @@ if not multi:
         {"share_to_teacher": 1.0, "threshold": 1.0, "accuracy": 1.0},
     ]
 (run / "results.json").write_text(json.dumps(results), encoding="utf-8")
-print(build_site(run / "onnx", out, title="Browser test"))
-if multi:  # this page's PyTorch student was removed above, so it has no explainer
+# as `tinydistill web` does: the explainer first, then the main page with tabs to it when there is one
+if not multi:  # the multi-label page's PyTorch student was removed above, so it has no explainer
+    print(build_explainer(run / "onnx", out / "explainer", title="Browser test"))
+print(build_site(run / "onnx", out, title="Browser test", explainer=not multi))
+if multi:
     raise SystemExit
-print(build_explainer(run / "onnx", out / "explainer", title="Browser test"))  # as `tinydistill web` does
 
 # a multi-label model for the explainer too, at out/explainer-multi
 multi = out.parent / f"{out.name}-multi"

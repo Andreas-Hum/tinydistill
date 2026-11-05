@@ -72,6 +72,19 @@ the embeddings, a map of the token vectors per layer (PCA, computed in the page)
 score. "Math" shows each one's formulas with the current numbers, rendered with [KaTeX](https://katex.org). On a
 phone the panes stack and the network scrolls inside its own box.
 
+When the explainer is written, both pages get two tabs at the top, "Try it" (the main page) and "Inside the
+model" (the explainer), and the main page gets a link under the answer, "See inside the model on this text". The
+links carry the current text in the URL (`?text=...`), and each page opens on the text it is given there.
+
+"Guided tour" in the explainer's header (or `?tour=1` in the URL) walks through the page in eleven steps: the
+text, the tokens and their ids, the embedding column, the layers and their attention lines, one token followed
+through every layer, the heads of a layer with one of them pinned, the attention matrix, the token map played
+from the embeddings to the last layer, the classifier's terms, the probabilities with their sparklines, and the
+teacher against the student with the loss. Each step spotlights its part of the page and works the page itself
+(it selects the token, pins the head, opens the tab); its numbers come from the current run. The arrow keys move
+between steps and Escape ends the tour, which puts the page back as it was. On a phone the step's card sits at the
+bottom of the screen.
+
 The explainer runs `explorer.onnx`, exported from the run's PyTorch student (`RUN/student`) with every head's
 attention and the hidden states as extra outputs, so it reads at most 128 tokens. It needs a BERT-, RoBERTa- or
 MPNet-style student; for a static or ModernBERT student, or a model from the Hub without its run folder,

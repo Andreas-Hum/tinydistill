@@ -9,13 +9,13 @@
   :root {
     --bg: #f7f6f2; --bg-rgb: 247, 246, 242; --card: #ffffff; --fg: #1b1b19; --muted: #5d5c57; --line: #d9d7cf;
     --soft: #efede7; --accent: #0f766e; --on-accent: #ffffff; --teacher: #b45309;
-    --att: 15, 118, 110; --pos: 194, 65, 12; --neg: 37, 99, 235; --hl: 194, 65, 12;
+    --att: 15, 118, 110; --pos: 194, 65, 12; --neg: 37, 99, 235; --hl: 194, 65, 12; --dim: rgba(27, 27, 25, .5);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #141513; --bg-rgb: 20, 21, 19; --card: #1c1d1a; --fg: #ecebe6; --muted: #a9a8a0; --line: #34352f;
       --soft: #23241f; --accent: #2dd4bf; --on-accent: #0b1514; --teacher: #f0a35e;
-      --att: 45, 212, 191; --pos: 251, 146, 60; --neg: 96, 165, 250; --hl: 251, 146, 60;
+      --att: 45, 212, 191; --pos: 251, 146, 60; --neg: 96, 165, 250; --hl: 251, 146, 60; --dim: rgba(0, 0, 0, .62);
     }
   }
   * { box-sizing: border-box; }
@@ -33,6 +33,15 @@
          border-bottom: 1px solid var(--line); background: var(--card); }
   .top h1 { font-size: 1.05rem; margin: 0; white-space: nowrap; }
   .top .sub { color: var(--muted); font-size: .8rem; margin: 0; flex: 1 1 320px; min-width: 0; }
+  nav.pages { flex: none; display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line);
+              border-radius: 999px; background: var(--bg); font-size: .8rem; }
+  nav.pages a { padding: 2px 12px; border-radius: 999px; color: var(--muted); text-decoration: none; white-space: nowrap; }
+  nav.pages a:hover { color: var(--fg); background: var(--soft); }
+  nav.pages a[aria-current="page"] { background: var(--accent); color: var(--on-accent); font-weight: 650; }
+  #tour-start { flex: none; border: 1px solid var(--accent); border-radius: 999px; background: transparent; color: var(--accent);
+                padding: 2px 12px; font-size: .8rem; font-weight: 650; }
+  #tour-start:hover { background: var(--accent); color: var(--on-accent); }
+  #tour-start:disabled { opacity: .5; cursor: progress; background: transparent; color: var(--accent); }
   .board { display: grid; grid-template-columns: 260px minmax(0, 1fr) 300px; min-height: 0; }
   .pane { min-height: 0; overflow-y: auto; padding: 12px 16px 16px; }
   #left { border-right: 1px solid var(--line); }
@@ -221,6 +230,25 @@
          box-shadow: 0 4px 14px rgba(0, 0, 0, .18); pointer-events: none; }
   #tip div + div { color: var(--muted); }
 
+  /* the guided tour: a spotlight over the page and a card with the step */
+  #tour-spot { position: fixed; z-index: 20; pointer-events: none; border-radius: 10px; outline: 2px solid var(--accent);
+               box-shadow: 0 0 0 200vmax var(--dim); transition: left .25s ease, top .25s ease, width .25s ease, height .25s ease; }
+  #tour-card { position: fixed; z-index: 21; width: 340px; max-width: calc(100vw - 16px); padding: 12px 16px;
+               background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .3); }
+  #tour-card h2 { margin: 0 0 4px; }
+  #tour-title { font-size: 1rem; margin: 0 0 6px; }
+  #tour-text { margin: 0 0 12px; font-size: .86rem; line-height: 1.5; min-height: 3em; }
+  .tour-nav { display: flex; gap: 6px; align-items: center; }
+  .tour-nav .gap { flex: 1; }
+  .tour-nav button { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 3px 12px; font-size: .82rem; }
+  .tour-nav button:hover { border-color: var(--accent); }
+  .tour-nav button:disabled { opacity: .4; cursor: default; border-color: var(--line); }
+  .tour-nav #tour-next { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 650; min-width: 64px; }
+  body.touring * { scroll-margin: 10px; }
+  @media (max-width: 600px) {
+    #tour-card { left: 0; right: 0; bottom: 0; width: auto; max-width: none; border-radius: 14px 14px 0 0; border-bottom: 0;
+                 padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  }
   @media (max-width: 1150px) { .board { grid-template-columns: 230px minmax(0, 1fr) 260px; } }
   /* phone and narrow windows: stacked, the network scrolls inside its own box */
   @media (max-width: 900px) {
@@ -245,9 +273,10 @@
 <body>
 <div class="app">
   <header class="top">
+    <nav class="pages" aria-label="Pages"><a href="../" data-base="../">Try it</a><a href="./" aria-current="page">Inside the model</a></nav>
     <h1>__TITLE__</h1>
-    <p class="sub">The distilled student, running in your browser on your text. __SUMMARY__
-      <a href="../">The plain demo page</a>.</p>
+    <p class="sub">The distilled student, running in your browser on your text. __SUMMARY__</p>
+    <button id="tour-start" disabled title="Walk through the page step by step">Guided tour</button>
     <button class="info" aria-expanded="false" aria-controls="i-page" aria-label="About this page">i</button>
   </header>
   <div class="board">
@@ -329,6 +358,16 @@
   </div>
 </div>
 <div id="tip" role="tooltip" hidden></div>
+<div id="tour" hidden>
+  <div id="tour-spot"></div>
+  <section id="tour-card" role="dialog" aria-labelledby="tour-title" aria-describedby="tour-text">
+    <h2 id="tour-n"></h2>
+    <h3 id="tour-title"></h3>
+    <p id="tour-text" aria-live="polite"></p>
+    <div class="tour-nav"><button id="tour-exit">Exit</button><span class="gap"></span>
+      <button id="tour-back">Back</button><button id="tour-next">Next</button></div>
+  </section>
+</div>
 <script type="application/json" id="data">__DATA__</script>
 <script type="module">
   import { AutoTokenizer, AutoModel, env } from "__TRANSFORMERS_JS__";
@@ -994,7 +1033,8 @@
   // ---- info toggles ----
   const INFO = {
     "i-page": () => [para("Every number and picture is computed by the student model in your browser; nothing you type leaves the page. " +
-      "Hover a token anywhere to follow it everywhere; hover a layer to see its heads; open the tabs under the network for the details, and Math for the formulas with the current numbers.")],
+      "Hover a token anywhere to follow it everywhere; hover a layer to see its heads; open the tabs under the network for the details, and Math for the formulas with the current numbers. " +
+      "The guided tour walks through it step by step.")],
     "i-tokens": (r) => [para(`The tokenizer cuts the text into ${r.T} pieces from a vocabulary of ${C.vocab_size.toLocaleString("en")}; only their ids enter the model. ` +
       "A coloured left edge marks a piece that continues a word. " + (r.tokens.some(special) ? `${[...new Set(r.tokens.filter(special))].join(" and ")} are added by the tokenizer; the classifier reads the first.` : "")),
       ...(r.full > r.T ? [para(`This page reads the first ${r.T} of the text's ${r.full} pieces.`)] : []), ...tokensMath(r)],
@@ -1106,7 +1146,16 @@
   const text = $("text"), status = $("status");
   $("samples").replaceChildren(...D.samples.map((s) => el("button", { className: "chip", title: s.text,
     "aria-pressed": "false", onclick: () => { text.value = s.text; run(); } }, el("span", { textContent: s.text }))));
-  text.value = D.samples[0]?.text ?? "";
+  const params = new URLSearchParams(location.search);  // ?text= opens the page on a text, ?tour=1 starts the tour
+  text.value = params.get("text")?.trim() ? params.get("text") : D.samples[0]?.text ?? "";
+  const withText = () => {  // the tab back to the main page carries the current text
+    for (const a of document.querySelectorAll("a[data-base]")) {
+      const u = new URL(a.dataset.base, location.href), v = text.value.trim();
+      if (v) u.searchParams.set("text", v);
+      a.href = u.href;
+    }
+  };
+  withText();
   let busy = false, again = false, wait = null;
   async function run() {  // one model run at a time; a newer text replaces a pending one
     clearTimeout(wait);
@@ -1130,9 +1179,199 @@
     drawStrip(r); drawOutput(r); renderDock(); refreshInfos();
     document.querySelectorAll(".chip").forEach((b, i) => b.setAttribute("aria-pressed", String(D.samples[i].text.trim() === r.text)));
     status.textContent = `${r.T} tokens${r.full > r.T ? ` (of ${r.full})` : ""}, ${r.ms.toFixed(0)} ms in your browser`;
+    withText();
+    $("tour-start").disabled = false;
+    if (TOUR.on) $("tour-text").textContent = STEPS[TOUR.k].say();
     document.body.dataset.ready = "1";
   }
-  text.addEventListener("input", () => { clearTimeout(wait); wait = setTimeout(run, 250); });
+  text.addEventListener("input", () => { withText(); clearTimeout(wait); wait = setTimeout(run, 250); });
+  // ---- the guided tour: each step drives the page, spotlights a part of it and says what it shows ----
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)"), phone = matchMedia("(max-width: 600px)");
+  const TOUR = { on: false, k: 0, seq: 0, saved: null, loaded: false };
+  const q = (i) => `"${shown(R.tokens[i])}"`;
+  const reads = (row) => order(row).slice(0, 2).map((j) => `${q(j)} (${pct(row[j])})`).join(" and ");
+  const words = () => {  // the word pieces after the first token, or any token after it
+    const w = range(R.T).filter((j) => j > 0 && !special(R.tokens[j]));
+    return w.length ? w : range(R.T).filter((j) => j > 0);
+  };
+  const best = (row, idx) => idx.reduce((b, j) => (row[j] > row[b] ? j : b), idx[0] ?? 0);
+  const picked = () => best(R.row(L - 1, -1, 0), words());  // what the first token reads most in the last layer
+  const headPick = () => range(H).reduce((b, h) => {  // the last layer's head that gives most of the first token's attention to one piece
+    const row = R.attAt(L - 1, h, 0), j = best(row, words());
+    return row[j] > b.w ? { h, j, w: row[j] } : b;
+  }, { h: 0, j: 0, w: -1 });
+  const pinTok = (i) => { ST.pin = i; focusChanged(); };
+  const ran = async (want) => { for (let n = 0; n < 600 && R.text !== want; n++) await new Promise((ok) => setTimeout(ok, 50)); };
+  const upTo = () => (L > 1 ? `${pct(R.layerP[0][R.top])} after layer 1, ${pct(R.layerP[L - 1][R.top])} after layer ${L}` : pct(R.layerP[0][R.top]));
+  const STEPS = [
+    { title: "Your text", at: () => [$("text"), $("status")], go: () => { pinTok(null); setHead(-1); },
+      say: () => "Everything on this page is computed from this text by the student model, in your browser; nothing you type leaves the page. " +
+        `Type here${D.samples.length ? " or pick an example below" : ""} and every part reruns. This run took ${R.ms.toFixed(0)} ms.` },
+    { title: "Tokens and ids", at: () => [$("tokens")],
+      say: () => {
+        const sp = [...new Set(R.tokens.filter(special))];
+        return `The tokenizer cut the text into ${R.T} pieces from a vocabulary of ${C.vocab_size.toLocaleString("en")}. ` +
+          "The number under each piece is its id; only the ids enter the model." +
+          (sp.length ? ` ${sp.join(" and ")} ${sp.length > 1 ? "are" : "is"} added by the tokenizer, and the classifier reads the first.` : "") +
+          (R.full > R.T ? ` This page reads the first ${R.T} of the text's ${R.full} pieces.` : "");
+      } },
+    { title: "The embedding column", clip: true,
+      at: () => [document.querySelector('#nethead .colhead[data-c="0"]'), ...net.querySelectorAll('.node[data-c="0"]')],
+      say: () => `Before any layer runs, each id picks a row of ${DIM} learned numbers, its position adds another, and a LayerNorm evens out the sum. ` +
+        `This column holds those ${R.T} vectors, one node per token; the Embeddings tab under the network shows them as colours.` },
+    { title: "Layer by layer", at: () => [netbox], go: () => { pinTok(null); setHead(-1); },
+      say: () => `Each further column is the text after one more of the ${L} layers. A line means the token on the right read from the one on the left ` +
+        `in that layer's attention (here the mean of its ${H} heads), thicker for more; each token shows at most its ${ST.k} strongest. ` +
+        `Under each layer, the chance of "${name(R.top)}" had the model stopped there: ${upTo()}.` },
+    { title: "Follow one token", at: () => [netbox], go: () => { setHead(-1); pinTok(picked()); },
+      say: () => {
+        const i = ST.pin ?? picked();
+        return `The tour selected ${q(i)}, the word piece ${R.tokens[0]} reads most in layer ${L} (${pct(R.row(L - 1, -1, 0)[i])}, mean of the heads). ` +
+          `Its node is marked in every column, with the lines into and out of it; in layer ${L} it reads most from ${reads(R.row(L - 1, -1, i))}. ` +
+          "Click a node or a token to select it, and again to let go.";
+      } },
+    { title: "Attention heads", at: () => [$("strip")],
+      go: () => { pinTok(ST.pin ?? picked()); setLayer(L - 1); $("heads").querySelector(`[data-h="${headPick().h}"]`).click(); },
+      say: () => {
+        const h = ST.head < 0 ? headPick().h : ST.head, row = R.attAt(L - 1, h, 0), j = best(row, words());
+        return `The strip shows the ${H} heads of layer ${ST.layer + 1}: each square is one head's attention, rows reading columns, and "mean" averages them. ` +
+          `The tour pinned head ${h + 1}, so the network's lines now come from head ${h + 1} of every layer. ` +
+          `In layer ${L}, this head gives ${pct(row[j])} of ${R.tokens[0]}'s attention to ${q(j)}.`;
+      } },
+    { title: "The attention matrix", at: () => [$("dock")], go: () => openTab("matrix"),
+      say: () => {
+        const i = ST.pin ?? 0;
+        return `The Attention tab shows layer ${ST.layer + 1}, ${headName(ST.head)} in full: row i is how token i spreads its attention over the columns, and every row sums to 1. ` +
+          `The selected token's row and column are marked: ${q(i)} reads most from ${reads(R.row(ST.layer, ST.head, i))}. Hover a cell for its weight.`;
+      } },
+    { title: "The token map", at: () => [$("dock")],
+      go: () => {
+        if (reduced.matches) ST.mapLayer = L;
+        openTab("map");
+        if (!reduced.matches && !timer) $("viz").querySelector('[data-key="map-play"]').click();
+      },
+      say: () => {
+        const s = R.pca[L].share;
+        return "Each dot is one token's vector, flattened to two dimensions with PCA (computed in this page), after the embeddings and after each layer. " +
+          (reduced.matches ? `It shows layer ${L}; the slider picks another, and Play steps through them all. ` : `The tour plays it from the embeddings to layer ${L}; the slider picks a layer. `) +
+          `After layer ${L}, the two axes keep ${pct(s[0] + s[1])} of the spread.`;
+      } },
+    { title: "The classifier", at: () => [$("dock")], go: () => { ST.label = R.top; openTab("cls"); },
+      say: () => {
+        const c = ST.label, s = R.termsOf(c).reduce((a, b) => a + b, 0);
+        return `The classifier reads ${R.tokens[0]} after the last layer: a dense layer turns it into h, ${R.h.length} numbers, ` +
+          "and a label's score is the sum of W[c, i] times h[i] over all i, plus a bias. " +
+          `For "${name(c)}" that is ${fx(s)} + (${fx(R.bias[c])}) = ${fx(s + R.bias[c])}; the bars are the ${Math.min(10, R.h.length)} terms that move it the most.`;
+      } },
+    { title: "Probabilities", at: () => [$("probs").closest("section")],
+      say: () => (D.multi ? `A sigmoid gives each of the ${NL} labels its own probability, and every label at 50% or more is part of the answer: ${$("answer").textContent}.`
+        : `Softmax turns the ${NL} scores into probabilities that add up to one; "${name(R.top)}" gets ${pct(R.p[R.top])}.`) +
+        ` Each sparkline is a label's probability had the model stopped after layer 1, 2 and so on up to ${L}. ${$("lead").textContent}` },
+    { title: "Teacher, student and the loss", at: () => [$("teacher").closest("section"), $("loss").closest("section")],
+      go: async () => {
+        const k = D.samples.findIndex((s) => s.teacher);
+        if (R.sample?.teacher || k < 0) return;
+        TOUR.loaded = true;
+        document.querySelectorAll("#samples .chip")[k].click();
+        await ran(D.samples[k].text.trim());
+      },
+      say: () => {
+        const s = R.sample;
+        if (!s?.teacher) return `The page has no teacher labels for ${D.samples.length ? "this text" : "this model"}, so there is nothing to compare here.` +
+          (D.samples.length ? " Pick an example on the left to see them." : "");
+        const tp = teacherProbs(s), t = argmax(tp);
+        return (TOUR.loaded ? "The tour picked an example: for its examples, " : "For its examples, ") +
+          `the page holds the teacher's probabilities${D.teacher ? ` (${D.teacher})` : ""}, the soft labels the student was trained to match. ` +
+          `Here the teacher gives "${name(t)}" ${pct(tp[t])} and the student ${pct(R.p[t])}` +
+          (D.multi ? ". " : t === R.top ? "; they agree on the top label. " : `; the student's top label is "${name(R.top)}". `) +
+          `This example's loss terms: ${lossParts(R).map(([, v, w]) => `${w} ${fx(v, 4)}`).join(", ")}.`;
+      } },
+  ];
+  const spot = $("tour-spot"), card = $("tour-card"), panes = [...document.querySelectorAll(".pane, #netbox")];
+  function spotRect(step) {  // the step's elements together, a little larger
+    let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+    for (const e of step.at()) {
+      const x = e?.getBoundingClientRect();
+      if (!x || (!x.width && !x.height)) continue;
+      l = Math.min(l, x.left); t = Math.min(t, x.top); r = Math.max(r, x.right); b = Math.max(b, x.bottom);
+    }
+    if (step.clip) { const c = netbox.getBoundingClientRect(); l = Math.max(l, c.left); t = Math.max(t, c.top); r = Math.min(r, c.right); b = Math.min(b, c.bottom); }
+    return r > l && b > t ? { l: l - 5, t: t - 5, w: r - l + 10, h: b - t + 10 } : null;
+  }
+  function track() {  // every frame while the tour is on: the page scrolls, reflows and animates under it
+    if (!TOUR.on) return;
+    const s = spotRect(STEPS[TOUR.k]);
+    spot.hidden = !s;
+    if (s) Object.assign(spot.style, { left: `${s.l}px`, top: `${s.t}px`, width: `${s.w}px`, height: `${s.h}px` });
+    if (phone.matches) card.style.left = card.style.top = "";  // docked at the bottom by the stylesheet
+    else {  // beside the spotlight, else under or over it, else in the corner
+      const w = card.offsetWidth, h = card.offsetHeight, W = innerWidth, V = innerHeight, m = 12;
+      const cx = (x) => Math.max(8, Math.min(x, W - w - 8)), cy = (y) => Math.max(8, Math.min(y, V - h - 8));
+      let at = [W - w - 16, V - h - 16];
+      if (!s) at = [W - w - 16, V - h - 16];
+      else if (s.l + s.w + m + w <= W - 8) at = [s.l + s.w + m, cy(s.t)];
+      else if (s.l - m - w >= 8) at = [s.l - m - w, cy(s.t)];
+      else if (s.t + s.h + m + h <= V - 8) at = [cx(s.l), s.t + s.h + m];
+      else if (s.t - m - h >= 8) at = [cx(s.l), s.t - m - h];
+      card.style.left = `${at[0]}px`; card.style.top = `${at[1]}px`;
+    }
+    requestAnimationFrame(track);
+  }
+  async function goStep(k) {
+    const seq = ++TOUR.seq, step = STEPS[k];
+    TOUR.k = k;
+    $("tour-n").textContent = `Step ${k + 1} of ${STEPS.length}`;
+    $("tour-title").textContent = step.title;
+    $("tour-text").textContent = "";
+    $("tour-back").disabled = k === 0;
+    $("tour-next").textContent = k === STEPS.length - 1 ? "Done" : "Next";
+    $("tour-next").focus({ preventScroll: true });
+    await step.go?.();
+    if (seq !== TOUR.seq || !TOUR.on) return;
+    $("tour-text").textContent = step.say();
+    const els = step.at();  // phone: the top of it under the card; else as much of it as fits in its pane
+    els[phone.matches ? 0 : els.length - 1]?.scrollIntoView({ block: phone.matches ? "start" : "nearest", behavior: reduced.matches ? "auto" : "smooth" });
+  }
+  function startTour() {
+    if (TOUR.on || !R) return;
+    TOUR.on = true; TOUR.loaded = false;
+    TOUR.saved = { pin: ST.pin, head: ST.head, layer: ST.layer, tab: ST.tab, closed: $("dock").classList.contains("closed"),
+                   mapLayer: ST.mapLayer, label: ST.label, text: text.value, scroll: [scrollY, ...panes.map((e) => e.scrollTop)] };
+    $("tour").hidden = false;
+    document.body.classList.add("touring");
+    goStep(0);
+    track();
+  }
+  async function endTour() {  // back to the page as it was before the tour
+    if (!TOUR.on) return;
+    TOUR.on = false; TOUR.seq++;
+    $("tour").hidden = true;
+    document.body.classList.remove("touring");
+    if (timer) { clearInterval(timer); timer = null; }
+    const s = TOUR.saved;
+    $("tour-start").focus({ preventScroll: true });
+    if (text.value !== s.text) { text.value = s.text; withText(); await run(); }
+    setLayer(s.layer); setHead(s.head);
+    ST.mapLayer = s.mapLayer; ST.label = s.label;
+    pinTok(s.pin === null ? null : Math.min(s.pin, R.T - 1));
+    openTab(s.tab);
+    if (s.closed) $("dock-toggle").click();
+    scrollTo({ top: s.scroll[0] });
+    panes.forEach((e, i) => { e.scrollTop = s.scroll[i + 1]; });
+  }
+  const next = () => (TOUR.k < STEPS.length - 1 ? goStep(TOUR.k + 1) : endTour());
+  const back = () => { if (TOUR.k > 0) goStep(TOUR.k - 1); };
+  $("tour-start").onclick = startTour;
+  $("tour-next").onclick = next;
+  $("tour-back").onclick = back;
+  $("tour-exit").onclick = endTour;
+  document.addEventListener("keydown", (e) => {
+    if (!TOUR.on) return;
+    if (e.key === "Escape") { e.preventDefault(); endTour(); return; }
+    if (!card.contains(e.target) && e.target !== document.body) return;  // arrows keep their meaning elsewhere
+    if (e.key === "ArrowRight") { e.preventDefault(); next(); }
+    if (e.key === "ArrowLeft") { e.preventDefault(); back(); }
+  });
   text.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); } });
   try {
     tok = await AutoTokenizer.from_pretrained(D.model);
@@ -1142,6 +1381,7 @@
     throw e;
   }
   if (text.value) await run(); else status.textContent = "Type a text.";
+  if (params.get("tour") === "1") startTour();
 </script>
 </body>
 </html>

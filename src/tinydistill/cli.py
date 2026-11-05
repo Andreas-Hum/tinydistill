@@ -958,20 +958,18 @@ def cmd_web(a: argparse.Namespace) -> None:
             "warning: this model reads long texts in windows, but the page reads only the first one "
             "(predict, serve and Predictor read them all)"
         )
-    page = build_site(folder, Path(a.out), a.title, note=a.note)
-    log(f"wrote {page}; serve the folder over HTTP, e.g. python -m http.server -d {a.out}")
     from .explainer import build_explainer
 
+    # the explainer first, so the main page knows whether to link it (build_site leaves explainer/ alone)
     try:
         explainer = build_explainer(folder, Path(a.out) / "explainer", a.title, note=a.note)
-        log(f"wrote {explainer}, an interactive view of the model's layers and heads")
-        link = (
-            '<p class="note"><a href="explainer/">Explore the model layer by layer</a>: every head\'s '
-            "attention, the token vectors as they move through the layers, and the math.</p>\n  <footer>"
-        )
-        page.write_text(page.read_text(encoding="utf-8").replace("<footer>", link, 1), encoding="utf-8")
     except ValueError as e:
+        explainer = None
         log(f"no explainer page: {e}")
+    page = build_site(folder, Path(a.out), a.title, note=a.note, explainer=explainer is not None)
+    log(f"wrote {page}; serve the folder over HTTP, e.g. python -m http.server -d {a.out}")
+    if explainer:
+        log(f"wrote {explainer}, an interactive view of the model's layers and heads")
 
 
 def cmd_synth(a: argparse.Namespace) -> None:
