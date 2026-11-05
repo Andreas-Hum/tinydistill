@@ -150,19 +150,25 @@ PAGE = r"""<!doctype html>
                  font-weight: 600; }
   .deeper a.go:hover { filter: brightness(1.1); }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+  .top { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 12px; margin: 0 0 20px; }
+  .top nav.pages { margin: 0; }
+  __PICKER_CSS__
 </style>
 </head>
 <body>
 <main>
-  __TABS__
-  <h1>__TITLE__</h1>
-  <p class="sub">A __SIZE__ MB model distilled from a large language model with tinydistill. It runs in your
-    browser, and nothing you type leaves this page. __SUMMARY__</p>
+  <div class="top">__TABS__ __PICKER__</div>
+  <p class="note" id="no-inside" hidden>This model has no "Inside the model" view, so it opens here. That tab
+    shows the page's own model.</p>
+  <h1 data-t="title">__TITLE__</h1>
+  <p class="sub">A <span data-t="size">__SIZE__</span> MB model distilled from a large language model with
+    tinydistill. It runs in your browser, and nothing you type leaves this page.
+    <span data-t="summary">__SUMMARY__</span></p>
   __CARD__
   <label for="text">Text</label>
   <textarea id="text" placeholder="Type a message">__FIRST__</textarea>
   <p class="note" style="margin:4px 0 0">The answer updates as you type.</p>
-  <div class="row">
+  <div class="row" id="samples">
     __SAMPLES__
   </div>
   <div class="row">
@@ -192,7 +198,7 @@ PAGE = r"""<!doctype html>
     <p id="check-out" aria-live="polite" style="margin-top:10px"></p>
   </section>
 
-  <details class="fold" id="all-labels"><summary>All __NLABELS__ labels</summary>
+  <details class="fold" id="all-labels"><summary>All <span data-t="nlabels">__NLABELS__</span> labels</summary>
     <input type="search" id="label-q" placeholder="Search the labels" aria-label="Search the labels">
     <ul class="labels" id="label-list"></ul></details>
 
@@ -205,13 +211,13 @@ PAGE = r"""<!doctype html>
   </div>
   <ol class="steps" id="steps">
     <li id="s-tok"><div class="step-head"><h3>The tokenizer splits the text</h3><span class="ms"></span></div>
-      <p class="note">The model never sees letters or words, only pieces from a fixed vocabulary of __VOCAB__.
+      <p class="note">The model never sees letters or words, only pieces from a fixed vocabulary of <span data-t="vocab">__VOCAB__</span>.
         Rare words are split into several pieces (marked with a blue edge); hover a piece for its number.
         <i>[CLS]</i> is added at the start: the classifier reads the model's output at that position.</p>
       <div class="box"><div class="chips" id="tokens"></div></div>
       <div class="math" id="m-tok" hidden></div></li>
     <li id="s-layers"><div class="step-head"><h3>Layer by layer</h3><span class="ms"></span></div>
-      <p class="note">The pieces pass through __LAYERS__ transformer layers. Each layer lets every piece look at the
+      <p class="note">The pieces pass through <span data-t="layers">__LAYERS__</span> transformer layers. Each layer lets every piece look at the
         others and update itself. If we stop after a layer and apply the final classifier, we see what the model
         would answer at that depth: early layers usually do not know yet, and the answer forms on the way up.</p>
       <div class="box"><table id="layers"></table></div></li>
@@ -223,7 +229,8 @@ PAGE = r"""<!doctype html>
       <div class="box"><div class="chips" id="attention"></div></div>
       <div class="math" id="m-att" hidden></div></li>
     <li id="s-out"><div class="step-head"><h3>From scores to probabilities</h3><span class="ms"></span></div>
-      <p class="note">The classifier gives one score per label (__NLABELS__ labels) and a __ACTIVATION__ turns them
+      <p class="note">The classifier gives one score per label (<span data-t="nlabels">__NLABELS__</span> labels) and a
+        <span data-t="activation">__ACTIVATION__</span> turns them
         into probabilities. The top five are below; the strip shows all of them, largest first. The small
         probabilities on other labels are what distillation passes on: the teacher's soft labels tell the
         student which labels are similar, not just which one is right.</p>
@@ -238,7 +245,7 @@ PAGE = r"""<!doctype html>
         <div class="legend"><span><i style="background:rgba(var(--pos),.7)"></i>supports the answer</span>
           <span><i style="background:rgba(var(--neg),.7)"></i>counts against it</span></div></div></li>
     <li id="s-teacher"><div class="step-head"><h3>Teacher and student</h3></div>
-      <p class="note">The student learned to imitate the soft labels of __TEACHER__. The teacher is far too large to
+      <p class="note">The student learned to imitate the soft labels of <span data-t="teacher">__TEACHER__</span>. The teacher is far too large to
         run here, but its saved soft labels for the test texts are in this page.</p>
       <div class="box" id="teacher"></div>
       <div class="math" id="m-teacher" hidden></div></li>
@@ -254,18 +261,17 @@ PAGE = r"""<!doctype html>
 <script type="application/json" id="data">__DATA__</script>
 <script type="module">
   import { AutoTokenizer, AutoModel, env } from "__TRANSFORMERS_JS__";
-  env.allowLocalModels = true;  // the model files sit next to this page
-  env.allowRemoteModels = false;
-  env.localModelPath = "./";
+  env.localModelPath = "./";  // the model files sit next to this page, unless it loads them from the Hub
   const KATEX = "__KATEX__";
   const LOW = 0.5;  // under this top probability the page says the text may fit none of the labels
-  const D = JSON.parse(document.getElementById("data").textContent);
+  let D = JSON.parse(document.getElementById("data").textContent);
   const $ = (id) => document.getElementById(id);
   const el = (tag, props = {}, ...kids) => {
     const e = Object.assign(document.createElement(tag), props);
     e.append(...kids);
     return e;
   };
+__PICKER_JS__
   const name = (i) => D.labels[i].replaceAll("_", " ");
   // an answer in words; the task's `outside` label (D.outside) means the text fits none of the others
   const said = (i) => (i === D.outside ? "None of the labels fits" : name(i));
@@ -278,46 +284,77 @@ PAGE = r"""<!doctype html>
   // ?text= opens the page on a text; the links to the explainer carry the current one
   const asked = new URLSearchParams(location.search).get("text");
   if (asked?.trim()) $("text").value = asked;
-  const withText = () => {
+  const withText = () => {  // the links to the explainer carry the text, and the model when it has that page
     for (const a of document.querySelectorAll("a[data-base]")) {
       const u = new URL(a.dataset.base, location.href), q = $("text").value.trim();
       if (q) u.searchParams.set("text", q);
+      if (pickNow.explainer) withModel(u);
       a.href = u.href;
     }
   };
-  withText();
   $("text").addEventListener("input", withText);
   const labelList = $("label-list");
-  labelList.append(...D.labels.map((_, i) => el("li", { textContent: name(i) })));
   $("label-q").oninput = (e) => {
     const q = e.target.value.trim().toLowerCase();
     for (const li of labelList.children) li.hidden = !li.textContent.toLowerCase().includes(q);
   };
-  const N = D.samples.length;
-  $("check-it").hidden = $("random").hidden = !N;
-  $("check").textContent = `Run the ${N} test texts`;
-  $("check-note").textContent = `This page holds ${N} texts from the test set` +
-    (D.n_test ? ` (of ${D.n_test})` : "") + ", picked to cover every label, so they are a sample, not the full " +
-    "test set. The button runs each one through the model in your browser and compares its answers with the " +
-    "correct labels and with the teacher's.";
-  $("unsure").textContent = `The model is not sure: no label reaches ${pct(LOW)}, so this text may fit none ` +
-    `of the ${D.labels.length} labels.`;
+  const short = (s) => (s.length <= 40 ? s : s.slice(0, 37).trimEnd() + "...");
+  let N = 0;
+  function fill() {  // everything that comes from the model's data: at the start, and when another model is picked
+    document.title = D.text.title;
+    for (const e of document.querySelectorAll("[data-t]")) e.textContent = D.text[e.dataset.t];
+    showCard();
+    $("samples").replaceChildren(...D.samples.slice(0, D.buttons).map((s) => el("button", { className: "ghost sample",
+      textContent: short(s.text), title: s.text, onclick: () => { text.value = s.text; classify(); } })));
+    labelList.replaceChildren(...D.labels.map((_, i) => el("li", { textContent: name(i) })));
+    N = D.samples.length;
+    $("check-it").hidden = $("random").hidden = !N;
+    $("check").textContent = `Run the ${N} test texts`;
+    $("check-out").textContent = "";
+    $("check-note").textContent = `This page holds ${N} texts from the test set` +
+      (D.n_test ? ` (of ${D.n_test})` : "") + ", picked to cover every label, so they are a sample, not the full " +
+      "test set. The button runs each one through the model in your browser and compares its answers with the " +
+      "correct labels and with the teacher's.";
+    $("unsure").textContent = `The model is not sure: no label reaches ${pct(LOW)}, so this text may fit none ` +
+      `of the ${D.labels.length} labels.`;
+    for (const e of document.querySelectorAll(".deeper")) e.style.display = pickNow.explainer ? "" : "none";
+    $("no-inside").hidden = pickNow.explainer || !document.querySelector("nav.pages");
+    withText();
+  }
+  function showCard() {  // teacher against student, from the data's rows (the same table as _card in web.py)
+    const td = (t, className = "") => el("td", { className, textContent: t });
+    $("card").hidden = !D.card.length;
+    $("card-rows").replaceChildren(el("tr", {}, el("th"), el("th", { className: "t", textContent: "Teacher (LLM)" }),
+      el("th", { textContent: "Student (this page)" })), ...D.card.map(([h, t, s]) => el("tr", {}, td(h), td(t, "t"),
+      s === null ? el("td", {}, el("span", { id: "live-ms", textContent: "measured as you type" })) : td(s))));
+  }
+  if (pickNow !== MODELS[0]) {  // ?model= asks for one of the other models
+    try {
+      D = await pageData(pickNow, "simple");
+      if (!asked?.trim() && D.samples.length) $("text").value = D.samples[0].text;
+    } catch (e) { fallBack(e); }
+  }
+  fill();
 
   // ---- core: the model and what it computes (no page elements here) ----
-  const loaded = {};
-  const progress_callback = (e) => {  // download progress of each file, summed
-    if (e.status !== "progress" || !e.total) return;
-    loaded[e.file] = [e.loaded, e.total];
-    let a = 0, b = 0;
-    for (const [x, y] of Object.values(loaded)) { a += x; b += y; }
+  const progress = (a, b) => {  // download progress of every file, summed
     $("progress").max = b; $("progress").value = a;
     $("load-text").textContent = `Downloading the model: ${(a / 1e6).toFixed(1)} of ${(b / 1e6).toFixed(1)} MB`;
   };
-  const [tok, model] = await Promise.all([
-    AutoTokenizer.from_pretrained(D.model, { progress_callback }),
-    AutoModel.from_pretrained(D.model, { dtype: D.dtype, progress_callback }),
-  ]);
+  let tok, model;
+  try {
+    [tok, model] = await loadModel(D, progress);
+  } catch (e) {  // the model ?model= asked for did not load: this page's own instead
+    if (D === D0) { $("load-text").textContent = `The model did not load: ${e.message}`; throw e; }
+    fallBack(e); D = D0; fill();
+    [tok, model] = await loadModel(D, progress);
+  }
   $("loading").hidden = true;
+  picker(MODELS, (m) => switchTo(m, "simple", async (d, t, mod) => {
+    D = d; tok = t; model = mod; times.length = 0; attLayer = null;
+    fill();
+    await classify();
+  }));
   let queue = Promise.resolve();
   const call = (enc) => {  // one model call at a time; resolves to [outputs, milliseconds]
     const p = queue.then(async () => { const t = performance.now(), o = await model(enc); return [o, performance.now() - t]; });
@@ -514,7 +551,8 @@ PAGE = r"""<!doctype html>
 
   function showCascade(r) {
     const box = $("cascade");
-    if (!D.cascade || D.multi) { $("s-cascade").hidden = true; return; }
+    $("s-cascade").hidden = !D.cascade || D.multi;
+    if ($("s-cascade").hidden) return;
     const pts = D.cascade, first = pts[0], last = pts[pts.length - 1];
     const slider = el("input", { type: "range", min: 0, max: pts.length - 1, step: 1, value: Math.min(2, pts.length - 1) });
     slider.setAttribute("aria-label", "Share of texts sent to the teacher");
@@ -670,7 +708,6 @@ PAGE = r"""<!doctype html>
 
   let timer = null;
   text.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => classify(), 150); });
-  for (const b of document.querySelectorAll("button.sample")) b.onclick = () => { text.value = b.dataset.text; classify(); };
   $("random").onclick = () => { text.value = D.samples[Math.floor(Math.random() * N)].text; classify(); };
   $("replay").onclick = () => {
     $("inside").open = true;
@@ -796,13 +833,13 @@ def _summary(res: dict | None, deployed: str) -> str:
     )
 
 
-def _card(res: dict | None, deployed: str, multi: bool) -> str:
+def _card_rows(res: dict | None, deployed: str, multi: bool) -> list[list]:
     """Teacher against student, side by side: model, size, time per text and test score, all from the run's
-    results.json; the student's time is measured in the visitor's browser. A missing number leaves its cell
-    empty, and a row with no numbers is left out."""
+    results.json, as [heading, teacher, student] rows; the student's time (None) is measured in the visitor's
+    browser. A missing number leaves its cell empty, and a row with no numbers is left out."""
     student, teacher = _rows(res, deployed)
     if not res or not student:
-        return ""
+        return []
     teacher = teacher or {}
     key, metric = ("macro_f1", "Test macro-F1") if multi else ("accuracy", "Test accuracy")
 
@@ -818,24 +855,35 @@ def _card(res: dict | None, deployed: str, multi: bool) -> str:
     ms = teacher.get("latency_ms_b1") if str(teacher.get("device", "")).startswith("cuda") else None
     how = teacher.get("name", "").removeprefix("teacher, ")
     rows = [
-        ("Model", f"{res.get('teacher') or ''}" + (f" ({how})" if how else ""), res.get("student") or ""),
-        ("Size", size(teacher), size(student)),
-        ("Time per text", "" if ms is None else f"{ms:.0f} ms on a GPU", None),
-        (metric, score(teacher), score(student)),
+        ["Model", f"{res.get('teacher') or ''}" + (f" ({how})" if how else ""), res.get("student") or ""],
+        ["Size", size(teacher), size(student)],
+        ["Time per text", "" if ms is None else f"{ms:.0f} ms on a GPU", None],
+        [metric, score(teacher), score(student)],
     ]
+    return [r for r in rows if r[1] or r[2] != ""]
+
+
+def _card(rows: list[list]) -> str:
+    """The card's HTML; the page draws the same table from the rows when another model is picked."""
     body = "".join(
-        f"<tr><td>{h}</td><td class='t'>{html.escape(t)}</td><td>"
+        f"<tr><td>{html.escape(h)}</td><td class='t'>{html.escape(t)}</td><td>"
         + (html.escape(s) if s is not None else '<span id="live-ms">measured as you type</span>')
         + "</td></tr>"
         for h, t, s in rows
-        if t or s != ""
     )
     return (
-        '<section class="card" aria-label="Teacher and student"><table><tr><th></th>'
-        '<th class="t">Teacher (LLM)</th><th>Student (this page)</th></tr>'
+        f'<section class="card" id="card" aria-label="Teacher and student"{"" if rows else " hidden"}>'
+        '<table id="card-rows"><tr><th></th><th class="t">Teacher (LLM)</th><th>Student (this page)</th></tr>'
         f"{body}</table><p class='note'>From the run's results on its held-out test texts; the student's time "
         "is measured in your browser.</p></section>"
     )
+
+
+def _score(res: dict | None, deployed: str, multi: bool) -> str | None:
+    """The deployed student's test score in words, for the model picker."""
+    row, _ = _rows(res, deployed)
+    key, what = ("macro_f1", "macro-F1") if multi else ("accuracy", "accuracy")
+    return f"test {what} {row[key]:.3f}" if row and row.get(key) is not None else None
 
 
 # the tabs between the two pages and the way into the explainer, when `web` wrote one: the explainer is the
@@ -856,78 +904,223 @@ def _short(text: str, n: int = 40) -> str:
     return text if len(text) <= n else text[: n - 3].rstrip() + "..."
 
 
-def build_site(
-    onnx_dir: Path,
-    out: Path,
-    title: str | None = None,
-    samples: int = 6,
-    note: str | None = None,
-    explainer: bool = False,
-) -> Path:
-    """Write ``out/index.html`` and ``out/model-<hash>/`` (config, tokenizer, ONNX) for transformers.js. When the run's
-    PyTorch student is next to the export, the page's model also returns each layer's answer and the
-    attention of the first token, for the "Inside the model" view. ``samples`` example buttons (one per gold
-    label); the page also holds up to ``BUNDLE`` test texts with their gold and teacher labels. ``note`` is an
-    extra line for the footer, such as the dataset's licence. ``explainer``: the explainer page
-    (``explainer.build_explainer``) is the main page one folder up (``out/..``), as `tinydistill web` writes it,
-    so this page gets tabs to it and a link that opens it on the current text."""
-    from .export import export_explain
-    from .static import is_static
+# The model picker of both pages (`tinydistill web --models`): a menu of the page's own model and the Hub models
+# it lists. The page's data has the menu's entries as `models` (see catalogue); picking one fetches its
+# tinydistill-page.json and loads its ONNX model from the Hub with transformers.js, and ?model=user/name in the
+# URL opens the page on it. The pages define `D` (let), `$`, `el` and import `env`, AutoTokenizer and AutoModel.
+PICKER_HTML = """<div class="picker" id="picker" hidden>
+    <details id="pick"><summary>Switch model</summary><ul id="pick-list" aria-label="Models"></ul></details>
+    <p id="pick-msg" role="status" hidden><span id="pick-text"></span><progress id="pick-bar" hidden></progress></p>
+  </div>"""
+PICKER_CSS = """.picker { position: relative; flex: none; max-width: 100%; }
+  .picker details { width: fit-content; }
+  .picker summary { list-style: none; cursor: pointer; padding: 2px 12px; border: 1px solid var(--line);
+                    border-radius: 999px; background: var(--card); white-space: nowrap; font-size: .9em; }
+  .picker summary::-webkit-details-marker { display: none; }
+  .picker summary::after { content: " \\25BE"; color: var(--muted); }
+  .picker details[open] summary { border-color: var(--accent); color: var(--accent); }
+  .picker ul { position: absolute; z-index: 50; top: calc(100% + 6px); left: 0; width: min(380px, calc(100vw - 32px));
+               max-height: 60vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none; background: var(--card);
+               border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, .2); }
+  .picker ul button { display: block; width: 100%; text-align: left; padding: 7px 10px; margin: 0; border: 0;
+                      border-radius: 7px; background: transparent; color: var(--fg); font: inherit; font-size: .9em; }
+  .picker ul button:hover { background: var(--soft); }
+  .picker ul button[aria-current="true"] { background: var(--soft); box-shadow: inset 3px 0 var(--accent); }
+  .picker ul button[aria-current="true"] b::after { content: "  (on show)"; color: var(--muted); font-weight: 400; }
+  .picker ul b { display: block; }
+  .picker ul span { display: block; color: var(--muted); font-size: .9em; overflow-wrap: anywhere; }
+  #pick-msg { margin: 6px 0 0; color: var(--muted); font-size: .85em; max-width: 34em; }
+  #pick-msg.err { color: var(--teacher); }
+  #pick-bar { display: block; width: 100%; height: 6px; margin-top: 4px; accent-color: var(--accent); }
+  #pick-bar[hidden] { display: none; }
+  @media (max-width: 600px) {  /* fixed, so the menu never runs off the screen; its top stays under the button */
+    .picker ul { position: fixed; top: auto; left: 16px; right: 16px; width: auto; margin-top: 6px; }
+  }"""
+PICKER_JS = r"""  // ---- the model picker: `web --models` lists other models, which load from the Hugging Face Hub ----
+  const HUB = window.TINYDISTILL_HUB ?? "https://huggingface.co/";  // the browser tests serve a copy of a repo
+  const D0 = D, MODELS = D.models;  // the menu: this page's own model first
+  const fromURL = new URLSearchParams(location.search).get("model");  // ?model=user/name: one in the menu
+  let pickNow = MODELS.find((m) => m.repo && m.repo === fromURL) ?? MODELS[0], pickSeq = 0;
+  async function pageData(m, key) {  // a model's data for this page: its own, or from its tinydistill-page.json
+    if (m === MODELS[0]) return D0;
+    const r = await fetch(`${HUB}${m.repo}/resolve/main/tinydistill-page.json`);
+    if (!r.ok) throw new Error(`its tinydistill-page.json gave HTTP ${r.status}`);
+    const d = (await r.json())[key];
+    if (!d) throw new Error("it has no data for this page");
+    return { ...d, repo: m.repo };
+  }
+  function loadModel(d, progress) {  // [tokenizer, model], from next to the page or from the Hub
+    env.allowLocalModels = !d.repo; env.allowRemoteModels = !!d.repo; env.remoteHost = HUB;
+    const files = {};
+    const progress_callback = (e) => {  // download progress of every file, summed
+      if (e.status !== "progress" || !e.total) return;
+      files[e.file] = [e.loaded, e.total];
+      let a = 0, b = 0;
+      for (const [x, y] of Object.values(files)) { a += x; b += y; }
+      progress(a, b);
+    };
+    const id = d.repo ?? d.model;
+    return Promise.all([AutoTokenizer.from_pretrained(id, { progress_callback }),
+      AutoModel.from_pretrained(id, { dtype: d.dtype, model_file_name: d.file, progress_callback })]);
+  }
+  const withModel = (u) => { if (pickNow !== MODELS[0]) u.searchParams.set("model", pickNow.repo); };
+  const setModelURL = () => {
+    const u = new URL(location.href);
+    u.searchParams.delete("model");
+    withModel(u);
+    history.replaceState(null, "", u);
+  };
+  const say = (msg, err = false) => {
+    $("pick-msg").hidden = !msg; $("pick-msg").classList.toggle("err", err);
+    $("pick-text").textContent = msg; $("pick-bar").hidden = true;
+  };
+  const markPick = () => {
+    for (const b of document.querySelectorAll("#pick-list button")) {
+      b.setAttribute("aria-current", String(b.dataset.repo === (pickNow.repo ?? "")));
+    }
+  };
+  const failed = (m, e) => {  // the message when m did not load; pickNow is the model the page keeps
+    console.warn(e);
+    const why = e instanceof TypeError ? "the Hub could not be reached (are you offline?)" : e.message
+      .replace(/^Could not locate file: "(?:.*\/)?([^/"]+)"/, "its $1 is missing on the Hub").replace(/\.+$/, "");
+    say(`${m.title} did not load: ${why}. The page still runs ${pickNow.title}.`, true);
+  };
+  const fallBack = (e) => {  // the model ?model= asked for did not load: this page's own instead
+    const m = pickNow;
+    pickNow = MODELS[0];
+    setModelURL(); markPick(); failed(m, e);
+  };
+  function picker(entries, choose) {  // the menu, a button per model
+    if (entries.length < 2) return;
+    $("picker").hidden = false;
+    $("pick-list").replaceChildren(...entries.map((m) => {
+      const b = el("button", { type: "button", onclick: () => { $("pick").open = false; if (m !== pickNow) choose(m); } },
+        el("b", { textContent: m.title }), el("span", { textContent: [m.student, m.size, m.score].filter(Boolean).join(", ") }));
+      b.dataset.repo = m.repo ?? "";
+      return el("li", {}, b);
+    }));
+    markPick();
+    $("pick").addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && $("pick").open) { $("pick").open = false; $("pick").querySelector("summary").focus(); }
+    });
+    document.addEventListener("click", (e) => { if (!$("pick").contains(e.target)) $("pick").open = false; });
+  }
+  async function switchTo(m, key, apply) {  // load m, then apply(data, tokenizer, model); on failure keep the old one
+    const seq = ++pickSeq;
+    say(`Loading ${m.title}...`);
+    try {
+      const d = await pageData(m, key);
+      const [t, model] = await loadModel(d, (a, b) => {
+        if (seq !== pickSeq) return;
+        say(`Downloading ${m.title}: ${(a / 1e6).toFixed(1)} of ${(b / 1e6).toFixed(1)} MB`);
+        Object.assign($("pick-bar"), { hidden: false, max: b, value: a });
+      });
+      if (seq !== pickSeq) return;
+      pickNow = m;
+      setModelURL(); markPick(); say("");
+      await apply(d, t, model);
+    } catch (e) {
+      if (seq === pickSeq) failed(m, e);
+    }
+  }
+"""
 
-    if not (onnx_dir / "config.json").exists():
-        raise SystemExit(f"{onnx_dir} has no config.json: export it again with `tinydistill export` (0.3.0+)")
-    if is_static(onnx_dir):
-        raise SystemExit("the browser page needs a transformer student; static students run with `serve`")
+
+def catalogue(own: dict, explainer: bool, hub: dict[str, dict], key: str) -> list[dict]:
+    """The model picker's entries: the page's own model (its data, ``explainer``: whether it has the explainer
+    page), then each Hub model (repo -> its tinydistill-page.json), with what the menu shows. ``key``: the page's
+    part of tinydistill-page.json, "simple" or "explainer"."""
+
+    def entry(repo: str | None, page: dict) -> dict:
+        d = page.get(key) or page["simple"]  # a model without the explainer shows its simple page's numbers
+        mb = d.get("size_mb") or 0
+        return {
+            "repo": repo,
+            "title": d["text"]["title"],
+            "student": d.get("student"),
+            "size": f"{mb:.{0 if mb >= 10 else 1}f} MB",
+            "score": d.get("score"),
+            "explainer": bool(page.get("explainer")),
+        }
+
+    mine = own.get("repo")
+    return [entry(mine, {"simple": own, "explainer": own if explainer else None})] + [
+        entry(repo, page) for repo, page in hub.items() if repo != mine
+    ]
+
+
+def site_model(onnx_dir: Path, tmp: Path) -> Path:
+    """The ONNX file the simple page runs: with each layer's answer and the first token's attention when the
+    run's PyTorch student is next to the export (export.export_explain, written to ``tmp``), else the export."""
+    from .export import export_explain
+
+    run, int8 = onnx_dir.parent, (onnx_dir / "model.int8.onnx").exists()
+    found = export_explain(run / "student", tmp, int8) if (run / "student" / "config.json").exists() else None
+    return found or onnx_dir / ("model.int8.onnx" if int8 else "model.onnx")
+
+
+TOKENIZER_FILES = (
+    "config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "special_tokens_map.json",
+    "vocab.txt",
+)
+
+
+def clear_models(out: Path) -> None:
+    """Remove the model folders an earlier build wrote to ``out``."""
+    for old in out.glob("model*"):
+        if old.is_dir() and re.fullmatch(r"model(-[0-9a-f]{10})?", old.name):
+            shutil.rmtree(old)
+
+
+def copy_model(onnx_dir: Path, onnx_file: Path, out: Path) -> str:
+    """Copy a page's model to ``out/model-<hash>/`` in the transformers.js layout (config, tokenizer and
+    ``onnx/model_quantized.onnx`` for int8, else ``onnx/model.onnx``), replacing earlier copies; returns the
+    folder's name. Browsers cache model files by URL, so the folder is named after the model's contents: a new
+    model gets a new URL and no visitor keeps an old copy."""
+    model_dir = out / f"model-{hashlib.sha256(onnx_file.read_bytes()).hexdigest()[:10]}"
+    clear_models(out)
+    (model_dir / "onnx").mkdir(parents=True)
     int8 = (onnx_dir / "model.int8.onnx").exists()
-    run = onnx_dir.parent
-    with tempfile.TemporaryDirectory() as tmp:
-        onnx_file = (
-            export_explain(run / "student", Path(tmp), int8)
-            if (run / "student" / "config.json").exists()
-            else None
-        )
-        onnx_file = onnx_file or onnx_dir / ("model.int8.onnx" if int8 else "model.onnx")
-        # Browsers cache model files by URL, so the folder is named after the model's contents: a new model
-        # gets a new URL and no visitor keeps an old copy.
-        digest = hashlib.sha256(onnx_file.read_bytes()).hexdigest()[:10]
-        model_dir = out / f"model-{digest}"
-        for old in out.glob("model*"):  # this function's earlier output
-            if old.is_dir() and re.fullmatch(r"model(-[0-9a-f]{10})?", old.name):
-                shutil.rmtree(old)
-        (model_dir / "onnx").mkdir(parents=True)
-        target = model_dir / "onnx" / ("model_quantized.onnx" if int8 else "model.onnx")
-        shutil.copy(onnx_file, target)
-    for f in (
-        "config.json",
-        "tokenizer.json",
-        "tokenizer_config.json",
-        "special_tokens_map.json",
-        "vocab.txt",
-    ):
+    shutil.copy(onnx_file, model_dir / "onnx" / ("model_quantized.onnx" if int8 else "model.onnx"))
+    for f in TOKENIZER_FILES:
         if (onnx_dir / f).exists():
             shutil.copy(onnx_dir / f, model_dir / f)
+    return model_dir.name
 
-    config = json.loads((onnx_dir / "config.json").read_text(encoding="utf-8"))
+
+def _read(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def site_data(onnx_dir: Path, size_mb: float, title: str | None = None, samples: int = 6) -> dict:
+    """Everything the simple page shows for a model, as the JSON it embeds, apart from where the model is
+    (build_site adds the folder, ``model``; a page that loads it from the Hub adds ``repo``). ``size_mb``: the
+    size of the ONNX file it runs; ``samples``: example buttons (one per gold label). `tinydistill push`
+    uploads it in tinydistill-page.json."""
+    run = onnx_dir.parent
+    config, meta, res = _read(onnx_dir / "config.json"), _read(run / "meta.json"), _read(run / "results.json")
     labels = json.loads((onnx_dir / "labels.json").read_text(encoding="utf-8"))
     multi = config.get("problem_type") == "multi_label_classification"
-    meta = json.loads((run / "meta.json").read_text(encoding="utf-8")) if (run / "meta.json").exists() else {}
-    res = (
-        json.loads((run / "results.json").read_text(encoding="utf-8"))
-        if (run / "results.json").exists()
-        else None
-    )
+    int8 = (onnx_dir / "model.int8.onnx").exists()
     rows: list[dict] = []
     n_first = 0
     if (run / "test.jsonl").exists():
         with (run / "test.jsonl").open(encoding="utf-8") as fh:
             rows, n_first = _bundle([json.loads(line) for line in fh if line.strip()])
-    ce_weight = ((res or {}).get("training") or {}).get("ce_weight")
+    ce_weight = (res.get("training") or {}).get("ce_weight")
     deployed = "int8" if int8 else "fp32"
-    data = {
+    vocab = json.loads((onnx_dir / "tokenizer.json").read_text(encoding="utf-8"))["model"].get("vocab", {})
+    teacher_row = next((m for m in res.get("models", []) if m["role"] == "teacher"), None)
+    teacher = f"the teacher, {meta.get('teacher') or 'a large language model'}" + (
+        f" ({teacher_row['name'].removeprefix('teacher, ')})" if teacher_row else ""
+    )
+    return {
         "labels": labels,
         "multi": multi,
         "dtype": "q8" if int8 else "fp32",
-        "model": model_dir.name,
         "max_length": config.get("tinydistill_max_length") or 128,
         "outside": _outside(config, labels),
         "samples": [
@@ -938,8 +1131,8 @@ def build_site(
             }
             for r in rows
         ],
-        "n_test": (res or {}).get("data", {}).get("n_test"),
-        "cascade": (res or {}).get("cascade"),
+        "n_test": res.get("data", {}).get("n_test"),
+        "cascade": res.get("cascade"),
         "ce_weight": meta.get("ce_weight") if ce_weight is None else ce_weight,
         "config": {
             k: config.get(k)
@@ -952,36 +1145,89 @@ def build_site(
                 "pad_token_id",
             )
         },
+        "buttons": min(samples, n_first),
+        "card": _card_rows(res or None, deployed, multi),
+        "size_mb": round(size_mb, 2),
+        "student": res.get("student") or meta.get("student"),
+        "score": _score(res or None, deployed, multi),
+        # the page's text that depends on the model, by its data-t attribute
+        "text": {
+            "title": title or (meta.get("task") or run.name).replace("-", " ").replace("_", " ").title(),
+            "size": f"{size_mb:.0f}",
+            "summary": _summary(res or None, deployed),
+            "vocab": f"{len(vocab):,} pieces" if vocab else "pieces",
+            "layers": str(config.get("num_hidden_layers", "several")),
+            "nlabels": str(len(labels)),
+            "activation": "sigmoid per label" if multi else "softmax",
+            "teacher": teacher,
+        },
     }
-    vocab = json.loads((onnx_dir / "tokenizer.json").read_text(encoding="utf-8"))["model"].get("vocab", {})
-    teacher_row = next((m for m in (res or {}).get("models", []) if m["role"] == "teacher"), None)
-    teacher = f"the teacher, {meta.get('teacher') or 'a large language model'}" + (
-        f" ({teacher_row['name'].removeprefix('teacher, ')})" if teacher_row else ""
-    )
-    name = title or (meta.get("task") or run.name).replace("-", " ").replace("_", " ").title()
+
+
+def render_site(
+    data: dict,
+    out: Path,
+    explainer: bool = False,
+    note: str | None = None,
+    hub: dict[str, dict] | None = None,
+) -> Path:
+    """Write ``out/index.html`` from a model's page data (site_data plus ``model`` or ``repo``). ``explainer``:
+    the explainer page is one folder up, so this page gets tabs to it. ``hub``: other models for the picker,
+    repo -> tinydistill-page.json."""
+    text, rows = data["text"], data["samples"]
+    data = data | {"models": catalogue(data, explainer, hub or {}, "simple")}
     buttons = "\n    ".join(
         f'<button class="ghost sample" data-text="{html.escape(r["text"])}" '
         f'title="{html.escape(r["text"])}">{html.escape(_short(r["text"]))}</button>'
-        for r in rows[: min(samples, n_first)]
+        for r in rows[: data["buttons"]]
     )
     page = (
         PAGE.replace("__TABS__", TABS if explainer else "")
         .replace("__INSIDE__", INSIDE if explainer else "")
-        .replace("__TITLE__", html.escape(name))
-        .replace("__SIZE__", f"{target.stat().st_size / 1e6:.0f}")
-        .replace("__CARD__", _card(res, deployed, multi))
+        .replace("__PICKER_CSS__", PICKER_CSS)
+        .replace("__PICKER__", PICKER_HTML)
+        .replace("__PICKER_JS__", PICKER_JS)
+        .replace("__CARD__", _card(data["card"]))
         .replace("__FIRST__", html.escape(rows[0]["text"]) if rows else "")
         .replace("__SAMPLES__", buttons)
-        .replace("__VOCAB__", f"{len(vocab):,} pieces" if vocab else "pieces")
-        .replace("__LAYERS__", str(config.get("num_hidden_layers", "several")))
-        .replace("__NLABELS__", str(len(labels)))
-        .replace("__ACTIVATION__", "sigmoid per label" if multi else "softmax")
-        .replace("__TEACHER__", html.escape(teacher))
         .replace("__TRANSFORMERS_JS__", TRANSFORMERS_JS)
         .replace("__KATEX__", KATEX)
-        .replace("__SUMMARY__", html.escape(_summary(res, deployed)))
         .replace("__NOTE__", html.escape(note or ""))
-        .replace("__DATA__", json.dumps(data).replace("</", "<\\/"))
     )
+    for k, v in text.items():
+        page = page.replace(f"__{k.upper()}__", html.escape(v))
+    page = page.replace("__DATA__", json.dumps(data).replace("</", "<\\/"))
+    out.mkdir(parents=True, exist_ok=True)
     (out / "index.html").write_text(page, encoding="utf-8")
     return out / "index.html"
+
+
+def build_site(
+    onnx_dir: Path,
+    out: Path,
+    title: str | None = None,
+    samples: int = 6,
+    note: str | None = None,
+    explainer: bool = False,
+    hub: dict[str, dict] | None = None,
+) -> Path:
+    """Write ``out/index.html`` and ``out/model-<hash>/`` (config, tokenizer, ONNX) for transformers.js. When the run's
+    PyTorch student is next to the export, the page's model also returns each layer's answer and the
+    attention of the first token, for the "Inside the model" view. ``samples`` example buttons (one per gold
+    label); the page also holds up to ``BUNDLE`` test texts with their gold and teacher labels. ``note`` is an
+    extra line for the footer, such as the dataset's licence. ``explainer``: the explainer page
+    (``explainer.build_explainer``) is the main page one folder up (``out/..``), as `tinydistill web` writes it,
+    so this page gets tabs to it and a link that opens it on the current text. ``hub``: other models for the
+    model picker, Hub repo -> its tinydistill-page.json (see `tinydistill push`)."""
+    from .static import is_static
+
+    if not (onnx_dir / "config.json").exists():
+        raise SystemExit(f"{onnx_dir} has no config.json: export it again with `tinydistill export` (0.3.0+)")
+    if is_static(onnx_dir):
+        raise SystemExit("the browser page needs a transformer student; static students run with `serve`")
+    with tempfile.TemporaryDirectory() as tmp:
+        onnx_file = site_model(onnx_dir, Path(tmp))
+        size = onnx_file.stat().st_size / 1e6
+        folder = copy_model(onnx_dir, onnx_file, out)
+    data = site_data(onnx_dir, size, title, samples) | {"model": folder}
+    return render_site(data, out, explainer, note, hub)

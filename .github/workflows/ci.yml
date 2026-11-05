@@ -180,13 +180,17 @@ jobs:
           python tests/browser/build_tiny_site.py site
           python tests/browser/build_tiny_site.py site-multi --multi
       - name: Open the pages in Chromium
+        # site/hub/ is a local copy of the Hub for the model picker and site/remote/ (`web --remote`)
+        env:
+          HUB: http://127.0.0.1:8000/hub/
         run: |
           python -m http.server 8000 --bind 127.0.0.1 -d site &
           python -m http.server 8001 --bind 127.0.0.1 -d site-multi &
-          node tests/browser/check_page.mjs http://127.0.0.1:8000/simple/ page.png
+          PICKER=1 node tests/browser/check_page.mjs http://127.0.0.1:8000/simple/ page.png
           NO_EXPLAIN=1 node tests/browser/check_page.mjs http://127.0.0.1:8001/
-          node tests/browser/check_explainer.mjs http://127.0.0.1:8000/ \
-            http://127.0.0.1:8000/explainer-multi/ --shot explainer.png
+          node tests/browser/check_page.mjs http://127.0.0.1:8000/remote/simple/
+          PICKER=1 node tests/browser/check_explainer.mjs http://127.0.0.1:8000/ \
+            http://127.0.0.1:8000/explainer-multi/ http://127.0.0.1:8000/remote/ --shot explainer.png
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
         with:

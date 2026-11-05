@@ -100,6 +100,32 @@ MPNet-style student; for a static or ModernBERT student, or a model from the Hub
 `tinydistill web` writes only the simple page and says why. The Python function is
 `tinydistill.explainer.build_explainer`.
 
+### Several models, loaded from the Hub
+
+Models pushed with `tinydistill push` (below) can share one site, and the pages can load them from the Hub
+instead of keeping copies:
+
+```sh
+tinydistill web RUN/onnx --out site --models hf:user/a,hf:user/b   # a menu with this model and two more
+tinydistill web hf:user/a --out site --remote                      # no model files in site/
+```
+
+- `--models` adds a "Switch model" menu to both pages: the page's own model, then each listed model with its
+  task, student, size and test score. `web` reads each repository's `tinydistill-page.json` while it builds the
+  pages and skips a model without one (pushed with an earlier version), saying so.
+- A visitor's pick loads in the browser: the page fetches the model's `tinydistill-page.json` and its ONNX model
+  from `https://huggingface.co/<repo>/resolve/main/` with transformers.js, shows the download progress, and
+  swaps the labels, examples, test texts, card and summary without a reload. The text stays.
+- The URL holds the choice (`?model=user/name`), so links open on it, and the tabs carry it to the other page.
+  Only models in the menu can be opened this way.
+- "Inside the model" lists only the models that have its view. A link to one without it opens the simple page,
+  which says so.
+- When a model does not load (offline, a missing file), the page says why and keeps the model it had.
+- `--remote` writes the pages with no model files: their data comes from the repository's
+  `tinydistill-page.json`, and the page's own model loads from the Hub too. A rebuild then changes only the
+  HTML pages instead of adding the model files to the folder again, which suits a site kept in git.
+  Without `--remote`, `web` copies the model next to the pages as before.
+
 ## Hugging Face Hub
 
 `tinydistill push RUN/onnx --repo user/name` uploads the model with a model card (results, usage, and links to
@@ -113,6 +139,18 @@ Predictor("hf:user/name")
 tinydistill predict hf:user/name "some text"
 tinydistill serve hf:user/name
 ```
+
+In the same commit, `push` uploads what the browser pages need to run the model from the Hub (`web --models`
+and `--remote`, above):
+
+- `onnx/model_quantized.onnx` (int8) or `onnx/model.onnx`, the simple page's model in the layout transformers.js
+  expects, with each layer's answer and the first token's attention when the run's PyTorch student is there;
+- `onnx/explorer_quantized.onnx` or `onnx/explorer.onnx`, the explainer's model, when the student has that view;
+- `tinydistill-page.json`, the data each page embeds: labels, test texts with their gold and teacher labels,
+  the card, the summary, the cascade and the model's settings.
+
+The export's own files stay at the top of the repository, so `Predictor("hf:user/name")` works as before and
+does not download the browser copies. A static student has no page, so it gets only the export.
 
 Published examples, in a [collection](https://huggingface.co/collections/Shroomy/tinydistill-6aea5b24819dbca9cb7eeb8d):
 
