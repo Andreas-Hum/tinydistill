@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-11-05)
 
 Highlights:
 
@@ -12,6 +12,8 @@ Highlights:
   the 1.5B teacher's student from 0.781 to 0.804 deployed; Qwen3.5-9B as the Banking77 teacher, 0.859 deployed.
 - A model menu on the browser pages, with the models loading from the Hugging Face Hub (`web --models`,
   `--remote`; `push` uploads what the pages need).
+- "How it compares", a new docs page: on four tasks, the best tinydistill student against gold-only training,
+  SetFit, GLiClass zero-shot and the LLM itself, with accuracy, CPU latency, size and build time.
 - A SetFit-style contrastive warm-up for the student (`train --warmup-pairs`). It helps on a small labelling
   budget only, so it is off by default.
 
