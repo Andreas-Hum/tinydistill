@@ -60,6 +60,15 @@ Upgrade notes:
 - `push --title` and `--note`: the model's name and the footer line the pages show for it, saved in its
   `tinydistill-page.json`; the footer note now changes with the model picked in the menu.
 
+### Benchmarks and documentation
+
+- A comparison benchmark, on the new docs page "How it compares": `examples/compare/` runs the gold-only
+  baseline, SetFit and GLiClass zero-shot on the CPU for Banking77, CLINC150, Danish MASSIVE and financial
+  tweets, with the same 8 gold labels per class and the same test set as tinydistill, re-times the saved
+  students, and `table.py` writes one table per task beside the LLM and the best saved tinydistill student
+  (accuracy, CPU latency, size, build cost). Published 10-shot Banking77 results are listed separately.
+  `examples/update_readme.py` also fills that page.
+
 ### Fixes
 
 - Fix: `tune --propose` kept no rewrites from small teachers (Qwen2.5-1.5B-Instruct dropped or invented
