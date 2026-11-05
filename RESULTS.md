@@ -636,6 +636,38 @@ Danish Gemma 4 12B reaches 0.814 against 0.700. They were also much slower per t
 against under 0.2 with 8 examples per class), because their linear-attention or sliding-window layers kept
 tinydistill from packing texts and it scored them one at a time; later versions score them as rows of a batch.
 
+## Several sets of similar examples: worse than one
+
+[`examples/teachers-2026/sets.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/sets.sh)
+scores each text three times with the 7B teacher (`--few-shot-sets 3`): with its 16 most similar gold examples,
+then with the next 16 and the 16 after those, and averages the three label distributions (demonstration
+ensembling). Against the same teacher with one set of 16, on Banking77:
+
+<!-- results: teachers-2026/sets/banking77.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| banking77-7b-similar16 | 16 similar examples, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.851 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.857 ± 0.001 | 0.856 ± 0.001 | 0.878 ± 0.003 | ONNX int8 | 1.0 | 34.1 | 23 |
+| banking77-7b-similar16-sets3 | 16 similar examples, 3 example sets, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.749 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.809 ± 0.002 | 0.801 ± 0.002 | 0.795 ± 0.003 | ONNX int8 | 0.9 | 34.0 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+and on CLINC150, with the shortlist of 20 plus out of scope:
+
+<!-- results: teachers-2026/sets/clinc150.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| clinc150-7b-similar16 | 16 similar examples, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.775 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.767 ± 0.006 | 0.834 ± 0.003 | 0.796 ± 0.004 | ONNX int8 | 0.8 | 22.2 | 23 |
+| clinc150-7b-similar16-sets3 | 16 similar examples, 3 example sets, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.702 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.749 ± 0.005 | 0.816 ± 0.003 | 0.734 ± 0.004 | ONNX int8 | 0.9 | 23.0 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+Three sets lower the teacher by 10 points on Banking77 (0.851 to 0.749) and 7 on CLINC150 (0.775 to 0.702), and
+the students follow (0.857 to 0.809, 0.767 to 0.749), at three times the labelling cost. With 8 gold examples
+per class, a text's class has at most 8 examples to show, so the later sets hold few or none of them, and
+averaging those sets in dilutes the one that does. One set stays the default.
+
 ## A vLLM teacher agrees with the local one
 
 [`examples/vllm-smoke.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/vllm-smoke.sh)

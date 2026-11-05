@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- RESULTS.md: demonstration ensembling (`--few-shot-sets 3`) measured on Banking77 and CLINC150 with the 7B
+  teacher; three sets of 16 similar examples were worse than one, for the teacher and the student.
+
 ## 0.5.0 (2026-11-05)
 
 Highlights:

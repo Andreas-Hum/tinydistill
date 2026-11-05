@@ -247,6 +247,10 @@ tinydistill label task.yaml --data train.csv --few-shot-similar 8 --few-shot-set
   memory, its own score cache, its scores in `teacher_scores` (which `analyse` reads). With `--prompts` the
   members are every prompt with every set; with several teachers, every teacher with each of those.
 - Labelling takes about K times as long as with one set.
+- With 8 gold examples per class, three sets of 16 were worse than one on Banking77 and CLINC150, for the
+  teacher and the student; see [Results](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#several-sets-of-similar-examples-worse-than-one).
+  The later sets' examples are less similar to the text, so the option is more likely to help with more gold
+  examples per class to draw from.
 - It needs `--few-shot-similar`; with only `--few-shot`, every text sees the same examples, and sets of them
   are not offered. K·M must be smaller than the number of gold examples to pick from, since a training text is
   never its own example; `label` stops otherwise.
