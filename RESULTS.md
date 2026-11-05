@@ -375,6 +375,74 @@ accurate on windows (0.875) than on whole reviews (0.934), because one window of
 whole review; the truncated student learns from the whole-review teacher yet still sees only the first 128
 tokens.
 
+## Newer teachers: Qwen3.5 and Gemma 4
+
+[`examples/teachers-2026/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/run.sh)
+scores the same dev splits that `tune` uses with Qwen2.5-7B and four newer models, all in 4 bit: teacher accuracy
+only, before any student is trained. AG News (200 dev texts, zero-shot):
+
+<!-- results: teachers-2026/ag-news.md -->
+| Teacher | Prompt | Few-shot examples per class | Dev accuracy | Dev macro-F1 | Seconds per text |
+|---|---|---|---|---|---|
+| `Qwen/Qwen3.5-4B` | task.yaml | 0 | 0.820 | 0.840 | 0.179 |
+| `Qwen/Qwen3.5-9B` | task.yaml | 0 | 0.795 | 0.814 | 0.213 |
+| `google/gemma-4-E4B-it` | task.yaml | 0 | 0.765 | 0.784 | 0.182 |
+| `google/gemma-4-12B-it` | task.yaml | 0 | 0.750 | 0.770 | 0.228 |
+| `Qwen/Qwen2.5-7B-Instruct` | task.yaml | 0 | 0.640 | 0.655 | 0.015 |
+
+Scored on 200 gold-labelled training texts held out from the few-shot examples (not the test set), best first.
+
+Best: `tinydistill run examples/ag-news/task.yaml --teacher Qwen/Qwen3.5-4B --data ... --out ...`
+<!-- /results -->
+
+Banking77 (500 dev texts), zero-shot and with 8 examples per class:
+
+<!-- results: teachers-2026/banking77.md -->
+| Teacher | Prompt | Few-shot examples per class | Dev accuracy | Dev macro-F1 | Seconds per text |
+|---|---|---|---|---|---|
+| `Qwen/Qwen3.5-9B` | task.yaml | 8 | 0.850 | 0.836 | 6.652 |
+| `google/gemma-4-12B-it` | task.yaml | 8 | 0.840 | 0.831 | 11.957 |
+| `Qwen/Qwen3.5-4B` | task.yaml | 8 | 0.804 | 0.795 | 6.619 |
+| `google/gemma-4-E4B-it` | task.yaml | 8 | 0.794 | 0.780 | 3.917 |
+| `Qwen/Qwen2.5-7B-Instruct` | task.yaml | 8 | 0.768 | 0.744 | 0.187 |
+| `google/gemma-4-12B-it` | task.yaml | 0 | 0.712 | 0.680 | 2.936 |
+| `Qwen/Qwen3.5-9B` | task.yaml | 0 | 0.668 | 0.641 | 1.471 |
+| `Qwen/Qwen3.5-4B` | task.yaml | 0 | 0.638 | 0.611 | 1.268 |
+| `Qwen/Qwen2.5-7B-Instruct` | task.yaml | 0 | 0.616 | 0.571 | 0.115 |
+| `google/gemma-4-E4B-it` | task.yaml | 0 | 0.572 | 0.541 | 0.674 |
+
+Scored on 500 gold-labelled training texts held out from the few-shot examples (not the test set), best first.
+
+Best: `tinydistill run examples/banking77/task.yaml --teacher Qwen/Qwen3.5-9B --few-shot 8 --data ... --out ...`
+<!-- /results -->
+
+Danish MASSIVE (500 dev texts), zero-shot and with 8 examples per intent:
+
+<!-- results: teachers-2026/massive-da.md -->
+| Teacher | Prompt | Few-shot examples per class | Dev accuracy | Dev macro-F1 | Seconds per text |
+|---|---|---|---|---|---|
+| `google/gemma-4-12B-it` | task.yaml | 8 | 0.814 | 0.779 | 10.780 |
+| `Qwen/Qwen3.5-9B` | task.yaml | 8 | 0.798 | 0.772 | 6.159 |
+| `Qwen/Qwen3.5-4B` | task.yaml | 8 | 0.780 | 0.709 | 6.020 |
+| `google/gemma-4-E4B-it` | task.yaml | 8 | 0.752 | 0.740 | 3.662 |
+| `google/gemma-4-12B-it` | task.yaml | 0 | 0.730 | 0.717 | 2.609 |
+| `Qwen/Qwen2.5-7B-Instruct` | task.yaml | 8 | 0.700 | 0.701 | 0.180 |
+| `Qwen/Qwen3.5-9B` | task.yaml | 0 | 0.696 | 0.670 | 1.459 |
+| `google/gemma-4-E4B-it` | task.yaml | 0 | 0.690 | 0.680 | 0.728 |
+| `Qwen/Qwen3.5-4B` | task.yaml | 0 | 0.688 | 0.665 | 1.422 |
+| `Qwen/Qwen2.5-7B-Instruct` | task.yaml | 0 | 0.598 | 0.561 | 0.127 |
+
+Scored on 500 gold-labelled training texts held out from the few-shot examples (not the test set), best first.
+
+Best: `tinydistill run examples/massive-da/task.yaml --teacher google/gemma-4-12B-it --few-shot 8 --data ... --out ...`
+<!-- /results -->
+
+Every newer teacher is more accurate than Qwen2.5-7B with the same prompt: on AG News zero-shot the 4B Qwen3.5
+reaches 0.820 against 0.640, with 8 examples per class on Banking77 Qwen3.5-9B reaches 0.850 against 0.768, and on
+Danish Gemma 4 12B reaches 0.814 against 0.700. They were also much slower per text in these runs (4 to 12 seconds
+against under 0.2 with 8 examples per class), because their linear-attention or sliding-window layers kept
+tinydistill from packing texts and it scored them one at a time; later versions score them as rows of a batch.
+
 ## A vLLM teacher agrees with the local one
 
 [`examples/vllm-smoke.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/vllm-smoke.sh)
