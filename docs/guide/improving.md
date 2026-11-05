@@ -128,8 +128,9 @@ tinydistill refresh RUN --log cascade.jsonl --out RUN2
 ```
 
 The new student trains with RUN's own settings: student, epochs, seeds, learning rate, batch size, gold labels,
-`--init-head`, `--max-length` and int8 export. A training flag given with another value than its default
-replaces RUN's, as in `refresh RUN ... --epochs 20`.
+`--init-head`, `--trim-vocab`, `--max-length` and int8 export. A training flag given with another value than its
+default replaces RUN's, as in `refresh RUN ... --epochs 20`. A trimmed student is trimmed again, to the tokens of
+the new training texts, so the logged texts' tokens join its vocabulary.
 
 ## Target the student's confusions: improve
 

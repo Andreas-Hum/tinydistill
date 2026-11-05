@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `train --trim-vocab` cuts the student's vocabulary to the tokens of the run's training and test texts before
+  training (vocabulary trimming, Ushio et al., 2023), plus the special tokens and the `--trim-keep K` (default
+  1000) most frequent tokens of the original vocabulary. The embedding matrix keeps only those rows and the
+  tokenizer (`tokenizer.json`, and `vocab.txt` where one is written) is rebuilt to match, so the exported ONNX
+  model, `Predictor`, `serve` and `web` use it unchanged. It works for WordPiece (BERT, MiniLM), Unigram (XLM-R,
+  the multilingual MiniLM) and BPE (mmBERT's Gemma tokenizer, byte-level BPE) tokenizers and for the static
+  student. A text whose tokens were all kept gets the same tokens and logits as with the full vocabulary; other
+  texts fall back to kept pieces, bytes or the unknown token. `meta.json` records `trim_vocab`, `trim_keep` and
+  the student's `vocab_size`; `refresh` and `improve` keep the setting. In Python: `student.trim_vocab` and
+  `train_student(trim_texts=...)`.
 - `web`: the main page and the explainer have tabs to each other ("Try it", "Inside the model"), and the main
   page links to the explainer under the answer; the links carry the current text (`?text=`). The tabs appear only
   when the explainer was written. The explainer has a guided tour (its "Guided tour" button, or `?tour=1`): eleven
