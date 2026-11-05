@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `web`: the detail panel of "Inside the model" (attention matrix, embeddings, token map, classifier) takes about
+  half of the middle column instead of a fixed 290 pixels, and each drawing is drawn to fit its box, so nothing is
+  cut off and the panel no longer scrolls its controls out of sight; only the text beside a drawing scrolls. A
+  handle above the tabs resizes the panel (mouse, touch or arrow keys; double-click resets) and the page remembers
+  the size. "Expand" opens the panel in a large view over the page.
 - `web`: "Inside the model" (the explainer) is the main page, `site/index.html`, and the simpler page moves to
   `site/simple/`; the tabs read "Inside the model" and "Simple". A student without the layer view gets only the
   simple page. An old `site/explainer/` forwards to the new address.

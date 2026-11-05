@@ -78,8 +78,11 @@ with this run's cross-entropy weight. Hovering a token highlights it everywhere 
 row and column in the attention matrix, its point in the token map); hovering a layer shows its heads as small
 multiples, and clicking a head pins it. Tabs under the network hold the details: one head's full attention matrix,
 the embeddings, a map of the token vectors per layer (PCA, computed in the page) and the terms of the classifier's
-score. "Math" shows each one's formulas with the current numbers, rendered with [KaTeX](https://katex.org). On a
-phone the panes stack and the network scrolls inside its own box.
+score. "Math" shows each one's formulas with the current numbers, rendered with [KaTeX](https://katex.org). The
+details take about half of the middle column and each drawing is sized to fit it; drag the edge above the tabs (or
+focus it and use the arrow keys) to give them more or less room, and double-click it to reset. The page remembers
+the size. "Expand" opens the details in a large view over the page; Escape closes it. On a phone the panes stack,
+the network scrolls inside its own box and each drawing takes its own height.
 
 Both pages have two tabs at the top, "Inside the model" (the main page) and "Simple", and the simple page has a
 link under the answer, "See inside the model on this text". The
