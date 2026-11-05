@@ -231,6 +231,24 @@ def markdown_table(results: dict) -> str:
             f"The teacher's prompt shows {tr['few_shot']} gold training examples per class "
             f"({tr.get('n_examples')} texts). " + trained
         )
+    if probe := tr.get("probe"):
+        dev = probe.get("dev")
+        trained = (
+            (
+                "The teacher is"
+                if probe.get("only")
+                else "The teacher's probabilities are averaged with those of"
+            )
+            + f" a linear probe on its hidden states, fit on {probe['n_gold']} gold training texts"
+            + (
+                f"; fit on {dev['n_fit']} of them, teacher accuracy on the other {dev['n_dev']} is "
+                f"{dev['in_context']:.1%} in context, {dev['probe']:.1%} for the probe and "
+                f"{dev['combined']:.1%} combined. "
+                if dev
+                else ". "
+            )
+            + trained
+        )
     if tr.get("gold_only"):
         trained += (
             f" The baseline is the same student trained with cross-entropy on those {tr.get('n_gold')} gold "
