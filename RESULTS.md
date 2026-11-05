@@ -258,6 +258,29 @@ the plain shortlist: with fewer competing labels, the teacher picks "out of scop
 A zero-shot teacher still recognises few out-of-scope requests; the same student trained on all gold labels
 reaches 0.87 ([`clinc150-7b-full.md`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/clinc150/clinc150-7b-full.md)).
 
+### "None of these" as an outside label, and similar examples
+
+[`examples/clinc150/outside.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/clinc150/outside.sh)
+makes out of scope the task's `outside` label (`outside: none of these`, listed last in the prompt) instead of one
+intent among the others, with the same shortlist of 20 plus that label. Then the teacher also sees each text's
+16 most similar of 8 gold examples per label (`--few-shot-similar 16 --gold-per-class 8`):
+
+<!-- results: clinc150/outside.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| clinc150-7b-shortlist20-keep-oos | zero-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.581 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.573 ± 0.003 | 0.604 ± 0.005 | 0.724 ± 0.003 | ONNX int8 | 1.6 | 29.0 | 23 |
+| clinc150-7b-outside | zero-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.575 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.567 ± 0.007 | 0.594 ± 0.004 | 0.719 ± 0.005 | ONNX int8 | 1.0 | 22.7 | 23 |
+| clinc150-7b-outside-similar16 | 16 similar examples, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.769 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.767 ± 0.002 | 0.832 ± 0.001 | 0.791 ± 0.001 | ONNX int8 | 1.6 | 42.5 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+The outside label alone changes little (0.567 against 0.573). The similar examples are what matter: the teacher
+rises from 0.575 to 0.769 and the student follows to 0.767, with 0.915 in-scope accuracy deployed
+([`clinc150-7b-outside-similar16.md`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/clinc150/clinc150-7b-outside-similar16.md)).
+Out-of-scope requests are still the weak part: the teacher marks few of them as such (recall 0.126), though
+nearly always correctly (precision 0.969).
+
 ## AG News: the task file depends on the teacher
 
 News articles in four topics ([AG News](https://huggingface.co/datasets/fancyzhx/ag_news)), the example in the
