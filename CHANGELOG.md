@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Demonstration ensembling: `label --few-shot-similar M --few-shot-sets K` scores each text K times, set k
+  showing it ranks k·M+1 to (k+1)·M of its most similar gold examples, and averages the label probabilities
+  (Khalifa et al., 2023). Each set is a member of the teacher with its own score cache, as in a prompt ensemble.
+  Local, vLLM and hosted API teachers. The default, one set, leaves fingerprints and caches unchanged.
 - `run --budget N` labels a random sample of N texts by default (`--rounds` now defaults to 1, was 4): on Banking77
   the uncertainty rounds were worse than a random sample of the same size at every budget tried (1,000, 2,500 and
   5,000 of 10,003 texts). `--rounds R` still picks each later round's texts by the student's uncertainty.

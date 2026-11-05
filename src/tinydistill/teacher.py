@@ -1043,13 +1043,15 @@ def load_teacher(
     similar: int = 0,
     similar_model: str | None = None,
     reason_tokens: int = 0,
+    similar_sets: int = 1,
 ) -> LabelScorer | VLLMScorer | ApiScorer:
     """A local teacher, or with ``vllm_url`` the same model served by vLLM, or with ``api_url`` the model
     ``name`` at a hosted OpenAI-compatible chat API (key in the environment variable ``api_key_env``); then
     ``device`` is not used. ``shortlist`` K: score only the K labels most similar to each text (for tasks with
     very many labels). ``api_samples`` N: the API teacher samples N answers at ``api_temperature`` instead of
     reading log-probabilities. ``similar`` M: ``examples`` is a pool of gold examples, and each text's prompt
-    shows the M most similar to it (embedded with ``similar_model``). ``reason_tokens`` K: the teacher
+    shows the M most similar to it (embedded with ``similar_model``); with ``similar_sets`` K the retriever
+    holds K buckets of M, and ``prompt_members`` makes a member per bucket. ``reason_tokens`` K: the teacher
     reasons in up to K tokens before it answers (``ReasoningScorer``, ``VLLMReasoningScorer``)."""
     if api_samples and not api_url:
         raise SystemExit("--api-samples works with --api-url")
@@ -1058,7 +1060,8 @@ def load_teacher(
         from .shortlist import DEFAULT_SHORTLIST_MODEL, Retriever
 
         where = "cpu" if api_url or vllm_url else pick_device(device)
-        retriever = Retriever(examples or [], similar, similar_model or DEFAULT_SHORTLIST_MODEL, where)
+        embedder = similar_model or DEFAULT_SHORTLIST_MODEL
+        retriever = Retriever(examples or [], similar, embedder, where, similar_sets)
         examples = None
     if api_url:
         if vllm_url:
@@ -1129,16 +1132,15 @@ def load_teacher(
 def prompt_members(scorer: Scorer, variants: list[Task]) -> list[Scorer]:
     """A prompt ensemble on one loaded model: ``scorer`` (the task's own prompt), then a scorer for each
     variant task file (same labels, another prompt), sharing the model, few-shot examples (or the retriever
-    of similar ones), shortlist and reasoning setting."""
-    if not variants:
-        return [scorer]
-    if not isinstance(scorer, LabelScorer):
-        raise SystemExit("prompt ensembles (--prompts) need a local teacher, not --vllm-url or --api-url")
-    make: Any = type(scorer)  # a ReasoningScorer's members reason too
-    extra = {"reason_tokens": scorer.reason_tokens} if isinstance(scorer, ReasoningScorer) else {}
-    return [
-        scorer,
-        *(
+    of similar ones), shortlist and reasoning setting. With example sets (a retriever with ``sets`` K above
+    1) each of these is K members in a row, one per bucket of similar examples, bucket 0 first."""
+    members = [scorer]
+    if variants:
+        if not isinstance(scorer, LabelScorer):
+            raise SystemExit("prompt ensembles (--prompts) need a local teacher, not --vllm-url or --api-url")
+        make: Any = type(scorer)  # a ReasoningScorer's members reason too
+        extra = {"reason_tokens": scorer.reason_tokens} if isinstance(scorer, ReasoningScorer) else {}
+        members += [
             make(
                 scorer.model,
                 scorer.tok,
@@ -1150,8 +1152,20 @@ def prompt_members(scorer: Scorer, variants: list[Task]) -> list[Scorer]:
                 **extra,
             )
             for t in variants
-        ),
-    ]
+        ]
+    sets = getattr(getattr(scorer, "similar", None), "sets", 1)
+    return [m if k == 0 else _bucket(m, k) for m in members for k in range(sets)]
+
+
+def _bucket(scorer: Any, k: int) -> Any:
+    """``scorer`` showing bucket k of its similar examples: a shallow copy that shares the model, the
+    embedder and (encoded first: every bucket's prompt starts alike) the cached prompt prefix."""
+    if isinstance(scorer, LabelScorer) and scorer._prefix_cache is None:
+        scorer._encode_prefix()
+    member = copy.copy(scorer)
+    member.similar = copy.copy(scorer.similar)
+    member.similar.bucket = k
+    return member
 
 
 def quick_key(
@@ -1166,6 +1180,8 @@ def quick_key(
     similar: int = 0,
     similar_model: str | None = None,
     reason_tokens: int = 0,
+    similar_sets: int = 1,
+    bucket: int = 0,
 ) -> str:
     """What decides a local teacher's cache fingerprint, from the tokenizer alone (no model weights): the
     rendered prompt and continuations, and how the model would be loaded. `label` maps it to the full
@@ -1189,7 +1205,8 @@ def quick_key(
     if similar:
         from .shortlist import DEFAULT_SHORTLIST_MODEL, retrieval_key
 
-        key["similar"] = retrieval_key(examples or [], similar, similar_model or DEFAULT_SHORTLIST_MODEL)
+        embedder = similar_model or DEFAULT_SHORTLIST_MODEL
+        key["similar"] = retrieval_key(examples or [], similar, embedder, similar_sets, bucket)
     if reason_tokens:
         key["reason"] = ["reason-v1", reason_tokens]
     return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]

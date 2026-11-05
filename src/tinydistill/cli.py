@@ -67,7 +67,8 @@ def _variants(task: Task, paths: list[str]) -> list[Task]:
 
 
 def _run_members(run: Path, meta: dict, task: Task, name: str, device: str, examples) -> list:
-    """One teacher of a run as it labelled: a scorer per prompt (the task's, then its variants)."""
+    """One teacher of a run as it labelled: a scorer per prompt (the task's, then its variants) and, with
+    example sets, per set of similar examples."""
     from .teacher import load_teacher, prompt_members
 
     scorer = load_teacher(
@@ -88,6 +89,7 @@ def _run_members(run: Path, meta: dict, task: Task, name: str, device: str, exam
         meta.get("few_shot_similar", 0),
         meta.get("few_shot_model"),
         meta.get("reason_tokens", 0) if meta.get("reason") else 0,
+        meta.get("few_shot_sets", 1),
     )
     return prompt_members(scorer, [load_task(run / f) for f in meta.get("prompts") or []])
 
@@ -126,6 +128,12 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
             "--few-shot-similar cannot be used with --chunk-tokens: a window is not its document's text, so "
             "the document, with its gold label, would be among its examples"
         )
+    sets = a.few_shot_sets
+    if sets < 1 or (sets > 1 and not a.few_shot_similar):
+        raise SystemExit(
+            "--few-shot-sets K needs --few-shot-similar M (each set shows a text another M of its K*M most "
+            "similar gold examples) and K must be positive"
+        )
     run = Path(a.out)
     run.mkdir(parents=True, exist_ok=True)
     prompt_files = [f"prompt-{i}.yaml" for i in range(1, len(variants) + 1)]
@@ -150,7 +158,18 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
         else:  # the pool for --few-shot-similar alone: every gold-labelled training text, once
             pairs = zip([e.text for e in rows], gold, strict=True)
             examples = list(dict.fromkeys((t, g) for t, g in pairs if g is not None))
-        if a.few_shot_similar:
+        if sets > 1 and sets * a.few_shot_similar >= len(examples):
+            raise SystemExit(
+                f"--few-shot-sets {sets} x --few-shot-similar {a.few_shot_similar} needs more than "
+                f"{sets * a.few_shot_similar} gold examples (a training text is never its own example), and "
+                f"there are {len(examples)}; use fewer sets or fewer examples per set"
+            )
+        if sets > 1:
+            log(
+                f"each text is scored {sets} times, each prompt with another {a.few_shot_similar} of its "
+                f"{sets * a.few_shot_similar} most similar of {len(examples)} gold examples"
+            )
+        elif a.few_shot_similar:
             log(f"each text's prompt: its {a.few_shot_similar} most similar of {len(examples)} gold examples")
         else:
             log(f"few-shot prompt with {len(examples)} gold examples ({a.few_shot} per class)")
@@ -174,8 +193,8 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     seconds, scored = 0.0, 0
     keys_file = cache_dir / "teacher-keys.json"  # quick key (tokenizer only) -> full fingerprint
     keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
-    for name in _teachers(a.teacher):  # one teacher in memory at a time, one member per prompt
-        quick: list[str | None] = [None] * (1 + len(variants))
+    for name in _teachers(a.teacher):  # one teacher in memory at a time, one member per prompt and set
+        quick: list[str | None] = [None] * ((1 + len(variants)) * sets)
         if not a.vllm_url and not a.api_url:  # a server's tokenizer and setup are not known locally
             quick = [
                 quick_key(
@@ -190,8 +209,11 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
                     a.few_shot_similar,
                     a.few_shot_model,
                     reason,
+                    sets,
+                    k,
                 )
                 for t in (task, *variants)
+                for k in range(sets)
             ]
             known = [keys.get(q) for q in quick]
             cached = [ScoreCache(cache_dir / f"teacher-{k}.jsonl") for k in known if k]
@@ -226,6 +248,7 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
             a.few_shot_similar,
             a.few_shot_model,
             reason,
+            sets,
         )
         if reason:
             log(
@@ -234,8 +257,13 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
             )
         device = str(scorer.device)
         members = prompt_members(scorer, variants)
-        for pi, (member, q) in enumerate(zip(members, quick, strict=True)):
-            who = name.split("/")[-1] + (f", prompt {pi}" if variants else "")  # prompt 0: the task's own
+        for mi, (member, q) in enumerate(zip(members, quick, strict=True)):
+            pi, k = divmod(mi, sets)  # prompt 0: the task's own
+            who = (
+                name.split("/")[-1]
+                + (f", prompt {pi}" if variants else "")
+                + (f", set {k}" if sets > 1 else "")
+            )
             fingerprints.append(member.fingerprint())
             if q:
                 keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
@@ -327,6 +355,7 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
             "prompt_sources": sources,
             "few_shot": a.few_shot,
             "few_shot_similar": a.few_shot_similar,
+            "few_shot_sets": sets,  # each teacher's members: prompts x sets, in that order
             "few_shot_model": a.few_shot_model,
             "n_examples": len(examples or []),
             "load_4bit": a.load_4bit,
@@ -675,9 +704,11 @@ def cmd_eval(a: argparse.Namespace) -> None:
     bar = Progress(
         "eval", len(teachers) * len(devices) + n_students + n_onnx, log, run / "status.json", "steps", every=0
     )
-    n_prompts = 1 + len(meta.get("prompts") or [])  # each teacher's members: one per prompt
+    n_prompts, sets = 1 + len(meta.get("prompts") or []), meta.get("few_shot_sets", 1)
+    n_members = n_prompts * sets  # each teacher's members: one per prompt and set of examples
     prompt = (
         (f"{meta['few_shot']}-shot" if meta.get("few_shot") else "zero-shot")
+        + (f", {sets} example sets" if sets > 1 else "")
         + (f", {n_prompts} prompts" if n_prompts > 1 else "")
         + (", 4-bit" if meta.get("load_4bit") else "")
         + (", reasoning" if meta.get("reason") else "")
@@ -688,7 +719,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
     members: list[dict] = []
     for ti, name in enumerate(teachers):
         own_scores = [
-            combine_scores(r["teacher_scores"][ti * n_prompts : (ti + 1) * n_prompts], multi)
+            combine_scores(r["teacher_scores"][ti * n_members : (ti + 1) * n_members], multi)
             if len(teachers) > 1
             else r["scores"]
             for r in labelled
@@ -830,6 +861,7 @@ def cmd_eval(a: argparse.Namespace) -> None:
                 "label_texts_scored",
                 "few_shot",
                 "few_shot_similar",
+                "few_shot_sets",
                 "few_shot_model",
                 "n_examples",
                 "ce_weight",
@@ -1590,6 +1622,15 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="M",
         help="show each text the M gold training examples most similar to it, most similar last (needs "
         "{examples} before {text}); with --few-shot K they are picked from those K per class",
+    )
+    label.add_argument(
+        "--few-shot-sets",
+        type=int,
+        default=1,
+        metavar="K",
+        help="with --few-shot-similar M: score each text K times, set k showing it ranks k*M+1 to (k+1)*M "
+        "of its most similar gold examples, and average the label probabilities (demonstration "
+        "ensembling; default 1)",
     )
     label.add_argument(
         "--few-shot-model", help="sentence-embedding model for --few-shot-similar (default: MiniLM)"

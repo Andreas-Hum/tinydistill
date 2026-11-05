@@ -504,6 +504,78 @@ def test_similar_examples_need_examples_before_text(lm, task):
         LabelScorer(model, tok, after, similar=Retriever(POOL, 2, TINY_ENCODER))
 
 
+def test_example_sets_are_consecutive_buckets_of_the_most_similar():
+    from tinydistill.shortlist import Retriever
+
+    r = Retriever(POOL, 2, TINY_ENCODER, sets=2)
+    texts = ["a good movie", "awful plot"]  # "awful plot" is in the pool: 4 others
+    sims = r.embed(texts) @ r.embed([t for t, _ in POOL]).T
+    buckets = []
+    for k in range(2):
+        r.bucket = k
+        buckets.append(r(texts))
+    for i, (t, row) in enumerate(zip(texts, sims.tolist(), strict=True)):
+        ranked = [POOL[j] for j in sorted(range(len(POOL)), key=row.__getitem__, reverse=True)]
+        ranked = [e for e in ranked if e[0] != t]  # most similar first, never the text itself
+        assert buckets[0][i] == ranked[:2][::-1] and buckets[1][i] == ranked[2:4][::-1]  # most similar last
+    r.bucket = 0
+    assert r.fingerprint() != Retriever(POOL, 2, TINY_ENCODER).fingerprint()  # set 0 of 2 is cached apart
+    one = Retriever(POOL, 2, TINY_ENCODER, sets=1)
+    assert one(texts) == Retriever(POOL, 2, TINY_ENCODER)(texts) and "bucket" not in one.fingerprint()
+
+
+@pytest.mark.parametrize("chat", [True, False])
+def test_example_set_members_score_their_own_bucket(lm, task, chat):
+    from tinydistill.shortlist import Retriever
+    from tinydistill.teacher import Ensemble, combine_scores, prompt_members
+
+    model, tok = lm
+    shots = type(task)(**{**task.__dict__, "prompt": SHOTS})
+    r = Retriever(POOL, 2, TINY_ENCODER, sets=2)
+    members = prompt_members(LabelScorer(model, tok, shots, use_chat_template=chat, similar=r), [])
+    assert len(members) == 2 and [m.similar.bucket for m in members] == [0, 1]
+    assert members[1].model is model and members[1]._prefix_cache is members[0]._prefix_cache
+    texts = ["a good movie", "awful plot", ""]
+    single = []  # each bucket as a teacher of its own
+    for k, member in enumerate(members):
+        own = Retriever(POOL, 2, TINY_ENCODER, sets=2)
+        own.bucket = k
+        alone = LabelScorer(model, tok, shots, use_chat_template=chat, similar=own)
+        assert alone.fingerprint() == member.fingerprint()
+        assert member.heads(texts) == [shots.shots(ex) + member.middle for ex in own(texts)]
+        for t, head, row in zip(texts, member.heads(texts), member.form_scores_many(texts), strict=True):
+            assert row.tolist() == pytest.approx(reference(member, t, head), abs=1e-4)
+        single.append(alone.score_many(texts))
+    assert len({m.fingerprint() for m in members}) == 2
+    for got, *per in zip(Ensemble(members).score_many(texts), *single, strict=True):
+        assert got == pytest.approx(combine_scores(per), abs=1e-9)
+
+
+@pytest.mark.skipif(
+    int(transformers.__version__.split(".")[0]) < 5,
+    reason="the hashes were recorded with transformers 5, whose tokenizers give other prompt ids",
+)
+def test_one_example_set_keeps_the_fingerprint_and_scores(lm, task):
+    """Recorded before --few-shot-sets existed: one set must reuse every cache of --few-shot-similar."""
+    from tinydistill.shortlist import Retriever
+    from tinydistill.teacher import load_teacher, prompt_members, quick_key
+
+    model, tok = lm
+    shots = type(task)(**{**task.__dict__, "prompt": SHOTS})
+    scorer = LabelScorer(model, tok, shots, similar=Retriever(POOL, 2, TINY_ENCODER, sets=1))
+    assert prompt_members(scorer, []) == [scorer]
+    assert scorer.fingerprint() == "01eecbc1416c7acf"
+    args = (TINY_LM, shots, "cpu", False, POOL)
+    assert quick_key(*args, similar=2, similar_model=TINY_ENCODER) == "5c1ddb6df7f1fa1d"
+    assert quick_key(*args, similar=2, similar_model=TINY_ENCODER, similar_sets=1) == "5c1ddb6df7f1fa1d"
+    before = [[-40.5956793023525, -20.82750732257472, -62.15195955521885]]
+    before += [[-40.59447630414402, -20.828520073733095, -62.1493730147607]]
+    for got, want in zip(scorer.score_many(["a good movie", "awful plot"]), before, strict=True):
+        assert got == pytest.approx(want, abs=1e-5)
+    loaded = load_teacher(TINY_LM, shots, "cpu", examples=POOL, similar=2, similar_model=TINY_ENCODER)
+    assert loaded.fingerprint() == "01eecbc1416c7acf"
+
+
 @pytest.fixture(scope="module")
 def hybrid(lm):
     """A tiny random Qwen3.5 (linear-attention layers between full-attention ones), built from a config."""

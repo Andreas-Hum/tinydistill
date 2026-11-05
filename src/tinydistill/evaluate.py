@@ -214,7 +214,14 @@ def markdown_table(results: dict) -> str:
         else f"The student learns only from the teacher's soft labels on {ds['n_train']} "
         "unlabelled training texts."
     )
-    if tr.get("few_shot_similar"):
+    if tr.get("few_shot_similar") and (tr.get("few_shot_sets") or 1) > 1:
+        k, m = tr["few_shot_sets"], tr["few_shot_similar"]
+        trained = (
+            f"The teacher scores each text {k} times, each prompt showing it another {m} of its {k * m} "
+            f"most similar of {tr.get('n_examples')} gold training examples, and averages the label "
+            "probabilities. " + trained
+        )
+    elif tr.get("few_shot_similar"):
         trained = (
             f"The teacher's prompt shows each text the {tr['few_shot_similar']} most similar of "
             f"{tr.get('n_examples')} gold training examples. " + trained

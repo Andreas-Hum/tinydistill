@@ -80,6 +80,62 @@ def test_prompt_ensemble_label_eval_and_cascade(tmp_path, capsys):
     assert results["models"][0]["latency_ms_b1"] > 0
 
 
+def test_example_sets_label_eval_and_cascade(tmp_path, capsys):
+    from conftest import TINY_ENCODER
+
+    from tinydistill.teacher import Ensemble, combine_scores
+
+    (tmp_path / "task.yaml").write_text(TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n"))
+    data = _data(tmp_path)
+    run = tmp_path / "run"
+    label = ["label", str(tmp_path / "task.yaml"), *data, "--test", str(tmp_path / "d.jsonl")]
+    label += ["--few-shot-similar", "2", "--few-shot-model", TINY_ENCODER, "--cache-dir", str(tmp_path / "c")]
+    main([*label, "--out", str(tmp_path / "one")])  # one set: --few-shot-similar as before
+    main([*label, "--few-shot-sets", "2", "--out", str(run)])
+    err = capsys.readouterr().err
+    assert "train: 6 texts scored now by tiny-random-LlamaForCausalLM, set 1" in err
+    meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
+    one = json.loads((tmp_path / "one" / "meta.json").read_text(encoding="utf-8"))
+    assert meta["few_shot_sets"] == 2 and one["few_shot_sets"] == 1 and len(one["fingerprints"]) == 1
+    assert len(set(meta["fingerprints"])) == 2 and one["fingerprint"] not in meta["fingerprints"]
+
+    rows = [json.loads(line) for line in (run / "train.jsonl").read_text(encoding="utf-8").splitlines()]
+    for r in rows:
+        assert len(r["teacher_scores"]) == 2
+        assert r["scores"] == pytest.approx(combine_scores(r["teacher_scores"]), abs=1e-9)
+    teacher = _run_teacher(run, "cpu")  # the cascade's (and refresh's, improve's) teacher
+    assert (
+        isinstance(teacher, Ensemble) and [m.fingerprint() for m in teacher.members] == meta["fingerprints"]
+    )
+    for r, s in zip(rows, teacher.score_many([r["text"] for r in rows]), strict=True):
+        assert s == pytest.approx(r["scores"], abs=1e-5)
+
+    main([*label, "--few-shot-sets", "2", "--out", str(run)])  # both sets from their caches
+    assert "every text is in the cache, so the teacher is not loaded" in capsys.readouterr().err
+    assert json.loads((run / "meta.json").read_text(encoding="utf-8"))["fingerprints"] == meta["fingerprints"]
+
+    main(["eval", str(run), "--teacher-reps", "1", "--reps", "1", "--device", "cpu"])
+    results = json.loads((run / "results.json").read_text(encoding="utf-8"))
+    assert results["models"][0]["name"] == "teacher, 2 similar examples, 2 example sets"
+    assert results["training"]["few_shot_sets"] == 2
+    assert "scores each text 2 times, each prompt showing it another 2 of its 4 most similar of 6" in (
+        run / "results.md"
+    ).read_text(encoding="utf-8")
+
+
+def test_example_sets_need_similar_examples_and_enough_of_them(tmp_path):
+    (tmp_path / "task.yaml").write_text(TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n"))
+    label = ["label", str(tmp_path / "task.yaml"), *_data(tmp_path), "--out", str(tmp_path / "run")]
+    with pytest.raises(SystemExit, match="needs --few-shot-similar"):
+        main([*label, "--few-shot-sets", "2"])
+    with pytest.raises(SystemExit, match="needs --few-shot-similar"):
+        main([*label, "--few-shot", "1", "--few-shot-sets", "2"])
+    with pytest.raises(SystemExit, match="positive"):
+        main([*label, "--few-shot-similar", "2", "--few-shot-sets", "0"])
+    with pytest.raises(SystemExit, match="needs more than 6 gold examples .* there are 6"):
+        main([*label, "--few-shot-similar", "2", "--few-shot-sets", "3"])
+
+
 def test_tune_proposes_instructions(tmp_path, monkeypatch, capsys):
     import tinydistill.tune
 

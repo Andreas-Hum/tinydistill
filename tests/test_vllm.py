@@ -10,7 +10,7 @@ import torch
 from conftest import TINY_LM
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from tinydistill.teacher import LabelScorer, VLLMScorer
+from tinydistill.teacher import LabelScorer, VLLMScorer, prompt_members
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +78,14 @@ def test_vllm_with_similar_examples_equals_local(fake_vllm, task):
     for got, want in zip(remote.score_many(texts), local.score_many(texts), strict=True):
         assert got == pytest.approx(want, abs=1e-4)
     assert remote.fingerprint() != VLLMScorer(url, TINY_LM, tok, shots).fingerprint()
+    sets = Retriever([("good film", 0), ("bad film", 1), ("so-so", 2)], 1, TINY_ENCODER, sets=2)
+    remote = prompt_members(VLLMScorer(url, TINY_LM, tok, shots, workers=2, similar=sets), [])
+    local = prompt_members(LabelScorer(model, tok, shots, similar=sets), [])
+    assert len(remote) == len(local) == 2 and remote[0].heads(texts) != remote[1].heads(texts)
+    for r_member, l_member in zip(remote, local, strict=True):
+        assert r_member.heads(texts) == l_member.heads(texts)
+        for got, want in zip(r_member.score_many(texts), l_member.score_many(texts), strict=True):
+            assert got == pytest.approx(want, abs=1e-4)
 
 
 def test_vllm_reasoning_equals_local_reasoning(fake_vllm, task, monkeypatch):

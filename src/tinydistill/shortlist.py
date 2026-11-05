@@ -75,22 +75,32 @@ class Shortlist(Embedder):
         return key | {"keep": self.keep} if self.keep else key
 
 
-def retrieval_key(pool: list[tuple[str, int]], m: int, model: str) -> dict:
-    """What decides the retrieved examples: the gold pool, M and the embedder (part of the fingerprint)."""
+def retrieval_key(pool: list[tuple[str, int]], m: int, model: str, sets: int = 1, bucket: int = 0) -> dict:
+    """What decides the retrieved examples: the gold pool, M and the embedder (part of the fingerprint), and
+    with several example sets, which of them."""
     pool_hash = hashlib.sha256(json.dumps(pool).encode()).hexdigest()[:16]
-    return {"m": m, "model": model, "pool": pool_hash}
+    key = {"m": m, "model": model, "pool": pool_hash}
+    return key | {"bucket": [bucket, sets]} if sets > 1 else key
 
 
 class Retriever(Embedder):
     """Per text, the M gold examples most similar to it (cosine similarity of sentence embeddings), as
     (text, label) pairs ordered from least to most similar, so the most similar ends up next to the text
-    (retrieved demonstrations, Liu et al. 2021). A text is never its own example."""
+    (retrieved demonstrations, Liu et al. 2021). A text is never its own example.
+
+    With ``sets`` K above 1 (demonstration ensembling, Khalifa et al. 2023) it picks bucket ``bucket`` k of
+    each text's K*M most similar examples: ranks k*M+1 to (k+1)*M, still ordered most similar last."""
 
     def __init__(
-        self, pool: list[tuple[str, int]], m: int, model: str = DEFAULT_SHORTLIST_MODEL, device: str = "cpu"
+        self,
+        pool: list[tuple[str, int]],
+        m: int,
+        model: str = DEFAULT_SHORTLIST_MODEL,
+        device: str = "cpu",
+        sets: int = 1,
     ):
         super().__init__(model, device)
-        self.pool, self.m = list(pool), m
+        self.pool, self.m, self.sets, self.bucket = list(pool), m, sets, 0
         self.vectors = self.embed([t for t, _ in self.pool]) if self.pool else None
         self.where: dict[str, list[int]] = {}  # text -> its positions in the pool
         for j, (t, _) in enumerate(self.pool):
@@ -102,11 +112,13 @@ class Retriever(Embedder):
         sims = self.embed(texts) @ self.vectors.T
         for i, t in enumerate(texts):
             sims[i, self.where.get(t, [])] = -torch.inf  # exact matches: never a text's own example
-        top = sims.topk(min(self.m, len(self.pool)), dim=1)
-        return [
-            [self.pool[j] for s, j in zip(vals.tolist(), idx.tolist(), strict=True) if s > -torch.inf][::-1]
+        top = sims.topk(min(self.m * self.sets, len(self.pool)), dim=1)
+        at = slice(self.bucket * self.m, (self.bucket + 1) * self.m)  # ranks, most similar first
+        ranked = (
+            [self.pool[j] for s, j in zip(vals.tolist(), idx.tolist(), strict=True) if s > -torch.inf]
             for vals, idx in zip(top.values, top.indices, strict=True)
-        ]
+        )
+        return [r[at][::-1] for r in ranked]
 
     def fingerprint(self) -> dict:
-        return retrieval_key(self.pool, self.m, self.model_name)
+        return retrieval_key(self.pool, self.m, self.model_name, self.sets, self.bucket)

@@ -344,6 +344,18 @@ def test_similar_examples_are_sent_per_text(api):
     assert shown.count(" -> ") == 2 and '"good film"' not in shown  # never its own example
     assert scorer.fingerprint() != ApiScorer(url, "m", shots, api_key_env=KEY_ENV).fingerprint()
 
+    from tinydistill.teacher import prompt_members  # example sets: each member sends its own bucket
+
+    sets = Retriever(pool, 1, TINY_ENCODER, sets=2)
+    members = prompt_members(ApiScorer(url, "m", shots, api_key_env=KEY_ENV, workers=1, similar=sets), [])
+    shown = []
+    for m in members:
+        state["requests"].clear()
+        m.score_many(["good film"])
+        shown.append(state["requests"][0][2]["messages"][0]["content"].split("Review:")[0])
+    assert [s.count(" -> ") for s in shown] == [1, 1] and shown[0] != shown[1]
+    assert not any('"good film"' in s for s in shown) and members[0].fingerprint() != members[1].fingerprint()
+
 
 def test_dry_run_estimates_the_cost_and_scores_nothing(api, tmp_path, capsys):
     from tinydistill.task import load_task

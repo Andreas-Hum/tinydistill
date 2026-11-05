@@ -187,6 +187,32 @@ With very many labels, see [Many labels](many-labels.md). For documents longer t
 `label --few-shot-similar M` shows each text the M gold examples most similar to it (Liu et al., 2021). See
 [A few gold labels](gold-labels.md#in-the-teachers-prompt).
 
+### Several sets of similar examples
+
+`label --few-shot-similar M --few-shot-sets K` scores each text K times. Set k shows it ranks k·M+1 to (k+1)·M
+of its most similar gold examples, ordered most similar last as with one set, and the soft labels are the mean
+of the K sets' label probabilities. Splitting the demonstrations into buckets, scoring each bucket's prompt
+separately and combining the predictions is demonstration ensembling ([Khalifa et al.,
+2023](https://arxiv.org/abs/2308.08780)).
+
+```sh
+tinydistill label task.yaml --data train.csv --few-shot-similar 8 --few-shot-sets 3 --out run
+```
+
+- Set 0 shows the same examples as `--few-shot-similar M` alone, and later sets show less similar ones. The
+  sets are consecutive ranks rather than a random split of the top K·M, so each set's examples are fixed by the
+  data and no seed enters the prompt.
+- Each set is a member of the teacher like a prompt in a [prompt ensemble](#prompt-ensembles): one model in
+  memory, its own score cache, its scores in `teacher_scores` (which `analyse` reads). With `--prompts` the
+  members are every prompt with every set; with several teachers, every teacher with each of those.
+- Labelling takes about K times as long as with one set.
+- It needs `--few-shot-similar`; with only `--few-shot`, every text sees the same examples, and sets of them
+  are not offered. K·M must be smaller than the number of gold examples to pick from, since a training text is
+  never its own example; `label` stops otherwise.
+- It works with local, vLLM and hosted API teachers. `meta.json` records `few_shot_sets`, so `eval`, the
+  cascade, `refresh` and `improve` rebuild the same teacher. One set (the default) keeps the fingerprint and
+  cache of `--few-shot-similar` alone.
+
 ## Compare setups before labelling
 
 `tinydistill tune` scores combinations of teacher, few-shot examples and prompt on a few hundred gold-labelled
