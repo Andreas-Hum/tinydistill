@@ -51,7 +51,9 @@ def explorer_model(onnx_dir: Path, tmp: Path) -> Path:
     return onnx_file
 
 
-def explainer_data(onnx_dir: Path, size_mb: float, title: str | None = None, samples: int = 6) -> dict:
+def explainer_data(
+    onnx_dir: Path, size_mb: float, title: str | None = None, samples: int = 6, note: str | None = None
+) -> dict:
     """Everything the explainer page shows for a model, as the JSON it embeds, apart from where the model is
     (build_explainer adds the folder, ``model``; a page that loads it from the Hub adds ``repo``).
     ``size_mb``: the size of the explorer ONNX file. `push` uploads it in tinydistill-page.json."""
@@ -90,6 +92,7 @@ def explainer_data(onnx_dir: Path, size_mb: float, title: str | None = None, sam
         "text": {  # the page's text that depends on the model, by its data-t attribute
             "title": title or (meta.get("task") or run.name).replace("-", " ").replace("_", " ").title(),
             "summary": _summary(res or None, deployed),
+            "note": note or "",  # the footer line: where the data comes from and its licence
         },
     }
 
@@ -99,6 +102,8 @@ def render_explainer(
 ) -> Path:
     """Write ``out/index.html`` from a model's explainer data (explainer_data plus ``model`` or ``repo``).
     ``hub``: other models for the picker, repo -> tinydistill-page.json."""
+    note = note if note is not None else data["text"].get("note", "")  # `web --note`, else the model's own
+    data = data | {"text": data["text"] | {"note": note}}
     data = data | {"models": catalogue(data, True, hub or {}, "explainer")}
     page = (
         (Path(__file__).with_name("explainer.html").read_text(encoding="utf-8"))

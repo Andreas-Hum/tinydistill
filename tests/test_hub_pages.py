@@ -108,6 +108,12 @@ def test_push_uploads_the_browser_files(tmp_path, hub):
     assert page["explainer"]["file"] == "explorer" and page["explainer"]["dtype"] == "q8"
     assert "model" not in page["simple"] and "model" not in page["explainer"]  # no local folder
 
+    # --title and --note: what the pages show for this model (the footer note swaps with the model)
+    main(["push", str(onnx), "--repo", "me/single", "--title", "Reviews", "--note", "Data: CC BY 4.0."])
+    page = json.loads((repo / "tinydistill-page.json").read_text())
+    for p in ("simple", "explainer"):
+        assert page[p]["text"]["title"] == "Reviews" and page[p]["text"]["note"] == "Data: CC BY 4.0."
+
     multi = _run(tmp_path / "multi", ("a", "b", "c"), multi=True, int8=False)
     main(["push", str(multi), "--repo", "me/multi"])
     assert _files(hub / "me" / "multi") - _files(multi) == {

@@ -325,7 +325,7 @@
       <div class="toks" id="tokens"></div>
       <footer>Made with <a href="https://github.com/Andreas-Hum/tinydistill">tinydistill</a>,
         <a href="https://github.com/huggingface/transformers.js">transformers.js</a> and
-        <a href="https://katex.org">KaTeX</a>. __NOTE__</footer>
+        <a href="https://katex.org">KaTeX</a>. <span data-t="note">__NOTE__</span></footer>
     </aside>
 
     <main id="centre" aria-label="The network">
@@ -1283,7 +1283,7 @@ __PICKER_JS__
     D = d; C = D.config; L = C.num_hidden_layers; H = C.num_attention_heads; DIM = C.hidden_size; NL = D.labels.length;
     Object.assign(ST, { layer: L - 1, head: -1, peek: null, hover: null, pin: null, mapLayer: L, label: 0 });
     document.title = `${D.text.title}: inside the model`;
-    for (const e of document.querySelectorAll("[data-t]")) e.textContent = D.text[e.dataset.t];
+    for (const e of document.querySelectorAll("[data-t]")) e.textContent = D.text[e.dataset.t] ?? "";
     $("samples").replaceChildren(...D.samples.map((s) => el("button", { className: "chip", title: s.text,
       "aria-pressed": "false", onclick: () => { text.value = s.text; run(); } }, el("span", { textContent: s.text }))));
   }

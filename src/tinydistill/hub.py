@@ -78,13 +78,16 @@ def model_card(onnx_dir: Path, repo: str, license: str | None = None) -> str:
 PAGE_FILE = "tinydistill-page.json"
 
 
-def repo_files(onnx_dir: Path, tmp: Path) -> dict[str, Path]:
+def repo_files(
+    onnx_dir: Path, tmp: Path, title: str | None = None, note: str | None = None
+) -> dict[str, Path]:
     """Every file `push` uploads, by its path in the repository: the export as it is (for ``Predictor``), and
     for the browser pages of `tinydistill web --models/--remote` the ONNX models in the transformers.js layout
     (``onnx/model_quantized.onnx`` for int8, else ``onnx/model.onnx``; the explainer's as
     ``onnx/explorer_quantized.onnx`` or ``onnx/explorer.onnx`` when the run's PyTorch student has one) and
     PAGE_FILE, the data each page embeds: {"simple": ..., "explainer": ... or null}. Static students have no
-    page, so only the export. Files it writes go to ``tmp``."""
+    page, so only the export. Files it writes go to ``tmp``. ``title`` and ``note`` (the footer line, such as
+    the dataset and its licence) are what the pages show for the model."""
     from .explainer import explainer_data, explorer_model
     from .static import is_static
     from .web import site_data, site_model
@@ -94,11 +97,11 @@ def repo_files(onnx_dir: Path, tmp: Path) -> dict[str, Path]:
         return files
     suffix = "_quantized" if (onnx_dir / "model.int8.onnx").exists() else ""
     files[f"onnx/model{suffix}.onnx"] = model = site_model(onnx_dir, tmp / "simple")
-    page = {"simple": site_data(onnx_dir, model.stat().st_size / 1e6), "explainer": None}
+    page = {"simple": site_data(onnx_dir, model.stat().st_size / 1e6, title, note=note), "explainer": None}
     try:
         files[f"onnx/explorer{suffix}.onnx"] = explorer_model(onnx_dir, tmp / "explainer")
         size = files[f"onnx/explorer{suffix}.onnx"].stat().st_size / 1e6
-        page["explainer"] = explainer_data(onnx_dir, size) | {"file": "explorer"}  # model_file_name
+        page["explainer"] = explainer_data(onnx_dir, size, title, note=note) | {"file": "explorer"}
     except ValueError as e:
         print(f"no explainer page: {e}", file=sys.stderr)
     tmp.mkdir(parents=True, exist_ok=True)
@@ -118,7 +121,14 @@ def page_json(repo: str) -> dict | None:
         return None
 
 
-def push(onnx_dir: Path, repo: str, private: bool = False, license: str | None = None) -> str:
+def push(
+    onnx_dir: Path,
+    repo: str,
+    private: bool = False,
+    license: str | None = None,
+    title: str | None = None,
+    note: str | None = None,
+) -> str:
     """Upload an exported model directory to the Hub (needs `huggingface-cli login` or HF_TOKEN), with the
     files the browser pages need (repo_files), in one commit."""
     from huggingface_hub import CommitOperationAdd, HfApi
@@ -129,6 +139,6 @@ def push(onnx_dir: Path, repo: str, private: bool = False, license: str | None =
     api = HfApi()
     url = api.create_repo(repo, private=private, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
-        ops = [CommitOperationAdd(k, str(v)) for k, v in repo_files(onnx_dir, Path(tmp)).items()]
+        ops = [CommitOperationAdd(k, str(v)) for k, v in repo_files(onnx_dir, Path(tmp), title, note).items()]
         api.create_commit(repo, ops, commit_message="Upload model from tinydistill")
     return str(url)

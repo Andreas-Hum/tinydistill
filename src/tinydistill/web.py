@@ -256,7 +256,7 @@ PAGE = r"""<!doctype html>
   </ol>
   </details>
   <footer>Made with <a href="https://github.com/Andreas-Hum/tinydistill">tinydistill</a> and
-    <a href="https://github.com/huggingface/transformers.js">transformers.js</a>. __NOTE__</footer>
+    <a href="https://github.com/huggingface/transformers.js">transformers.js</a>. <span data-t="note">__NOTE__</span></footer>
 </main>
 <script type="application/json" id="data">__DATA__</script>
 <script type="module">
@@ -302,7 +302,7 @@ __PICKER_JS__
   let N = 0;
   function fill() {  // everything that comes from the model's data: at the start, and when another model is picked
     document.title = D.text.title;
-    for (const e of document.querySelectorAll("[data-t]")) e.textContent = D.text[e.dataset.t];
+    for (const e of document.querySelectorAll("[data-t]")) e.textContent = D.text[e.dataset.t] ?? "";
     showCard();
     $("samples").replaceChildren(...D.samples.slice(0, D.buttons).map((s) => el("button", { className: "ghost sample",
       textContent: short(s.text), title: s.text, onclick: () => { text.value = s.text; classify(); } })));
@@ -1095,7 +1095,9 @@ def _read(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
-def site_data(onnx_dir: Path, size_mb: float, title: str | None = None, samples: int = 6) -> dict:
+def site_data(
+    onnx_dir: Path, size_mb: float, title: str | None = None, samples: int = 6, note: str | None = None
+) -> dict:
     """Everything the simple page shows for a model, as the JSON it embeds, apart from where the model is
     (build_site adds the folder, ``model``; a page that loads it from the Hub adds ``repo``). ``size_mb``: the
     size of the ONNX file it runs; ``samples``: example buttons (one per gold label). `tinydistill push`
@@ -1160,6 +1162,7 @@ def site_data(onnx_dir: Path, size_mb: float, title: str | None = None, samples:
             "nlabels": str(len(labels)),
             "activation": "sigmoid per label" if multi else "softmax",
             "teacher": teacher,
+            "note": note or "",  # the footer line: where the data comes from and its licence
         },
     }
 
@@ -1174,6 +1177,8 @@ def render_site(
     """Write ``out/index.html`` from a model's page data (site_data plus ``model`` or ``repo``). ``explainer``:
     the explainer page is one folder up, so this page gets tabs to it. ``hub``: other models for the picker,
     repo -> tinydistill-page.json."""
+    note = note if note is not None else data["text"].get("note", "")  # `web --note`, else the model's own
+    data = data | {"text": data["text"] | {"note": note}}
     text, rows = data["text"], data["samples"]
     data = data | {"models": catalogue(data, explainer, hub or {}, "simple")}
     buttons = "\n    ".join(

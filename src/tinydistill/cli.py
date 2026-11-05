@@ -1077,7 +1077,7 @@ def cmd_init(a: argparse.Namespace) -> None:
 def cmd_push(a: argparse.Namespace) -> None:
     from .hub import push
 
-    print(push(Path(a.model), a.repo, a.private, a.license))
+    print(push(Path(a.model), a.repo, a.private, a.license, a.title, a.note))
 
 
 def cmd_analyse(a: argparse.Namespace) -> None:
@@ -1846,6 +1846,8 @@ def build_parser() -> argparse.ArgumentParser:
     psh.add_argument(
         "--license", help="licence identifier for the model card (check student, teacher and data)"
     )
+    psh.add_argument("--title", help="the model's title in the browser pages (default: from the task name)")
+    psh.add_argument("--note", help="the pages' footer line for this model, e.g. the dataset and its licence")
     psh.set_defaults(fn=cmd_push)
     sub.add_parser(
         "report", parents=[run_dir], help="rebuild RUN/results.md from RUN/results.json"
