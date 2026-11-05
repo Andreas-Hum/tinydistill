@@ -20,6 +20,15 @@ TEXTS = [
 OOV = ["日本語のテキスト Ωμέγα zzqx", "ÆØÅ æøå"]
 
 
+def _hub_tokenizer(name):
+    """A real tokenizer from the Hugging Face Hub; the test is skipped when the Hub cannot be reached or
+    refuses the download (it rate-limits shared CI machines)."""
+    try:
+        return AutoTokenizer.from_pretrained(name)
+    except OSError as e:
+        pytest.skip(f"could not download the {name} tokenizer: {str(e).splitlines()[0]}")
+
+
 def _tiny(family):
     """A random tiny classifier with a real tokenizer of each family: WordPiece (BERT), Unigram (the XLM-R
     tokenizer of the multilingual MiniLM), byte-fallback BPE (mmBERT's Gemma tokenizer) and byte-level BPE
@@ -39,14 +48,12 @@ def _tiny(family):
         return model.eval(), AutoTokenizer.from_pretrained(TINY_ENCODER)
     small = dict(hidden_size=16, intermediate_size=32, num_attention_heads=2, num_labels=3)
     if family == "unigram":
-        tok = AutoTokenizer.from_pretrained("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+        tok = _hub_tokenizer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
         config = XLMRobertaConfig(
             vocab_size=len(tok), num_hidden_layers=1, pad_token_id=tok.pad_token_id, **small
         )
         return XLMRobertaForSequenceClassification(config).eval(), tok
-    tok = AutoTokenizer.from_pretrained(
-        "jhu-clsp/mmBERT-small" if family == "bpe" else "answerdotai/ModernBERT-base"
-    )
+    tok = _hub_tokenizer("jhu-clsp/mmBERT-small" if family == "bpe" else "answerdotai/ModernBERT-base")
     ids = {k: getattr(tok, k) for k in ("pad_token_id", "cls_token_id", "sep_token_id")}
     config = ModernBertConfig(
         vocab_size=len(tok),
