@@ -1,5 +1,6 @@
-"""Fill every `<!-- results: <file> -->` ... `<!-- /results -->` block in README.md and RESULTS.md with that
-results file (relative to examples/). Blocks whose file does not exist yet are left as they are.
+"""Fill every `<!-- results: <file> -->` ... `<!-- /results -->` block in README.md, RESULTS.md and
+docs/how-it-compares.md with that results file (relative to examples/). Blocks whose file does not exist yet
+are left as they are.
 
 It first writes examples/headline.md, the README's summary table, from the saved results files."""
 
@@ -55,8 +56,8 @@ def fill(m: re.Match) -> str:
 table = headline()
 if table:
     (examples / "headline.md").write_text(table, encoding="utf-8")
-for name in ("README.md", "RESULTS.md"):
+for name in ("README.md", "RESULTS.md", "docs/how-it-compares.md"):
     page = root / name
     if page.exists():
         page.write_text(block.sub(fill, page.read_text(encoding="utf-8")), encoding="utf-8")
-print("README and RESULTS updated")
+print("README, RESULTS and docs/how-it-compares.md updated")

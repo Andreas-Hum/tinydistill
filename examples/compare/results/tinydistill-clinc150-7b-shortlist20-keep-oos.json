@@ -1,0 +1,11 @@
+{
+  "task": "clinc150",
+  "method": "tinydistill",
+  "results_file": "clinc150/clinc150-7b-shortlist20-keep-oos.json",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "n_test": 5500,
+  "accuracy": 0.5738181818181818,
+  "macro_f1": 0.6061902718315326,
+  "latency_ms_b1": 1.1507614981383085,
+  "latency_threads": 2
+}

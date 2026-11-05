@@ -54,6 +54,7 @@ nav:
   - How it works: how-it-works.md
   - When to use it: when-to-use.md
   - Benchmarks: results.md
+  - How it compares: how-it-compares.md
   - Reference:
       - Command line: reference/cli.md
       - Python API: reference/python.md

@@ -1,0 +1,40 @@
+{
+  "task": "financial-tweets",
+  "method": "SetFit",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "short": "MiniLM-L6",
+  "n_gold": 24,
+  "n_test": 2388,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "accuracy": 0.4202959240647683,
+  "accuracy_std": 0.00649191287226886,
+  "accuracy_seeds": [
+    0.4128978224455611,
+    0.42294807370184256,
+    0.4250418760469012
+  ],
+  "macro_f1": 0.3990245667977181,
+  "macro_f1_std": 0.0049936978124157615,
+  "macro_f1_seeds": [
+    0.39327867903694047,
+    0.40147846626263756,
+    0.40231655509357606
+  ],
+  "train_seconds": 24.34987372033841,
+  "train_seconds_std": 0.5525761684630683,
+  "train_seconds_seeds": [
+    24.646397449017968,
+    24.690892635000637,
+    23.712331076996634
+  ],
+  "latency_ms_b1": 6.888571500894614,
+  "size_mb": 91.591651,
+  "device": "cpu",
+  "train_threads": 8,
+  "latency_threads": 2,
+  "settings": "1 epoch, 20 pair iterations, batch 32, logistic-regression head"
+}

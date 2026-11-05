@@ -1,0 +1,11 @@
+{
+  "task": "financial-tweets",
+  "method": "tinydistill",
+  "results_file": "financial-tweets/financial-tweets-ensemble.json",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "n_test": 2388,
+  "accuracy": 0.8304020100502513,
+  "macro_f1": 0.7807965298046712,
+  "latency_ms_b1": 1.6258380055660382,
+  "latency_threads": 2
+}

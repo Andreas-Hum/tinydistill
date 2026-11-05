@@ -1,0 +1,41 @@
+{
+  "task": "financial-tweets",
+  "method": "gold only",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "n_gold": 24,
+  "n_test": 2388,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "epochs": 5,
+  "accuracy": 0.31811836962590734,
+  "accuracy_std": 0.09967760056120306,
+  "accuracy_seeds": [
+    0.271356783919598,
+    0.4325795644891122,
+    0.25041876046901174
+  ],
+  "macro_f1": 0.2927986944773826,
+  "macro_f1_std": 0.06003288975262458,
+  "macro_f1_seeds": [
+    0.27176712044691775,
+    0.36051765030695243,
+    0.2461113126782776
+  ],
+  "train_seconds": 2.1061859836627264,
+  "train_seconds_std": 0.05591872791028378,
+  "train_seconds_seeds": [
+    2.1447529179858975,
+    2.0420544639928266,
+    2.131750569009455
+  ],
+  "int8_accuracy": 0.2730318257956449,
+  "latency_ms_b1": 1.6244990110863,
+  "size_mb": 23.043866,
+  "deployed_as": "ONNX int8",
+  "device": "cpu",
+  "train_threads": 16,
+  "latency_threads": 2
+}

@@ -1,0 +1,11 @@
+{
+  "task": "massive-da",
+  "method": "tinydistill",
+  "results_file": "massive-da/paraphrase-multilingual-MiniLM-L12-v2.json",
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "n_test": 2974,
+  "accuracy": 0.7592468056489576,
+  "macro_f1": 0.7035343948898823,
+  "latency_ms_b1": 2.6324009959353134,
+  "latency_threads": 2
+}

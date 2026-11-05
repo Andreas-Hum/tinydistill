@@ -1,0 +1,40 @@
+{
+  "task": "banking77",
+  "method": "SetFit",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "short": "MiniLM-L6",
+  "n_gold": 616,
+  "n_test": 3080,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "accuracy": 0.7955627705627705,
+  "accuracy_std": 0.0024368680193068287,
+  "accuracy_seeds": [
+    0.7931818181818182,
+    0.7954545454545454,
+    0.798051948051948
+  ],
+  "macro_f1": 0.7917981091637665,
+  "macro_f1_std": 0.0021934410072625816,
+  "macro_f1_seeds": [
+    0.7897357030705175,
+    0.791556109837538,
+    0.7941025145832439
+  ],
+  "train_seconds": 434.20071472399286,
+  "train_seconds_std": 7.698082332721701,
+  "train_seconds_seeds": [
+    435.5477944309823,
+    441.13634721699054,
+    425.9180025240057
+  ],
+  "latency_ms_b1": 5.427088006399572,
+  "size_mb": 91.753526,
+  "device": "cpu",
+  "train_threads": 16,
+  "latency_threads": 2,
+  "settings": "1 epoch, 20 pair iterations, batch 32, logistic-regression head"
+}

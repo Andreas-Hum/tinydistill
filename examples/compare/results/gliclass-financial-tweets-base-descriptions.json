@@ -1,0 +1,22 @@
+{
+  "task": "financial-tweets",
+  "method": "GLiClass",
+  "model": "knowledgator/gliclass-base-v3.0",
+  "short": "base, names and descriptions",
+  "labels": [
+    "bearish: negative, for example a downgrade, weak results or falling prices",
+    "bullish: positive, for example an upgrade, strong results or rising prices",
+    "neutral: neither, for example plain news or a mixed message"
+  ],
+  "n_gold": 0,
+  "n_test": 2388,
+  "accuracy": 0.6323283082077052,
+  "macro_f1": 0.624875499680889,
+  "test_seconds": 92.4753106610151,
+  "tokens_longest_input": 121,
+  "latency_ms_b1": 142.7526290062815,
+  "size_mb": 746.183688,
+  "device": "cpu",
+  "test_threads": 16,
+  "latency_threads": 2
+}

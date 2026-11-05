@@ -1,0 +1,22 @@
+{
+  "task": "financial-tweets",
+  "method": "GLiClass",
+  "model": "knowledgator/gliclass-base-v3.0",
+  "short": "base",
+  "labels": [
+    "bearish",
+    "bullish",
+    "neutral"
+  ],
+  "n_gold": 0,
+  "n_test": 2388,
+  "accuracy": 0.6758793969849246,
+  "macro_f1": 0.6645040336570366,
+  "test_seconds": 94.31864350198884,
+  "tokens_longest_input": 84,
+  "latency_ms_b1": 112.8053800057387,
+  "size_mb": 746.183688,
+  "device": "cpu",
+  "test_threads": 8,
+  "latency_threads": 2
+}

@@ -10,6 +10,19 @@ otherwise. Quality is measured on gold-labelled test texts that no model trains 
 with 3 seeds (mean ± standard deviation). Students train for 5 epochs (the default before 0.3.1) unless a
 table says otherwise; see [Training the student](https://andreas-hum.github.io/tinydistill/guide/training/).
 
+## Compared with other methods
+
+[How it compares](https://andreas-hum.github.io/tinydistill/how-it-compares/) puts the best tinydistill student
+of each task (Banking77, CLINC150, Danish MASSIVE, financial tweets) next to what people use instead, with the
+same 8 gold labels per class and the same test set: the student's encoder fine-tuned on the gold labels alone,
+SetFit, GLiClass zero-shot and the LLM itself, with accuracy, CPU latency, size and the cost to build. Published
+10-shot results on Banking77 are listed separately. The tables are written by
+[`examples/compare/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples/compare).
+
+On Banking77 the best student reaches 0.867 against 0.796 for SetFit with the same encoder, which trains in 7
+minutes on a CPU and needs no LLM; on CLINC150, 0.767 against 0.712. With a zero-shot teacher and no gold labels
+the CLINC150 student (0.573) is below both SetFit and the encoder fine-tuned on the gold labels alone (0.580).
+
 ## Banking77: the hard case
 
 Intent detection with 77 fine-grained classes ([Banking77](https://huggingface.co/datasets/PolyAI/banking77),

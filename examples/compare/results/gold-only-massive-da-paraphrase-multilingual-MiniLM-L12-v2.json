@@ -1,0 +1,41 @@
+{
+  "task": "massive-da",
+  "method": "gold only",
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "n_gold": 476,
+  "n_test": 2974,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "epochs": 10,
+  "accuracy": 0.5858551894194127,
+  "accuracy_std": 0.02462041905763823,
+  "accuracy_seeds": [
+    0.5928043039677202,
+    0.5585070611970411,
+    0.6062542030934768
+  ],
+  "macro_f1": 0.5239168475262849,
+  "macro_f1_std": 0.016169024708553272,
+  "macro_f1_seeds": [
+    0.5339989306642988,
+    0.5052669463531657,
+    0.5324846655613902
+  ],
+  "train_seconds": 79.52012454033441,
+  "train_seconds_std": 2.0830008239562354,
+  "train_seconds_seeds": [
+    77.66392977000214,
+    79.12353397600236,
+    81.77290987499873
+  ],
+  "int8_accuracy": 0.5924680564895763,
+  "latency_ms_b1": 2.5132644950645044,
+  "size_mb": 118.298352,
+  "deployed_as": "ONNX int8",
+  "device": "cpu",
+  "train_threads": 16,
+  "latency_threads": 2
+}

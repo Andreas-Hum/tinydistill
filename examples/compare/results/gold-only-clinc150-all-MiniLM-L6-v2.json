@@ -1,0 +1,41 @@
+{
+  "task": "clinc150",
+  "method": "gold only",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "n_gold": 1208,
+  "n_test": 5500,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "epochs": 10,
+  "accuracy": 0.5797575757575758,
+  "accuracy_std": 0.018707256145861852,
+  "accuracy_seeds": [
+    0.5581818181818182,
+    0.5896363636363636,
+    0.5914545454545455
+  ],
+  "macro_f1": 0.6199736794099439,
+  "macro_f1_std": 0.023081454078593525,
+  "macro_f1_seeds": [
+    0.5933793740770507,
+    0.631750728370106,
+    0.6347909357826748
+  ],
+  "train_seconds": 62.76517376533593,
+  "train_seconds_std": 0.32627816244257457,
+  "train_seconds_seeds": [
+    62.52245506300824,
+    63.13607902999502,
+    62.63698720300454
+  ],
+  "int8_accuracy": 0.5469090909090909,
+  "latency_ms_b1": 1.0527534905122593,
+  "size_mb": 23.101298,
+  "deployed_as": "ONNX int8",
+  "device": "cpu",
+  "train_threads": 16,
+  "latency_threads": 2
+}

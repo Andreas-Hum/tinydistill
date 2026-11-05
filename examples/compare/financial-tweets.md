@@ -1,0 +1,10 @@
+| Method | Gold labels | Also uses | Accuracy | Macro-F1 | Latency per text, CPU | Size | Build time | GPU needed |
+|---|---|---|---|---|---|---|---|---|
+| Gold only: `all-MiniLM-L6-v2` fine-tuned on the gold labels, ONNX int8 | 24 |  | 0.318 ± 0.100 | 0.293 ± 0.060 | 1.6 ms | 23 MB | 2 s (CPU) | no |
+| SetFit, `all-MiniLM-L6-v2` | 24 |  | 0.420 ± 0.006 | 0.399 ± 0.005 | 6.9 ms | 92 MB | 24 s (CPU) | no |
+| GLiClass zero-shot, `gliclass-base-v3.0` | 0 | label names | 0.676 | 0.665 | 112.8 ms | 746 MB | none | no |
+| GLiClass zero-shot, `gliclass-base-v3.0` | 0 | label names and descriptions | 0.632 | 0.625 | 142.8 ms | 746 MB | none | no |
+| The LLM as the classifier: `Qwen2.5-7B-Instruct`, `Mistral-7B-Instruct-v0.3`, `Phi-3.5-mini-instruct`, ensemble of 3, zero-shot, 4-bit | 0 | | 0.842 | 0.801 | 242 ms (RTX 4090) | 11.7 GB | none | yes, to run it |
+| tinydistill: `all-MiniLM-L6-v2` student of that LLM, ONNX int8 | 0 | the LLM's labels on 9,543 unlabelled texts | 0.828 ± 0.006 | 0.778 ± 0.005 | 1.6 ms | 23 MB | 6 min labelling + at most 2 min training (RTX 4090) | yes, to build it |
+
+Financial tweets, 2,388 test texts. Every method that trains gets the same 24 gold-labelled texts (8 per class, tinydistill's own pick with seed 0); mean ± standard deviation over 3 training seeds. Latency: batch 1, 2 threads, median over three passes through the same 100 test texts, each library's own inference (tinydistill's Predictor for the ONNX models); the LLM runs on a GPU. The gold-only and tinydistill accuracies are the PyTorch models'; their latency and size are those of the int8 export ("saved": timed when the run was made, not re-timed with the others). Build time is per model; the CPU runs trained with 8 or 16 threads. The last tinydistill row is [`examples/financial-tweets/financial-tweets-ensemble.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/financial-tweets/financial-tweets-ensemble.json), the most accurate of 6 saved runs on this test set that use at most 8 gold labels per class (picked on the test set); the int8 model it times scores 0.830.

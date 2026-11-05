@@ -1,0 +1,40 @@
+{
+  "task": "clinc150",
+  "method": "SetFit",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "short": "MiniLM-L6",
+  "n_gold": 1208,
+  "n_test": 5500,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "accuracy": 0.7124848484848485,
+  "accuracy_std": 0.0005844636824844529,
+  "accuracy_seeds": [
+    0.7129090909090909,
+    0.7118181818181818,
+    0.7127272727272728
+  ],
+  "macro_f1": 0.7802240840950633,
+  "macro_f1_std": 0.00037745422645089487,
+  "macro_f1_seeds": [
+    0.7798118829506144,
+    0.7805528197171387,
+    0.7803075496174363
+  ],
+  "train_seconds": 406.5945860623324,
+  "train_seconds_std": 3.8477868966996054,
+  "train_seconds_seeds": [
+    402.45406828200794,
+    407.2692990429932,
+    410.060390861996
+  ],
+  "latency_ms_b1": 4.627476504538208,
+  "size_mb": 91.869423,
+  "device": "cpu",
+  "train_threads": 16,
+  "latency_threads": 2,
+  "settings": "1 epoch, 20 pair iterations, batch 32, logistic-regression head"
+}

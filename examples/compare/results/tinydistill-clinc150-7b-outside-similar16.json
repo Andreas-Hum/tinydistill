@@ -1,0 +1,11 @@
+{
+  "task": "clinc150-outside",
+  "method": "tinydistill",
+  "results_file": "clinc150/clinc150-7b-outside-similar16.json",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "n_test": 5500,
+  "accuracy": 0.7674545454545455,
+  "macro_f1": 0.8318041296331525,
+  "latency_ms_b1": 1.007502491120249,
+  "latency_threads": 2
+}

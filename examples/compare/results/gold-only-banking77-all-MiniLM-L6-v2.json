@@ -1,0 +1,41 @@
+{
+  "task": "banking77",
+  "method": "gold only",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "n_gold": 616,
+  "n_test": 3080,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "epochs": 10,
+  "accuracy": 0.5653679653679654,
+  "accuracy_std": 0.035074453574203836,
+  "accuracy_seeds": [
+    0.5360389610389611,
+    0.6042207792207792,
+    0.5558441558441558
+  ],
+  "macro_f1": 0.5300125029439734,
+  "macro_f1_std": 0.04287284555698398,
+  "macro_f1_seeds": [
+    0.49222294748592144,
+    0.5766028220084763,
+    0.5212117393375225
+  ],
+  "train_seconds": 61.64529587632084,
+  "train_seconds_std": 1.0029214898921495,
+  "train_seconds_seeds": [
+    62.79201504497905,
+    61.21203581398004,
+    60.93183677000343
+  ],
+  "int8_accuracy": 0.5246753246753246,
+  "latency_ms_b1": 1.238805998582393,
+  "size_mb": 23.072582,
+  "deployed_as": "ONNX int8",
+  "device": "cpu",
+  "train_threads": 16,
+  "latency_threads": 2
+}

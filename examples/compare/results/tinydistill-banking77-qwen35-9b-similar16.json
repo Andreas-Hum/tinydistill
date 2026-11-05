@@ -1,0 +1,11 @@
+{
+  "task": "banking77",
+  "method": "tinydistill",
+  "results_file": "banking77/banking77-qwen35-9b-similar16.json",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "n_test": 3080,
+  "accuracy": 0.8590909090909091,
+  "macro_f1": 0.8588203761021801,
+  "latency_ms_b1": 1.065453005139716,
+  "latency_threads": 2
+}
