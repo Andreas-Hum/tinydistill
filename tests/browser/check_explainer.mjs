@@ -4,6 +4,9 @@
 // render, that the page never scrolls sideways (and fits one screen on the desktop) and that nothing logs an error.
 // Then it opens the page with ?tour=1&text=... and runs the guided tour through every step (each spotlight on
 // screen and the page driven as the step says) and out again, with the tabs and the text they carry.
+// At 1366x768 and 1920x1080 it checks the detail panel: at least 40% of the middle column, every tab's drawing whole
+// in its box without the panel scrolling (with and without the math), the tab bar and the controls in sight after
+// the wheel, the handle (arrow keys, remembered, double-click, drag) and the large view behind "Expand".
 //   node tests/browser/check_explainer.mjs http://127.0.0.1:8000/ [more URLs] [--shot explainer.png]
 import { chromium } from "playwright";
 
@@ -15,6 +18,8 @@ const tabs = {  // per detail tab, something it must draw
   map: "#viz .pt",
   cls: "#viz .contrib rect",
 };
+// a few frames: a resize redraws the drawings on the frame after it
+const frames = (page) => page.evaluate(() => new Promise((ok) => { let n = 0; const f = () => (++n < 4 ? requestAnimationFrame(f) : ok()); requestAnimationFrame(f); }));
 const browser = await chromium.launch();
 const problems = [];
 for (const url of args) {
@@ -110,7 +115,28 @@ for (const url of args) {
       await page.waitForTimeout(500);
       await page.screenshot({ path: shot });
     }
+    if (width < 900) {  // stacked: every drawing at its own height, no box that scrolls inside the page
+      for (const tab of Object.keys(tabs)) {
+        await page.click(`#tab-${tab}`);
+        await frames(page);
+        const bad = await page.evaluate(fits, false);
+        if (bad) problems.push(`${where}, tab "${tab}": ${bad}`);
+      }
+    }
+    await expand(page, where, width >= 900).catch((e) => problems.push(`${where}: ${e.message.split("\n")[0]}`));
     await tour(page, url, where);
+    await page.close();
+  }
+  // the detail panel on two desktop screens: a real share of the column, every drawing whole, nothing that
+  // scrolls away, the handle that resizes it and the large view
+  for (const [width, height] of [[1366, 768], [1920, 1080]]) {
+    const where = `${url} at ${width}x${height}`;
+    const page = await browser.newPage({ viewport: { width, height } });
+    page.on("pageerror", (e) => problems.push(`${where}: page error: ${e}`));
+    page.on("console", (m) => m.type() === "error" && problems.push(`${where}: console error: ${m.text()}`));
+    await page.goto(url);
+    await page.waitForFunction(() => document.body.dataset.ready === "1", null, { timeout: 180000 });
+    await panel(page, where).catch((e) => problems.push(`${where}: ${e.message.split("\n")[0]}`));
     await page.close();
   }
 }
@@ -120,6 +146,120 @@ if (problems.length) {
   process.exit(1);
 }
 console.log("explainer ok");
+
+// in the page: what is wrong with the open tab's drawings, or ""; fixed: the panel has a fixed height (desktop)
+function fits(fixed) {
+  const body = document.getElementById("dock-body"), b = body.getBoundingClientRect(), plots = [...document.querySelectorAll("#viz .plot")];
+  if (body.scrollHeight > body.clientHeight + 1) return `the panel scrolls (${body.scrollHeight}px in ${body.clientHeight}px)`;
+  if (!plots.length) return "no drawing";
+  for (const p of plots) {
+    const r = p.getBoundingClientRect(), svg = p.querySelector("svg"), s = svg?.getBoundingClientRect();
+    if (!s) return "a drawing is missing";
+    if (r.height < 100) return `a drawing has ${Math.round(r.height)}px`;
+    if (s.left < r.left - 1 || s.right > r.right + 1 || s.top < r.top - 1 || s.bottom > r.bottom + 1) {
+      return `a drawing of ${Math.round(s.width)}x${Math.round(s.height)} is cut off by its ${Math.round(r.width)}x${Math.round(r.height)} box`;
+    }
+    const k = svg.getBBox();  // what is drawn, labels included, stays inside the drawing
+    if (k.x < -1 || k.y < -1 || k.x + k.width > s.width + 1 || k.y + k.height > s.height + 1) return "a drawing runs out of its own frame";
+    if (fixed && (r.top < b.top - 1 || r.bottom > b.bottom + 1)) return "a drawing runs out of the panel";
+  }
+  return "";
+}
+// in the page: the tab bar and the open tab's controls that are hidden or covered, or ""
+function covered() {
+  const sel = ["#tab-matrix", "#tab-cls", "#math-toggle", "#dock-big", "#map-layer", '[data-key="map-play"]', "#cls-label"];
+  const hidden = sel.filter((s) => {
+    const e = document.querySelector(s);
+    if (!e) return false;
+    const r = e.getBoundingClientRect(), t = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    return !(t && (t === e || e.contains(t)));
+  });
+  if (document.getElementById("dock-body").scrollTop) hidden.push("the panel scrolled");
+  return hidden.join(", ");
+}
+
+async function panel(page, where) {
+  const body = () => page.evaluate(() => document.getElementById("dock-body").clientHeight);
+  const share = await page.evaluate(() => document.getElementById("dock-body").clientHeight / document.getElementById("centre").clientHeight);
+  console.log(where, `panel ${Math.round(100 * share)}% of the column`);
+  if (share < 0.4) problems.push(`${where}: the panel is ${Math.round(100 * share)}% of the centre column, under 40%`);
+  for (const math of [false, true]) {
+    if (math) await page.click("#math-toggle");
+    for (const tab of Object.keys(tabs)) {
+      await page.click(`#tab-${tab}`);
+      await frames(page);
+      const bad = await page.evaluate(fits, true);
+      if (bad) problems.push(`${where}, tab "${tab}"${math ? " with the math" : ""}: ${bad}`);
+    }
+    // the wheel over the drawing, its text and the math scrolls nothing out of sight
+    for (const tab of ["map", "cls"]) {
+      await page.click(`#tab-${tab}`);
+      for (const s of ["#viz .plot", "#viz .side", ...(math ? ["#math"] : [])]) {
+        await page.hover(s);
+        await page.mouse.wheel(0, 900);
+      }
+      await page.waitForTimeout(300);
+      const bad = await page.evaluate(covered);
+      if (bad) problems.push(`${where}, tab "${tab}"${math ? " with the math" : ""}: after the wheel, hidden: ${bad}`);
+    }
+    if (math) await page.click("#math-toggle");
+  }
+  // the handle: arrow keys, remembered on the next visit, a double-click resets it, and a drag
+  const h0 = await body(), now = () => page.getAttribute("#dock-grip", "aria-valuenow");
+  await page.focus("#dock-grip");
+  for (let k = 0; k < 3; k++) await page.keyboard.press("ArrowUp");
+  await frames(page);
+  const v = await now(), h1 = await body();
+  if (!(Number(v) > 48 && h1 > h0 + 40)) problems.push(`${where}: the arrow keys on the handle do not grow the panel (${v}, ${h0} to ${h1}px)`);
+  await page.reload();
+  await page.waitForFunction(() => document.body.dataset.ready === "1", null, { timeout: 180000 });
+  if ((await now()) !== v || Math.abs((await body()) - h1) > 2) problems.push(`${where}: the panel's height is not remembered`);
+  await page.dblclick("#dock-grip");
+  await frames(page);
+  if ((await now()) !== "48" || Math.abs((await body()) - h0) > 2) problems.push(`${where}: a double-click on the handle does not reset it`);
+  const g = await page.locator("#dock-grip").boundingBox(), x = g.x + g.width / 2, y = g.y + g.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + 120, { steps: 5 });
+  await page.mouse.up();
+  await frames(page);
+  if (!((await body()) < h0 - 80)) problems.push(`${where}: dragging the handle down does not shrink the panel`);
+  if (await page.evaluate(fits, true)) problems.push(`${where}: after a drag: ${await page.evaluate(fits, true)}`);
+  await page.dblclick("#dock-grip");
+  await expand(page, where, true);
+}
+
+// the large view: Expand opens the open tab in a modal dialog, the tabs switch and draw in it, hovering the
+// attention matrix still lights up the token in the network, and Escape brings everything back
+async function expand(page, where, desktop) {
+  await page.click("#tab-matrix");
+  const area = () => page.evaluate(() => { const p = document.querySelector("#viz .plot"); return p.clientWidth * p.clientHeight; });
+  const small = await area();
+  await page.click("#dock-big");
+  await page.waitForFunction(() => document.getElementById("big").open && document.querySelector("#big #viz .plot svg"));
+  await frames(page);
+  const box = await page.locator("#big").boundingBox(), size = page.viewportSize();
+  if (box.width < 0.85 * size.width || box.height < 0.85 * size.height) problems.push(`${where}: the large view is only ${Math.round(box.width)}x${Math.round(box.height)}`);
+  if (desktop && !((await area()) > 1.5 * small)) problems.push(`${where}: the large view does not draw bigger`);
+  for (const [tab, selector] of Object.entries(tabs)) {
+    await page.click(`#big #tab-${tab}`);
+    await frames(page);
+    if (!(await page.locator(`#big ${selector}`).count())) problems.push(`${where}: the large view's "${tab}" tab draws nothing`);
+    const bad = desktop ? await page.evaluate(fits, true) : "";
+    if (bad) problems.push(`${where}, large view, tab "${tab}": ${bad}`);
+  }
+  await page.click("#big #tab-matrix");
+  await frames(page);
+  const p = await page.locator("#big #viz .plot svg image").boundingBox();
+  await page.mouse.move(p.x + p.width * 0.3, p.y + p.height * 0.5);
+  if (!(await page.locator("#net .node.hl").count())) problems.push(`${where}: hovering the large matrix does not light up the token`);
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.getElementById("big").open && document.getElementById("dock").parentElement.id === "centre",
+    null, { timeout: 5000 }).catch(() => problems.push(`${where}: Escape does not close the large view`));
+  const back = await page.evaluate(() => [document.getElementById("dock").parentElement.id, document.activeElement?.id]);
+  if (back[0] !== "centre" || back[1] !== "dock-big") problems.push(`${where}: after the large view, the panel is in #${back[0]} and the focus on #${back[1]}`);
+  await page.mouse.move(0, 0);
+}
 
 // the guided tour, started from the URL on a text of our own, then once more from its button
 async function tour(page, url, where) {

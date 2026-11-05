@@ -98,7 +98,7 @@
   .key b { display: inline-block; width: 22px; height: 10px; border-radius: 5px; border: 1px solid var(--line);
            background: linear-gradient(90deg, rgba(var(--att), .06), rgba(var(--att), .75)); }
   #sel { margin-left: auto; color: var(--fg); }
-  #netbox { position: relative; flex: 1 1 auto; min-height: 160px; overflow: auto; scrollbar-gutter: stable; }
+  #netbox { position: relative; flex: 1 1 0; min-height: 140px; overflow: auto; scrollbar-gutter: stable; }
   #netbox:focus-visible { outline-offset: -2px; }
   #net { display: block; }
   #nethead { display: block; position: sticky; top: 0; z-index: 1; background: var(--bg); }
@@ -141,10 +141,16 @@
   .head:hover { border-color: var(--accent); }
   .head[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--fg); font-weight: 650; }
 
-  /* the detail dock under the network */
-  #dock { flex: none; height: 290px; display: flex; flex-direction: column; border-top: 1px solid var(--line);
-          background: var(--card); transition: height .25s ease; }
-  #dock.closed { height: 37px; }
+  /* the detail dock under the network: a share of the column (--dock, set by dragging its top edge) */
+  #dock { position: relative; flex: 0 1 var(--dock, 48%); min-height: 220px; display: flex; flex-direction: column;
+          border-top: 1px solid var(--line); background: var(--card); }
+  #dock.closed { flex-basis: auto; min-height: 0; }
+  #dock-grip { position: absolute; z-index: 2; left: 0; right: 0; top: -10px; height: 14px; cursor: row-resize; touch-action: none; }
+  #dock-grip::before { content: ""; position: absolute; left: 50%; top: 8px; width: 44px; height: 4px; margin-left: -22px;
+                       border-radius: 2px; background: var(--line); }
+  #dock-grip:hover::before, #dock-grip:focus-visible::before, #dock-grip.drag::before { background: var(--accent); }
+  #dock-grip:focus-visible { outline-offset: -4px; }
+  #dock.closed #dock-grip { display: none; }
   .tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 3px 10px 0; border-bottom: 1px solid var(--line); }
   .tabs [role=tab] { border: 0; background: none; padding: 6px 10px 5px; border-bottom: 2px solid transparent;
                      color: var(--muted); font-size: .82rem; }
@@ -153,23 +159,29 @@
   .pill { border: 1px solid var(--line); border-radius: 999px; background: transparent; padding: 1px 10px;
           font-size: .76rem; margin: 0 0 3px 4px; }
   .pill[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-  #dock-body { flex: 1; min-height: 0; overflow: auto; display: flex; gap: 16px; padding: 10px 14px; }
+  /* the body never scrolls: the drawing fills its box (.plot) and only the text beside it scrolls */
+  #dock-body { flex: 1; min-height: 0; overflow: clip; display: flex; gap: 16px; padding: 10px 14px; }
   #dock.closed #dock-body { display: none; }
-  #viz { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; gap: 10px 18px; align-content: flex-start; }
-  #viz .side { flex: 1 1 200px; min-width: 0; font-size: .82rem; }
-  #math { flex: 1 1 0; min-width: 0; font-size: .8rem; color: var(--muted); border-left: 1px solid var(--line); padding-left: 14px; }
+  #viz { flex: 1 1 0; min-width: 0; display: flex; gap: 10px 18px; }
+  #viz .fig { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  #viz .fig > .row { flex: none; }
+  .plot { flex: 1 1 0; min-height: 0; overflow: hidden; display: flex; justify-content: center; align-items: flex-start; }
+  .plot > svg { flex: none; display: block; }
+  #viz .side { flex: 0 1 290px; min-width: 0; font-size: .82rem; overflow-y: auto; overscroll-behavior: contain; }
+  #viz.narrow { flex-direction: column; }  /* next to the math: the text goes under the drawing */
+  #viz.narrow .side { flex: 0 0 32%; }  /* a fixed share, so its text never resizes the drawing */
+  #math { flex: 1 1 0; min-width: 0; font-size: .8rem; color: var(--muted); border-left: 1px solid var(--line); padding-left: 14px;
+          overflow-y: auto; overscroll-behavior: contain; }
   #math p { margin: 4px 0; }
   .readout { min-height: 2.6em; margin: 0 0 6px; }
   .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: .75rem; color: var(--muted); align-items: center; margin: 4px 0; }
   .legend i { display: inline-block; width: 60px; height: 9px; border-radius: 3px; vertical-align: -1px; margin: 0 4px; }
   svg text { fill: var(--fg); }
-  .mat { display: block; height: 230px; width: auto; max-width: 100%; }
   .cursor { fill: none; stroke: var(--fg); stroke-width: 1.5; }
   .band { fill: rgba(var(--hl), .12); stroke: rgb(var(--hl)); stroke-width: 1; }
   canvas.strip { display: block; width: 100%; height: 12px; image-rendering: pixelated; border-radius: 3px; }
   .strips { display: grid; grid-template-columns: fit-content(45%) minmax(0, 1fr); gap: 5px 10px; align-items: center; margin: 6px 0; }
   .strips span { font-size: .78rem; color: var(--muted); }
-  .chart { display: block; width: 100%; height: auto; }
   .lab { font-size: 11px; fill: var(--muted); }
   .axis { stroke: var(--line); }
   .pt { cursor: pointer; transition: transform .6s ease; }
@@ -231,6 +243,17 @@
          box-shadow: 0 4px 14px rgba(0, 0, 0, .18); pointer-events: none; }
   #tip div + div { color: var(--muted); }
 
+  /* the large view: the dock moves into a modal dialog of most of the screen */
+  #big { width: 90vw; height: 90vh; height: 90dvh; max-width: none; max-height: none; padding: 0; overflow: hidden;
+         border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg);
+         box-shadow: 0 20px 60px rgba(0, 0, 0, .35); }
+  #big[open] { display: flex; flex-direction: column; }
+  #big::backdrop { background: rgba(0, 0, 0, .55); }
+  #big #dock { flex: 1 1 auto; min-height: 0; border-top: 0; }
+  #big #dock-grip, #big #dock-toggle { display: none; }
+  #big .tabs { padding: 6px 14px 0; }
+  #big #dock-body { padding: 14px 18px; gap: 22px; }
+
   /* the guided tour: a spotlight over the page and a card with the step */
   #tour-spot { position: fixed; z-index: 20; pointer-events: none; border-radius: 10px; outline: 2px solid var(--accent);
                box-shadow: 0 0 0 200vmax var(--dim); transition: left .25s ease, top .25s ease, width .25s ease, height .25s ease; }
@@ -247,6 +270,7 @@
   .tour-nav #tour-next { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 650; min-width: 64px; }
   body.touring * { scroll-margin: 10px; }
   @media (max-width: 600px) {
+    #big { width: 100vw; height: 100vh; height: 100dvh; border-radius: 0; border: 0; }
     #tour-card { left: 0; right: 0; bottom: 0; width: auto; max-width: none; border-radius: 14px 14px 0 0; border-bottom: 0;
                  padding-bottom: max(12px, env(safe-area-inset-bottom)); }
   }
@@ -260,13 +284,19 @@
     #right { order: 3; border-left: 0; border-top: 1px solid var(--line); }
     #centre { order: 2; }  /* the network right after the text: it is the point of the page */
     #netbox { flex: none; height: auto; max-height: 70vh; }
-    #dock, #dock.closed { height: auto; }
-    #dock-body { flex-direction: column; overflow: visible; }
-    #math { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 8px; }
+    #dock, #dock.closed { flex: none; min-height: 0; }
+    #dock-grip { display: none; }
+    #dock-body { flex: none; flex-direction: column; overflow: visible; }
+    #viz, #viz .fig { flex: none; }
+    #viz, #viz.narrow { flex-direction: column; }
+    #viz .side, #viz.narrow .side { flex: none; overflow: visible; }
+    .plot { flex: none; }  /* its height is the drawing's own, set by the script */
+    #big #dock-body { flex: 1 1 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 10px 14px; }
+    #big .fig > .row { position: sticky; top: 0; z-index: 1; padding: 6px 0; margin: 0; background: var(--card); }
+    #math { overflow: visible; border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 8px; }
     .chips { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
     .chip { flex: 0 0 70%; }
     #sel { margin-left: 0; }
-    .mat { height: auto; width: 100%; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 </style>
@@ -315,6 +345,8 @@
         <div id="heads" role="group" aria-label="Attention heads of this layer"></div>
       </div>
       <section id="dock" aria-label="Details">
+        <div id="dock-grip" role="separator" tabindex="0" aria-orientation="horizontal" aria-controls="dock" aria-label="Height of the details"
+             aria-valuemin="20" aria-valuemax="75" aria-valuenow="48" title="Drag, or use the arrow keys, to resize; double-click to reset"></div>
         <div class="tabs" role="tablist" aria-label="Details">
           <button role="tab" id="tab-matrix" data-tab="matrix" aria-controls="dock-body">Attention</button>
           <button role="tab" id="tab-embed" data-tab="embed" aria-controls="dock-body">Embeddings</button>
@@ -322,6 +354,7 @@
           <button role="tab" id="tab-cls" data-tab="cls" aria-controls="dock-body">Classifier</button>
           <span class="gap"></span>
           <button class="pill" id="math-toggle" aria-pressed="false">Math</button>
+          <button class="pill" id="dock-big" aria-haspopup="dialog" title="Open the details in a large view">Expand</button>
           <button class="pill" id="dock-toggle" aria-expanded="true" aria-controls="dock-body">Hide</button>
         </div>
         <div id="dock-body" role="tabpanel">
@@ -358,6 +391,7 @@
     </aside>
   </div>
 </div>
+<dialog id="big" aria-label="Details, large view"></dialog>
 <div id="tip" role="tooltip" hidden></div>
 <div id="tour" hidden>
   <div id="tour-spot"></div>
@@ -740,9 +774,25 @@
     $("dock-body").setAttribute("aria-labelledby", `tab-${ST.tab}`);
     $("viz").replaceChildren(...TABS[ST.tab][0](R));
     refreshMath();
+    sizes.disconnect(); sizes.observe($("viz"));
+    for (const p of $("viz").querySelectorAll(".plot")) sizes.observe(p);
+    fit();
     for (const f of hooks) f(tokNow());
     if (key) document.querySelector(`#viz [data-key="${key}"]`)?.focus({ preventScroll: true });
   }
+  // each drawing fills its box: a .plot has draw(w, h), and natural(w), its height when the page is stacked
+  const stacked = matchMedia("(max-width: 900px)");
+  function fit() {
+    const viz = $("viz");
+    viz.classList.toggle("narrow", !stacked.matches && viz.clientWidth < 620);
+    const tall = $("big").open ? 0.6 * $("dock-body").clientHeight : 0;  // the large view on a phone: taller drawings
+    for (const p of viz.querySelectorAll(".plot")) {
+      p.style.height = stacked.matches ? `${Math.max(p.natural(p.clientWidth), p.square ? 0 : tall)}px` : "";
+      const w = p.clientWidth, h = p.clientHeight, size = `${w}x${h}`;
+      if (w > 40 && h > 40 && size !== p.dataset.size) { p.dataset.size = size; p.draw(w, h); }
+    }
+  }
+  const sizes = new ResizeObserver(() => requestAnimationFrame(fit));
   function refreshMath() {
     $("math").hidden = !ST.math;
     if (R && ST.math) $("math").replaceChildren(...TABS[ST.tab][1](R));
@@ -766,66 +816,126 @@
     $("dock-toggle").setAttribute("aria-expanded", String(!closed)); $("dock-toggle").textContent = closed ? "Show" : "Hide";
   };
 
+  // the dock's height, a share of the column: drag its top edge or use the arrow keys on it; double-click resets
+  const centre = $("centre"), grip = $("dock-grip"), DOCK = 48, dockKey = "tinydistill-dock";
+  const keep = (v) => { try { if (v === null) localStorage.removeItem(dockKey); else localStorage.setItem(dockKey, v); } catch { /* private mode */ } };
+  function setDock(v, save = true) {
+    v = Math.round(Math.max(20, Math.min(75, v)));
+    centre.style.setProperty("--dock", `${v}%`);
+    grip.setAttribute("aria-valuenow", v); grip.setAttribute("aria-valuetext", `${v}% of the column`);
+    if (save) keep(v);
+  }
+  try { setDock(Number(localStorage.getItem(dockKey)) || DOCK, false); } catch { setDock(DOCK, false); }
+  grip.onpointerdown = (e) => { e.preventDefault(); grip.setPointerCapture(e.pointerId); grip.classList.add("drag"); };
+  grip.onpointermove = (e) => {
+    if (!grip.hasPointerCapture(e.pointerId)) return;
+    const b = centre.getBoundingClientRect();
+    setDock((100 * (b.bottom - e.clientY)) / b.height);
+  };
+  grip.onpointerup = grip.onpointercancel = () => grip.classList.remove("drag");
+  grip.onkeydown = (e) => {
+    const s = { ArrowUp: 4, ArrowDown: -4, PageUp: 12, PageDown: -12 }[e.key];
+    if (s) { e.preventDefault(); setDock(Number(grip.getAttribute("aria-valuenow")) + s); }
+  };
+  grip.ondblclick = () => { keep(null); setDock(DOCK, false); };
+
+  // the large view: the dock itself moves into a modal dialog, and back when it closes
+  const large = $("big"), dock = $("dock"), slot = el("div"), bigBtn = $("dock-big");
+  bigBtn.onclick = () => {
+    if (large.open) { large.close(); return; }
+    if (TOUR.on) return;
+    slot.style.cssText = `flex:none;height:${dock.offsetHeight}px`;  // the network keeps its size behind it
+    dock.replaceWith(slot); large.append(dock, tip);
+    bigBtn.textContent = "Close"; bigBtn.title = "Close the large view (Escape)";
+    large.showModal();
+    openTab(ST.tab);
+  };
+  large.addEventListener("click", (e) => { if (e.target === large) large.close(); });  // a click on the backdrop
+  large.addEventListener("close", () => {
+    slot.replaceWith(dock); document.body.append(tip); hideTip();
+    bigBtn.textContent = "Expand"; bigBtn.title = "Open the details in a large view";
+    bigBtn.focus();
+  });
+
   // attention: the shown layer and head as a full matrix
   function matrixViz(r) {
-    const T = r.T, l = ST.layer, h = ST.head;
-    const cs = Math.max(2, Math.min(20, Math.floor(220 / T))), lab = cs >= 9, m0 = lab ? 78 : 4, side = T * cs;
-    const mx = sv("svg", { viewBox: `0 0 ${m0 + side + 4} ${m0 + side + 4}`, class: "mat", tabindex: 0, "data-key": "matrix", role: "img",
+    const T = r.T, l = ST.layer, h = ST.head, img = paint(T, T, (x, y) => attColor(r.row(l, h, y)[x]));
+    const plot = el("div", { className: "plot", tabIndex: 0, "data-key": "matrix", role: "img",
       "aria-label": `Attention of layer ${l + 1}, ${headName(h)}: rows read from columns. Arrow keys move the cursor.` });
-    mx.append(image(paint(T, T, (x, y) => attColor(r.row(l, h, y)[x])), m0, m0, side, side));
-    if (lab) r.tokens.forEach((t, i) => mx.append(
-      sv("text", { x: m0 - 4, y: m0 + i * cs + cs * 0.75, "text-anchor": "end", "font-size": Math.min(11, cs - 1) }, short(shown(t), 10)),
-      sv("text", { transform: `translate(${m0 + i * cs + cs * 0.7},${m0 - 4}) rotate(-60)`, "font-size": Math.min(11, cs - 1) }, short(shown(t), 10))));
-    const rowBand = sv("rect", { class: "band", x: m0, width: side, height: cs }), colBand = sv("rect", { class: "band", y: m0, width: cs, height: side });
-    const cell = sv("rect", { class: "cursor", width: cs, height: cs });
-    mx.append(rowBand, colBand, cell);
     const read = el("p", { className: "readout", "aria-live": "polite" });
+    let G = null;  // the drawing at the box's size
+    plot.natural = (w) => Math.min(w - 32, 520);
+    plot.square = true;
+    plot.draw = (w, ht) => {
+      // room for the token labels on the left and on top, and for the slant of the last one on the right
+      const cells = (m0, m1) => Math.floor(Math.min(w - m0 - m1, ht - m0 - 4) / T), lab = cells(78, 36) >= 9;
+      const m0 = lab ? 78 : 4, m1 = lab ? 36 : 4, cs = Math.max(1, Math.min(32, cells(m0, m1))), side = T * cs, fs = Math.min(11, cs - 1);
+      const mx = sv("svg", { width: m0 + side + m1, height: m0 + side + 4, class: "mat" }, image(img, m0, m0, side, side));
+      if (lab) r.tokens.forEach((t, i) => mx.append(
+        sv("text", { x: m0 - 4, y: m0 + i * cs + cs / 2 + fs * 0.35, "text-anchor": "end", "font-size": fs }, short(shown(t), 10)),
+        sv("text", { transform: `translate(${m0 + i * cs + cs / 2 + fs * 0.3},${m0 - 4}) rotate(-60)`, "font-size": fs }, short(shown(t), 10))));
+      G = { mx, m0, cs, rowBand: sv("rect", { class: "band", x: m0, width: side, height: cs }),
+            colBand: sv("rect", { class: "band", y: m0, width: cs, height: side }), cell: sv("rect", { class: "cursor", width: cs, height: cs }) };
+      mx.append(G.rowBand, G.colBand, G.cell);
+      plot.replaceChildren(mx);
+      show(tokNow());
+    };
     const show = (t, j = t) => {
-      for (const e of [rowBand, colBand, cell]) e.style.display = t === null ? "none" : "";
+      if (G) for (const e of [G.rowBand, G.colBand, G.cell]) e.style.display = t === null ? "none" : "";
       if (t === null) { read.textContent = "Hover a token, here or anywhere on the page."; return; }
       const row = r.row(l, h, t), col = range(T).map((i) => r.row(l, h, i)[t]);
-      rowBand.setAttribute("y", m0 + t * cs); colBand.setAttribute("x", m0 + j * cs);
-      cell.setAttribute("x", m0 + j * cs); cell.setAttribute("y", m0 + t * cs);
+      if (G) {
+        const { m0, cs } = G;
+        G.rowBand.setAttribute("y", m0 + t * cs); G.colBand.setAttribute("x", m0 + j * cs);
+        G.cell.setAttribute("x", m0 + j * cs); G.cell.setAttribute("y", m0 + t * cs);
+      }
       read.textContent = `"${shown(r.tokens[t])}" reads most from ${order(row).slice(0, 3).map((k) => `"${shown(r.tokens[k])}" ${pct(row[k])}`).join(", ")}. ` +
         `Read most by ${order(col).slice(0, 3).map((k) => `"${shown(r.tokens[k])}" ${pct(col[k])}`).join(", ")}.`;
     };
     hooks.push((t) => show(t));
-    const cellAt = (e) => { const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(mx.getScreenCTM().inverse());
-                            return [Math.floor((p.y - m0) / cs), Math.floor((p.x - m0) / cs)]; };
-    mx.onpointermove = (e) => {
+    const cellAt = (e) => { const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(G.mx.getScreenCTM().inverse());
+                            return [Math.floor((p.y - G.m0) / G.cs), Math.floor((p.x - G.m0) / G.cs)]; };
+    plot.onpointermove = (e) => {
+      if (!G) return;
       const [i, j] = cellAt(e);
       if (i < 0 || j < 0 || i >= T || j >= T) return;
       ST.key = j; setHover(i); show(i, j);
-      tipAt(mx, e, `"${shown(r.tokens[i])}" reads "${shown(r.tokens[j])}": ${pct(r.row(l, h, i)[j])}`);
+      tipAt(plot, e, `"${shown(r.tokens[i])}" reads "${shown(r.tokens[j])}": ${pct(r.row(l, h, i)[j])}`);
     };
-    mx.onpointerleave = () => { hideTip(); setHover(null); };
-    mx.onkeydown = (e) => {
+    plot.onpointerleave = () => { hideTip(); setHover(null); };
+    plot.onkeydown = (e) => {
       const d = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
       if (!d) return;
       e.preventDefault();
       ST.pin = Math.max(0, Math.min(T - 1, (ST.pin ?? 0) + d[0])); ST.key = Math.max(0, Math.min(T - 1, ST.key + d[1]));
       focusChanged(); show(ST.pin, ST.key);
     };
-    return [mx, el("div", { className: "side" }, el("h3", { textContent: `Layer ${l + 1}, ${headName(h)}` }), read, attLegend(),
+    return [el("div", { className: "fig" }, plot), el("div", { className: "side" }, el("h3", { textContent: `Layer ${l + 1}, ${headName(h)}` }), read, attLegend(),
       el("p", { className: "note", textContent: "Each row is a token reading the columns; every row sums to 1." }))];
   }
 
   // embeddings: every token's vector after the embedding step
   function embedViz(r) {
-    const T = r.T, v = r.hs.subarray(0, T * DIM), m = scaleOf(v), cw = Math.max(3, Math.min(22, Math.floor(420 / T)));
-    const showLab = cw >= 12, top = showLab ? 58 : 4, Hh = 150, W = T * cw + 8;
-    const svg = sv("svg", { viewBox: `0 0 ${W} ${top + Hh + 4}`, tabindex: 0, "data-key": "embed", role: "img", class: "emb",
-      "aria-label": `Embedding vectors, ${T} tokens by ${DIM} dimensions. Left and right arrows choose a token.`,
-      style: `width:${W}px;max-width:100%;height:auto;display:block` });
-    svg.append(image(paint(T, DIM, (x, y) => valColor(r.hsAt(0, x)[y], m)), 4, top, T * cw, Hh));
-    if (showLab) r.tokens.forEach((t, i) => svg.append(sv("text", { transform: `translate(${4 + i * cw + cw * 0.65},${top - 4}) rotate(-60)`,
-      "font-size": 10 }, short(shown(t), 9))));
-    const cur = sv("rect", { class: "cursor", y: top - 1, width: cw, height: Hh + 2 });
-    svg.append(cur);
+    const T = r.T, v = r.hs.subarray(0, T * DIM), m = scaleOf(v), img = paint(T, DIM, (x, y) => valColor(r.hsAt(0, x)[y], m));
+    const plot = el("div", { className: "plot", tabIndex: 0, "data-key": "embed", role: "img",
+      "aria-label": `Embedding vectors, ${T} tokens by ${DIM} dimensions. Left and right arrows choose a token.` });
+    let G = null;
+    plot.natural = () => 250;
+    plot.draw = (w, ht) => {
+      const cols = (m1) => Math.max(1, Math.min(28, Math.floor((w - 4 - m1) / T))), showLab = cols(32) >= 12;  // m1: the last label's slant
+      const cw = cols(showLab ? 32 : 4), top = showLab ? 58 : 4, Hh = ht - top - 4;
+      const svg = sv("svg", { width: T * cw + (showLab ? 36 : 8), height: ht, class: "emb" }, image(img, 4, top, T * cw, Hh));
+      if (showLab) r.tokens.forEach((t, i) => svg.append(sv("text", { transform: `translate(${4 + i * cw + cw * 0.65},${top - 4}) rotate(-60)`,
+        "font-size": 10 }, short(shown(t), 9))));
+      G = { svg, cw, cur: sv("rect", { class: "cursor", y: top - 1, width: cw, height: Hh + 2 }) };
+      svg.append(G.cur);
+      plot.replaceChildren(svg);
+      show(tokNow());
+    };
     const strips = el("div", { className: "strips" }), cap = el("h3");
     const show = (t) => {
       const i = t ?? 0, s = r.tokAt(i), q = r.posAt(i), sm = scaleOf(Float32Array.from(s, (x, k) => x + q[k]));
-      cur.setAttribute("x", 4 + i * cw);
+      G?.cur.setAttribute("x", 4 + i * G.cw);
       cap.textContent = `"${shown(r.tokens[i])}": token + position, then LayerNorm`;
       strips.replaceChildren(
         el("span", { textContent: `token, id ${r.ids[i]}` }), strip(s, sm),
@@ -833,41 +943,49 @@
         el("span", { textContent: "= LayerNorm" }), strip(r.hsAt(0, i), m));
     };
     hooks.push(show);
-    const at = (e) => { const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
-                        return Math.floor((p.x - 4) / cw); };
-    svg.onpointermove = (e) => { const i = at(e); if (i >= 0 && i < T) setHover(i); };
-    svg.onpointerleave = () => setHover(null);
-    svg.onkeydown = (e) => {
+    const at = (e) => { const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(G.svg.getScreenCTM().inverse());
+                        return Math.floor((p.x - 4) / G.cw); };
+    plot.onpointermove = (e) => { const i = G ? at(e) : -1; if (i >= 0 && i < T) setHover(i); };
+    plot.onpointerleave = () => setHover(null);
+    plot.onkeydown = (e) => {
       const s = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
       if (s) { e.preventDefault(); ST.pin = Math.max(0, Math.min(T - 1, (ST.pin ?? 0) + s)); focusChanged(); }
     };
-    return [svg, el("div", { className: "side" }, cap, strips, valLegend(m),
+    return [el("div", { className: "fig" }, plot), el("div", { className: "side" }, cap, strips, valLegend(m),
       el("p", { className: "note", textContent: `One column per token, ${DIM} dimensions top to bottom. The first two strips share a colour scale.` }))];
   }
 
   // token map: PCA of the token vectors after each layer
   let timer = null;
   function mapViz(r) {
-    const W = 420, Ht = 220, pad = 30;
     const slider = el("input", { type: "range", min: 0, max: L, step: 1, value: ST.mapLayer, id: "map-layer",
       "data-key": "map-layer", "aria-label": "Layer" });
     const lab = el("output", { htmlFor: "map-layer", className: "num" });
     const play = el("button", { className: "ghost", textContent: timer ? "Stop" : "Play", "data-key": "map-play" });
-    const svg = sv("svg", { viewBox: `0 0 ${W} ${Ht}`, class: "chart", role: "img", style: "max-width:460px",
-      "aria-label": "Token vectors projected to two dimensions" });
-    svg.append(sv("line", { class: "axis", x1: W / 2, x2: W / 2, y1: 8, y2: Ht - 8 }), sv("line", { class: "axis", x1: 8, x2: W - 8, y1: Ht / 2, y2: Ht / 2 }));
-    const pts = r.tokens.map((t, i) => {
-      const g = sv("g", { class: "pt" + (i === 0 ? " cls" : "") }, sv("circle", { r: i === 0 ? 6 : 4 }), sv("text", { x: 7, y: 4 }, short(shown(t), 12)));
-      g.addEventListener("pointerenter", () => setHover(i));
-      g.addEventListener("pointerleave", () => setHover(null));
-      g.addEventListener("click", () => togglePin(i));
-      svg.append(g);
-      return g;
-    });
+    const plot = el("div", { className: "plot", role: "img", "aria-label": "Token vectors projected to two dimensions" });
+    let pts = [], at = null;  // at: where the drawing's axes are, in pixels
+    plot.natural = (w) => Math.round(Math.max(220, Math.min(320, w * 0.75)));
+    plot.draw = (w, ht) => {
+      const W = Math.min(w, Math.round(ht * 2.4)), x0 = 14, x1 = W - 92;  // room on the right for the labels
+      at = { cx: (x0 + x1) / 2, hx: (x1 - x0) / 2, cy: ht / 2, hy: ht / 2 - 16 };
+      const svg = sv("svg", { width: W, height: ht, class: "chart" },
+        sv("line", { class: "axis", x1: at.cx, x2: at.cx, y1: 8, y2: ht - 8 }), sv("line", { class: "axis", x1: 8, x2: W - 8, y1: at.cy, y2: at.cy }));
+      pts = r.tokens.map((t, i) => {
+        const g = sv("g", { class: "pt" + (i === 0 ? " cls" : "") + (i === tokNow() ? " hl" : "") },
+          sv("circle", { r: i === 0 ? 6 : 4 }), sv("text", { x: 7, y: 4 }, short(shown(t), 12)));
+        g.addEventListener("pointerenter", () => setHover(i));
+        g.addEventListener("pointerleave", () => setHover(null));
+        g.addEventListener("click", () => togglePin(i));
+        svg.append(g);
+        return g;
+      });
+      plot.replaceChildren(svg);
+      place();
+    };
     const share = el("p", { className: "note" });
     function place() {
       const { xy, share: s } = r.pca[ST.mapLayer], m = Math.max(1e-9, ...xy.flat().map(Math.abs));
-      xy.forEach(([a, b], i) => { pts[i].style.transform = `translate(${W / 2 + (a / m) * (W / 2 - pad - 24)}px, ${Ht / 2 - (b / m) * (Ht / 2 - pad / 2)}px)`; });
+      if (at) xy.forEach(([a, b], i) => { pts[i].style.transform = `translate(${at.cx + (a / m) * at.hx}px, ${at.cy - (b / m) * at.hy}px)`; });
       lab.textContent = after(ST.mapLayer);
       share.textContent = `The two axes keep ${pct(s[0] + s[1])} of the spread (${pct(s[0])} and ${pct(s[1])}). Each layer has its own axes.`;
       slider.value = ST.mapLayer;
@@ -883,7 +1001,7 @@
       }, 900);
     };
     place();
-    return [el("div", { style: "flex:1 1 300px;min-width:0" }, el("div", { className: "row" }, el("label", { htmlFor: "map-layer", textContent: "Layer" }), slider, lab, play), svg),
+    return [el("div", { className: "fig" }, el("div", { className: "row" }, el("label", { htmlFor: "map-layer", textContent: "Layer" }), slider, lab, play), plot),
       el("div", { className: "side" }, share, el("p", { className: "note", textContent: "Each dot is a token's vector flattened to two dimensions (PCA). Watch the layers mix the tokens; [CLS] gathers what the classifier reads." }))];
   }
 
@@ -894,19 +1012,24 @@
       value: k, textContent: `${name(k)} (${pct(r.p[k])})`, selected: k === c })));
     sel.onchange = () => { ST.label = Number(sel.value); renderDock(); };
     const big = order(Array.from(terms, Math.abs)).slice(0, 10), m = Math.max(1e-9, ...big.map((i) => Math.abs(terms[i])));
-    const W = 360, RH = 19, x0 = 58, mid = x0 + (W - x0 - 10) / 2, half = (W - x0 - 10) / 2;
-    const svg = sv("svg", { viewBox: `0 0 ${W} ${big.length * RH + 8}`, class: "chart contrib", role: "img", style: "max-width:400px",
-      "aria-label": `The ${big.length} largest terms W times h for ${name(c)}` });
-    svg.append(sv("line", { class: "axis", x1: mid, x2: mid, y1: 0, y2: big.length * RH + 8 }));
-    big.forEach((i, k) => {
-      const v = terms[i], w = (Math.abs(v) / m) * half;
-      svg.append(sv("text", { x: x0 - 8, y: 4 + k * RH + 13, "text-anchor": "end", class: "lab" }, `dim ${i + 1}`),
-        sv("rect", { x: v >= 0 ? mid : mid - w, y: 4 + k * RH + 3, width: Math.max(1, w), height: RH - 6, rx: 2,
-          fill: `rgb(${v >= 0 ? P.pos : P.neg})` }),
-        sv("text", { x: v >= 0 ? mid - 6 : mid + 6, y: 4 + k * RH + 13, "text-anchor": v >= 0 ? "end" : "start", class: "lab" }, fx(v, 3)));
-    });
+    const plot = el("div", { className: "plot", role: "img", "aria-label": `The ${big.length} largest terms W times h for ${name(c)}` });
+    plot.natural = () => big.length * 24 + 8;
+    plot.draw = (w, ht) => {
+      const W = Math.min(w, 640), RH = Math.max(11, Math.min(30, Math.floor((ht - 8) / big.length))), bh = Math.min(18, RH - 5);
+      const x0 = 58, half = (W - x0 - 10) / 2, mid = x0 + half, y = (k) => 4 + k * RH + RH / 2;
+      const svg = sv("svg", { width: W, height: big.length * RH + 8, class: "chart contrib" },
+        sv("line", { class: "axis", x1: mid, x2: mid, y1: 0, y2: big.length * RH + 8 }));
+      big.forEach((i, k) => {
+        const v = terms[i], bw = (Math.abs(v) / m) * half;
+        svg.append(sv("text", { x: x0 - 8, y: y(k) + 4, "text-anchor": "end", class: "lab" }, `dim ${i + 1}`),
+          sv("rect", { x: v >= 0 ? mid : mid - bw, y: y(k) - bh / 2, width: Math.max(1, bw), height: bh, rx: 2,
+            fill: `rgb(${v >= 0 ? P.pos : P.neg})` }),
+          sv("text", { x: v >= 0 ? mid - 6 : mid + 6, y: y(k) + 4, "text-anchor": v >= 0 ? "end" : "start", class: "lab" }, fx(v, 3)));
+      });
+      plot.replaceChildren(svg);
+    };
     const s = terms.reduce((a, b) => a + b, 0);
-    return [el("div", { style: "flex:1 1 300px;min-width:0" }, el("div", { className: "row" }, el("label", { htmlFor: "cls-label", textContent: "Label" }), sel), svg),
+    return [el("div", { className: "fig" }, el("div", { className: "row" }, el("label", { htmlFor: "cls-label", textContent: "Label" }), sel), plot),
       el("div", { className: "side" }, el("div", { className: "strips" },
         el("span", { textContent: `[CLS] after layer ${L}` }), strip(cv),
         el("span", { textContent: "h, the head's input" }), strip(r.h)),
