@@ -106,7 +106,8 @@ def _lead_problem(task: Task, reply: str, longest: int, mistakes: str) -> str:
         return f"reply longer than {longest} characters"
     if re.search(r"\{\w+\}|\[[^\]\n]*\]", reply):  # also one in square brackets, as the request shows them
         return "reply contains a placeholder"
-    if all(v.lower() in reply.lower() for v in task.verbalisations):
+    # three or more labels all named: a copied option list ("positive or negative?" is a fine two-label lead)
+    if len(task.verbalisations) > 2 and all(v.lower() in reply.lower() for v in task.verbalisations):
         return "reply contains the whole option list"
     shown = [x[len("Text: ") :].removesuffix("...") for x in mistakes.splitlines() if x.startswith("Text: ")]
     if re.search(r"(?im)^(text|correct answer|the model's answer):", reply) or any(x in reply for x in shown):

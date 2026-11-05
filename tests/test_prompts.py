@@ -93,7 +93,7 @@ def test_tune_proposes_instructions(tmp_path, monkeypatch, capsys):
             "x" * 700,  # too long
             "Pick one of {labels}.",  # a placeholder
             "Choose one of these:\n[the list of categories]",  # a placeholder, as the request showed it
-            "Is it a positive review or a negative review?",  # the whole option list
+            "Is it a positive review or a negative review?",  # kept: with two labels a lead may name both
             "Sort the review into one of:",  # a repeat
             "Instruction: Which sentiment does the review have?",  # kept
         ]
@@ -110,13 +110,8 @@ def test_tune_proposes_instructions(tmp_path, monkeypatch, capsys):
         + ["--propose", "8", "--out", str(out)]
     )
     err = capsys.readouterr().err
-    assert "kept 2, dropped 6" in err
-    for why in [
-        "empty reply",
-        "reply longer than 600 characters",
-        "reply contains the whole option list",
-        "an instruction already tried",
-    ]:
+    assert "kept 3, dropped 5" in err
+    for why in ["empty reply", "reply longer than 600 characters", "an instruction already tried"]:
         assert err.count(f"dropped: {why}\n") == 1
     assert err.count("dropped: reply contains a placeholder\n") == 2
     assert len(set(asked)) == 1 and "{" not in asked[0]  # the request has no placeholders to lose
@@ -124,12 +119,13 @@ def test_tune_proposes_instructions(tmp_path, monkeypatch, capsys):
     assert asked[0].endswith("Instruction to rewrite:\nClassify the sentiment of the review as one of:")
 
     results = json.loads((tmp_path / "tune.json").read_text(encoding="utf-8"))
-    names = ["task.yaml", "tune-1.yaml", "tune-2.yaml", "tune-names-only.yaml"]
+    names = ["task.yaml", "tune-1.yaml", "tune-2.yaml", "tune-3.yaml", "tune-names-only.yaml"]
     assert sorted(r["prompt"] for r in results) == names
     task = load_task(tmp_path / "task.yaml")
     good = "Sort the review into one of:\n" + rest  # the reply, then the rest as written
     assert load_task(tmp_path / "tune-1.yaml").prompt == good
-    assert load_task(tmp_path / "tune-2.yaml").prompt == "Which sentiment does the review have?\n" + rest
+    assert load_task(tmp_path / "tune-2.yaml").prompt == "Is it a positive review or a negative review?\n" + rest
+    assert load_task(tmp_path / "tune-3.yaml").prompt == "Which sentiment does the review have?\n" + rest
     names_only = load_task(tmp_path / "tune-names-only.yaml")
     assert names_only.prompt == task.prompt and names_only.descriptions == [] and task.descriptions
     assert names_only.labels == task.labels
@@ -242,3 +238,19 @@ def test_tune_rounds_reflect_on_mistakes(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit, match="--rounds needs --propose"):
         main(["tune", str(tmp_path / "task.yaml"), *data, "--rounds", "2", "--out", str(out)])
+
+
+def test_a_copied_option_list_is_dropped_from_three_labels_on():
+    from tinydistill.task import Task
+    from tinydistill.tune import _lead_problem
+
+    three = Task(
+        name="t",
+        labels=["a", "b", "c"],
+        verbalisations=["sports", "politics", "money"],
+        prompt="{labels} {text}",
+    )
+    assert _lead_problem(three, "Is it about sports, politics or money?", 600, "") == (
+        "reply contains the whole option list"
+    )
+    assert _lead_problem(three, "Which topic is the article about?", 600, "") == ""
