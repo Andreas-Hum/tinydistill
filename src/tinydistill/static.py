@@ -44,6 +44,12 @@ class StaticForSequenceClassification(PreTrainedModel):
         self.head = torch.nn.Linear(config.dim, config.num_labels)  # type: ignore[arg-type]
         self.post_init()
 
+    def get_input_embeddings(self):
+        return self.embed
+
+    def set_input_embeddings(self, value):
+        self.embed = value
+
     def forward(self, input_ids, attention_mask=None, **_):
         m = torch.ones_like(input_ids) if attention_mask is None else attention_mask
         m = m.unsqueeze(-1).to(self.embed.weight.dtype)

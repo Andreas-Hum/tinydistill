@@ -16,6 +16,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from .static import encoder_of, new_static  # also registers the static student with transformers
 
 DEFAULT_STUDENT = "sentence-transformers/all-MiniLM-L6-v2"
+TRIM_KEEP = 1000  # `train --trim-keep`: the default safety margin of trim_vocab
 
 
 def distillation_loss(
@@ -112,6 +113,8 @@ def train_student(
     chunk_stride: int | None = None,
     init_head: list[str] | None = None,
     outside: str | None = None,
+    trim_texts: Sequence[str] | None = None,
+    trim_keep: int = TRIM_KEEP,
 ) -> int:
     """Train and save the student; returns the epoch whose model is saved. With ``val_share`` > 0 that share
     of the texts is held out (texts without gold labels when there is a teacher), the loss on them is measured
@@ -121,7 +124,9 @@ def train_student(
     which then reads every input in such windows; ``max_length`` is raised to fit a window if needed.
     ``init_head``: one text per label (its name, and description), to start the classifier from them with
     :func:`init_head_from_names`. ``outside``: the id of the task's `outside` label, saved with the model so
-    that Predictor and the web page can tell it apart."""
+    that Predictor and the web page can tell it apart. ``trim_texts``: before training, cut the vocabulary to
+    the tokens of these texts with :func:`trim_vocab` (and ``trim_keep``), so the student trains and is saved
+    trimmed."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
     if static := encoder_of(model_name):
@@ -144,6 +149,11 @@ def train_student(
         finally:
             hf_logging.set_verbosity(level)
         log(f"{model_name}: a new classification head for {len(labels)} labels on the pretrained encoder")
+    if trim_texts is not None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tok, before = trim_vocab(model, tok, trim_texts, out_dir, trim_keep)
+        n = model.config.vocab_size
+        log(f"vocabulary trimmed to {n:,} of {before:,} tokens, from {len(trim_texts)} texts")
     model = model.to(device)
     if chunk_tokens and max_length < chunk_tokens + tok.num_special_tokens_to_add():
         max_length = chunk_tokens + tok.num_special_tokens_to_add()
@@ -247,6 +257,136 @@ def train_student(
         encoding="utf-8",
     )
     return kept
+
+
+def _remap_ids(node, remap: dict[int, int]) -> None:
+    """Remap the token ids in a tokenizer.json post-processor: TemplateProcessing's ``ids`` lists and
+    Bert/RobertaProcessing's ``[token, id]`` pairs, also inside a Sequence of processors."""
+    if isinstance(node, list):
+        for v in node:
+            _remap_ids(v, remap)
+    elif isinstance(node, dict):
+        for k, v in node.items():
+            if k == "ids":
+                node[k] = [remap[i] for i in v]
+            elif k in ("sep", "cls") and isinstance(v, list) and len(v) == 2 and isinstance(v[1], int):
+                v[1] = remap[v[1]]
+            else:
+                _remap_ids(v, remap)
+
+
+@torch.no_grad()
+def trim_vocab(model, tok, texts: Sequence[str], out_dir: Path, keep_top: int = TRIM_KEEP):
+    """Vocabulary trimming (Ushio et al., 2023, arXiv:2305.15020): keep only the embedding rows of the token
+    ids ``tok`` produces on ``texts``, of the tokenizer's added and special tokens, of the token ids in the
+    model's config, and of the ``keep_top`` most frequent pieces of the original vocabulary (Unigram: the
+    highest scores; WordPiece and BPE: the lowest ids, which follow frequency or merge order), plus what the
+    tokenizer needs to stay whole: a BPE token's merge parts, the byte tokens of a byte-fallback BPE and the
+    256 characters of a byte-level one. The model's embedding matrix is cut to the kept rows in place, and the
+    tokenizer, rebuilt so that its ids index them, is written to ``out_dir`` and returned with the original
+    number of rows.
+
+    The kept tokens keep their order, so a text whose tokens were all kept gets the same tokens as before and
+    the same logits (WordPiece's longest match, Unigram's best segmentation and BPE's merges cannot pick a
+    token that was not in the original result). A text with a trimmed token is split into kept pieces where it
+    can be, else that part becomes the unknown token."""
+    import re
+
+    tok.save_pretrained(out_dir)
+    file = out_dir / "tokenizer.json"
+    if not file.exists():
+        raise ValueError(
+            f"trimming the vocabulary needs a fast tokenizer (tokenizer.json): {type(tok).__name__}"
+        )
+    spec = json.loads(file.read_text(encoding="utf-8"))
+    m, kind = spec["model"], spec["model"]["type"]
+    if kind not in ("WordPiece", "Unigram", "BPE"):
+        raise ValueError(
+            f"trimming the vocabulary supports WordPiece, Unigram and BPE tokenizers, not {kind}"
+        )
+    unigram = kind == "Unigram"
+    vocab: dict[str, int] = {p: i for i, (p, _) in enumerate(m["vocab"])} if unigram else m["vocab"]
+    added = {a["id"] for a in spec["added_tokens"]}
+    emb = model.get_input_embeddings()
+    rows = emb.num_embeddings
+
+    keep = {i for ids in tok(list(texts), verbose=False)["input_ids"] for i in ids}
+    keep |= added | set(tok.all_special_ids)
+    keep |= {v for k, v in model.config.to_dict().items() if k.endswith("_token_id") and isinstance(v, int)}
+    keep |= {vocab[m["unk_token"]]} if m.get("unk_token") in vocab else set()
+    keep |= {m["unk_id"]} if unigram and m.get("unk_id") is not None else set()
+    order = (
+        sorted(range(len(m["vocab"])), key=lambda i: -m["vocab"][i][1]) if unigram else sorted(vocab.values())
+    )
+    names = {i: p for p, i in vocab.items()}
+    # BERT's [unusedN] placeholders come first in its vocabulary but are never produced
+    common = [i for i in order if i not in added and not re.fullmatch(r"\[unused\d+\]", names[i])]
+    keep |= set(common[:keep_top])
+    if m.get("byte_fallback"):  # <0x00>..<0xFF>: any text can still be written in bytes
+        keep |= {i for p, i in vocab.items() if re.fullmatch(r"<0x[0-9A-F]{2}>", p)}
+    if "ByteLevel" in json.dumps(spec.get("pre_tokenizer")):  # byte-level BPE has no unknown token
+        from tokenizers.pre_tokenizers import ByteLevel
+
+        keep |= {vocab[c] for c in ByteLevel.alphabet() if c in vocab}
+    keep = {i for i in keep if i < rows}
+
+    if kind == "BPE":  # every token a kept token is merged from, so the same merges still apply
+        pre = m.get("continuing_subword_prefix") or ""
+        pairs = [mg.split(" ", 1) if isinstance(mg, str) else mg for mg in m["merges"]]
+        made = [a + (b[len(pre) :] if pre and b.startswith(pre) else b) for a, b in pairs]
+        kept = {names[i] for i in keep if i in names}
+        grown = True
+        while grown:  # parts come before their merges, so one pass from the end nearly always suffices
+            n = len(kept)
+            for (a, b), r in zip(reversed(pairs), reversed(made), strict=True):
+                if r in kept:
+                    kept |= {a, b} & vocab.keys()
+            grown = len(kept) > n
+        keep |= {vocab[p] for p in kept}
+        m["merges"] = [
+            mg for mg, (a, b), r in zip(m["merges"], pairs, made, strict=True) if {a, b, r} <= kept
+        ]
+
+    new = sorted(keep)
+    remap = {old: i for i, old in enumerate(new)}
+    if unigram:  # kept pieces stay first and in order: model ids < len(vocab) <= added-only ids
+        m["vocab"] = [m["vocab"][i] for i in new if i < len(m["vocab"])]
+        m["unk_id"] = remap.get(m.get("unk_id"))
+    else:
+        m["vocab"] = {p: remap[i] for p, i in vocab.items() if i in remap}
+    for a in spec["added_tokens"]:
+        a["id"] = remap[a["id"]]
+    _remap_ids(spec.get("post_processor"), remap)
+    if spec.get("padding"):
+        spec["padding"]["pad_id"] = remap[spec["padding"]["pad_id"]]
+    file.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+    config_file = out_dir / "tokenizer_config.json"  # transformers 4 lists the added tokens by id
+    config = json.loads(config_file.read_text(encoding="utf-8")) if config_file.exists() else {}
+    if "added_tokens_decoder" in config:
+        config["added_tokens_decoder"] = {
+            str(remap[int(i)]): v for i, v in config["added_tokens_decoder"].items()
+        }
+        config_file.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+    for name in tok.vocab_files_names.values():  # a slow tokenizer's files would describe the old ids
+        if name != "tokenizer.json" and (out_dir / name).exists():
+            if name == "vocab.txt" and kind == "WordPiece":
+                ordered = sorted(m["vocab"], key=m["vocab"].get)
+                (out_dir / name).write_text("".join(p + "\n" for p in ordered), encoding="utf-8")
+            else:
+                (out_dir / name).unlink()
+
+    pos = getattr(getattr(model.base_model, "embeddings", None), "padding_idx", None)
+    if isinstance(pos, int) and remap.get(pos) != pos:  # RoBERTa counts positions from the padding id
+        raise ValueError(f"trimming would move the padding id {pos}, from which this model counts positions")
+    pad = remap.get(emb.padding_idx) if emb.padding_idx is not None else None
+    model.set_input_embeddings(
+        torch.nn.Embedding.from_pretrained(emb.weight[new].clone(), freeze=False, padding_idx=pad)
+    )
+    model.config.vocab_size = len(new)
+    for k, v in model.config.to_dict().items():
+        if k.endswith("_token_id") and isinstance(v, int) and v in remap:
+            setattr(model.config, k, remap[v])
+    return AutoTokenizer.from_pretrained(out_dir), rows
 
 
 @torch.no_grad()

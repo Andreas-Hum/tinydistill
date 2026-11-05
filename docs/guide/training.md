@@ -43,6 +43,43 @@ Danish texts well enough to teach a student. For the student, pick a multilingua
 On Danish MASSIVE (60 intents), the multilingual MiniLM reached 0.761 against 0.724 for the English MiniLM-L6,
 from the same 8-shot 7B teacher (0.736; [Benchmarks](../results.md#danish-massive-an-english-prompt-over-danish-texts)).
 
+#### Trimming the vocabulary
+
+A multilingual encoder is large mostly because of its embedding matrix, one row per token of a vocabulary that
+covers about a hundred languages (250,000 tokens for the multilingual MiniLM, 256,000 for mmBERT). A task in one
+or two languages uses a small part of it. `--trim-vocab` keeps only the rows of the tokens the student's
+tokenizer produces on the run's training texts, plus the special tokens and the `--trim-keep K`
+(default 1000) most frequent tokens of the original vocabulary, before training starts (vocabulary trimming,
+[Ushio et al., 2023](https://arxiv.org/abs/2305.15020)):
+
+```sh
+tinydistill train run --student sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 --trim-vocab
+```
+
+The tokenizer is rebuilt to match: its `tokenizer.json` (and `vocab.txt`, where one is written) holds only the
+kept tokens, in their old order, at ids that index the kept rows. The student then trains, and is saved,
+exported and served, as a model with that smaller vocabulary; `Predictor`, `serve` and `web` need nothing new.
+Trimming before training rather than at export means the model that trains, the one `eval` measures and the one
+that is deployed are the same, and training holds the optimizer's state for the small matrix only.
+It works for WordPiece (BERT, MiniLM), Unigram (XLM-R and the multilingual MiniLM) and BPE tokenizers (mmBERT's
+Gemma tokenizer, byte-level BPE such as ModernBERT's), and for the static student. `meta.json` records
+`trim_vocab`, `trim_keep` and the student's `vocab_size`.
+
+A text whose tokens were all kept gets the same tokens as with the full vocabulary, and so the same logits from
+the same weights. This holds for every training text. A new text, test texts included, can contain a word whose
+tokens were
+trimmed. The tokenizer then splits that word into smaller kept pieces where it can. Otherwise it writes the
+word as bytes (BPE tokenizers with byte fallback, such as mmBERT's) or as the unknown token (WordPiece and
+Unigram). Such a text runs, but the student reads it differently from the untrimmed student, and it has never
+seen those tokens in training. The most frequent tokens kept by `--trim-keep` are a margin for such texts:
+for Unigram they are the pieces with the highest scores, and for WordPiece and BPE the lowest ids, which follow
+frequency or merge order. The test texts are not used to choose the tokens, so the test accuracy includes
+this effect, as in use.
+
+The default of 1000 costs at most 1000 rows, under 0.4 MB at int8 for a 384-dimensional encoder such as the
+multilingual MiniLM, and covers the commonest pieces of the whole vocabulary. `--trim-keep 0` keeps
+only the texts' own tokens. How much accuracy a trimmed student keeps after training has not been measured yet.
+
 ## Starting from the label names
 
 `--init-head names` sets the classifier's starting weights from the label names instead of at random: each

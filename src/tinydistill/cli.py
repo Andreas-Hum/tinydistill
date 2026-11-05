@@ -494,6 +494,10 @@ def cmd_train(a: argparse.Namespace) -> None:
         if a.init_head
         else None,
         "outside": task.outside_id,
+        # the tokens of the training texts only (test texts are new text, as in use, so test accuracy shows
+        # what trimming costs); every variant and seed trims to the same vocabulary
+        "trim_texts": texts if a.trim_vocab else None,
+        "trim_keep": a.trim_keep,
     }
     if meta.get("chunk_tokens") and meta.get("chunk_tokenizer") != (encoder_of(a.student) or a.student):
         log(
@@ -575,6 +579,11 @@ def cmd_train(a: argparse.Namespace) -> None:
             "gold_only": a.gold_only,
             "upper_bound": a.upper_bound,
             "n_gold_upper_bound": len(upper) if a.upper_bound else None,
+            "trim_vocab": a.trim_vocab,
+            "trim_keep": a.trim_keep if a.trim_vocab else None,
+            "vocab_size": json.loads((run / "student" / "config.json").read_text(encoding="utf-8"))[
+                "vocab_size"
+            ],
         },
     )
 
@@ -1227,6 +1236,8 @@ RUN_KEYS = (
     "gold_file",
     "ce_weight",
     "seeds",
+    "trim_vocab",
+    "trim_keep",
 )
 
 
@@ -1665,6 +1676,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     train.add_argument(
         "--seeds", type=int, default=1, help="training seeds per student (mean and std in eval)"
+    )
+    train.add_argument(
+        "--trim-vocab",
+        action="store_true",
+        help="before training, cut the student's vocabulary (its embedding matrix and tokenizer) to the "
+        "tokens of the training and test texts, plus its special tokens and --trim-keep common ones; makes a "
+        "multilingual student much smaller. A new text's word whose tokens were not kept is split into kept "
+        "pieces, bytes or the unknown token",
+    )
+    train.add_argument(
+        "--trim-keep",
+        type=int,
+        default=1000,  # student.TRIM_KEEP
+        metavar="K",
+        help="with --trim-vocab: also keep the K most frequent tokens of the original vocabulary, for texts "
+        "with tokens the training texts lack (default 1000)",
     )
     train.add_argument(
         "--upper-bound",
