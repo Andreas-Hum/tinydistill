@@ -40,7 +40,7 @@ attention head as it reads your text, with a guided tour.</i></p>
 - **No labels needed.** Any instruction-tuned LLM on the Hugging Face Hub labels your texts by scoring every
   label in one forward pass: no text generation, no answer parsing ([how](#how-the-label-scoring-works)).
 - **Small, fast students.** A 23 MB MiniLM or an 8 MB static-embedding model, more accurate than its 7B teacher
-  on Banking77 and over 200x faster on a CPU than the teacher on a GPU ([results](#results)).
+  on Banking77 and over 150x faster on a CPU than the teacher on a GPU ([results](#results)).
 - **Any teacher.** Local models in full precision or 4 bit, ensembles of several model families, or a remote
   [vLLM](https://github.com/vllm-project/vllm) server ([choosing the teacher](#choosing-the-teacher)).
 - **Honest numbers.** Every run reports the accuracy, latency and size of teacher and student, with gold-only
@@ -143,21 +143,23 @@ Long steps print their progress, speed and time left every few seconds and write
 
 ## Results
 
-Banking77 intent detection: 77 fine-grained classes, 3,080 held-out test texts. The students learn from the
-teacher's soft labels on 10,003 training texts plus 8 gold labels per class. Latency is per text, one at a
-time:
+Banking77 intent detection: 77 fine-grained classes, 3,080 held-out test texts; the student is the one in the
+[live demo](https://andreas-hum.github.io/tinydistill/demo/). The teacher's prompt shows each text the 16 most
+similar of 616 gold examples (8 per class), and the student learns from its soft labels on 10,003 training
+texts plus those 616 gold labels. Latency is per text, one at a time:
 
 <!-- results: headline.md -->
 | Model | Runs on | Test accuracy | Latency per text | Size | Speed-up |
 |---|---|---|---|---|---|
-| Teacher: `Qwen/Qwen2.5-7B-Instruct`, 4-bit, 8 examples per class in the prompt | RTX 4090 | 0.783 | 264 ms | 5.4 GB | 1x |
-| Student: MiniLM-L6, int8 ONNX | CPU, 2 threads | 0.814 | 1.2 ms | 23 MB | 214x |
-| Student: static embeddings, int8 ONNX | CPU, 2 threads | 0.802 | 0.1 ms | 8 MB | 3244x |
+| Teacher: `Qwen/Qwen2.5-7B-Instruct`, 4-bit, 16 most similar examples in the prompt | RTX 4090 | 0.851 | 157 ms | 5.4 GB | 1x |
+| Student: MiniLM-L6, int8 ONNX | CPU, 2 threads | 0.855 | 1.0 ms | 23 MB | 154x |
 <!-- /results -->
 
-- The students are **more accurate than their teacher**: learning its soft labels across 10,000 texts smooths
-  out some of its individual mistakes.
-- On a CPU they are **hundreds of times faster** than the teacher on a GPU, at a fraction of its size.
+- The student is **more accurate than its teacher**: learning its soft labels across 10,000 texts smooths out
+  some of its individual mistakes.
+- On a CPU it is **over 150 times faster** than the teacher on a GPU, at a fraction of its size. An 8 MB
+  static-embedding student, distilled from the teacher with all 616 examples in its prompt, is faster still:
+  0.1 ms per text at 0.802 accuracy.
 - **The teacher sets the ceiling.** With a 1.5B teacher, or without examples in its prompt, the students are
   much weaker; the same student trained on all 10,003 gold labels reaches 0.914.
 - **Many labels.** On CLINC150 (151 intents), `--shortlist 20 --shortlist-keep oos` labelled six times
