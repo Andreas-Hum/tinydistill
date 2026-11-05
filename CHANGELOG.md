@@ -11,6 +11,11 @@
   same commit: `onnx/model_quantized.onnx` (or `onnx/model.onnx`), the explainer's
   `onnx/explorer_quantized.onnx` and `tinydistill-page.json`, the data each page embeds (`web.site_data`,
   `explainer.explainer_data`). `Predictor("hf:...")` skips the `onnx/` copies.
+- Fix: `tune --propose` kept no rewrites from small teachers (Qwen2.5-1.5B-Instruct dropped or invented
+  placeholders, so every rewrite was dropped). The teacher now rewrites only the instruction before the
+  prompt's first placeholder, shown the rest with the placeholders as plain descriptions, and the rest is kept as
+  written. `tune` logs why each dropped reply was dropped. A prompt that starts with a placeholder is still
+  rewritten whole.
 
 ## 0.4.0 (2026-11-05)
 

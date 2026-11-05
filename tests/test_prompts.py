@@ -85,38 +85,97 @@ def test_tune_proposes_instructions(tmp_path, monkeypatch, capsys):
 
     described = TASK.replace("pos: positive review", "pos: {name: positive, description: liked it}")
     (tmp_path / "task.yaml").write_text(described)
-    good = "Sort the review into one of:\n{labels}\n\nReview: {text}"
+    rest = "{labels}\n\nReview: {text}\n"  # after the lead "Classify the sentiment ... as one of:"
     replies = iter(
         [
-            f"```text\n{good}\n```",  # kept, without the code fence
-            "Pick one of {labels}.",  # no {text}
-            "{labels}\nReview: {text} {text}",  # {text} twice
-            "{labels}\n{examples}\nReview: {text}",  # a placeholder the task does not have
-            good,  # a repeat
-            "Instruction: Which sentiment does the review have?\n{labels}\nReview: {text}",  # kept
+            "```text\nSort the review into one of:\n```",  # kept, without the code fence
+            "",  # empty
+            "x" * 700,  # too long
+            "Pick one of {labels}.",  # a placeholder
+            "Choose one of these:\n[the list of categories]",  # a placeholder, as the request showed it
+            "Is it a positive review or a negative review?",  # the whole option list
+            "Sort the review into one of:",  # a repeat
+            "Instruction: Which sentiment does the review have?",  # kept
         ]
     )
-    monkeypatch.setattr(tinydistill.tune, "generator", lambda model, tok, **kw: lambda msg: next(replies))
+    asked: list[str] = []
+    monkeypatch.setattr(
+        tinydistill.tune,
+        "generator",
+        lambda model, tok, **kw: lambda msg: asked.append(msg) or next(replies),
+    )
     out = tmp_path / "tune"
     main(
         ["tune", str(tmp_path / "task.yaml"), *_data(tmp_path), "--few-shot", "0", "--dev-size", "6"]
-        + ["--propose", "6", "--out", str(out)]
+        + ["--propose", "8", "--out", str(out)]
     )
-    assert "kept 2, dropped 4" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "kept 2, dropped 6" in err
+    for why in [
+        "empty reply",
+        "reply longer than 600 characters",
+        "reply contains the whole option list",
+        "an instruction already tried",
+    ]:
+        assert err.count(f"dropped: {why}\n") == 1
+    assert err.count("dropped: reply contains a placeholder\n") == 2
+    assert len(set(asked)) == 1 and "{" not in asked[0]  # the request has no placeholders to lose
+    assert "[the list of categories]\n\nReview: [the text to classify]" in asked[0]
+    assert asked[0].endswith("Instruction to rewrite:\nClassify the sentiment of the review as one of:")
 
     results = json.loads((tmp_path / "tune.json").read_text(encoding="utf-8"))
     names = ["task.yaml", "tune-1.yaml", "tune-2.yaml", "tune-names-only.yaml"]
     assert sorted(r["prompt"] for r in results) == names
     task = load_task(tmp_path / "task.yaml")
+    good = "Sort the review into one of:\n" + rest  # the reply, then the rest as written
     assert load_task(tmp_path / "tune-1.yaml").prompt == good
-    assert load_task(tmp_path / "tune-2.yaml").prompt.startswith("Which sentiment")
+    assert load_task(tmp_path / "tune-2.yaml").prompt == "Which sentiment does the review have?\n" + rest
     names_only = load_task(tmp_path / "tune-names-only.yaml")
     assert names_only.prompt == task.prompt and names_only.descriptions == [] and task.descriptions
     assert names_only.labels == task.labels
     assert load_task(tmp_path / "tune-best.yaml").prompt == results[0]["instruction"]
     assert all("round" not in r for r in results)
     md = (tmp_path / "tune.md").read_text(encoding="utf-8")
-    assert "### Instructions" in md and good in md and "`tune-names-only.yaml`" in md
+    assert "### Instructions" in md and good.strip() in md and "`tune-names-only.yaml`" in md
+    assert "change only the instruction before the first placeholder" in md
+
+
+def test_propose_splits_at_the_first_placeholder_or_rewrites_the_whole_prompt(tmp_path):
+    from pathlib import Path
+
+    from tinydistill.tune import _mistake, propose, split
+
+    ag = load_task(Path(__file__).parents[1] / "examples/ag-news/task.yaml")
+    lead, rest = split(ag.prompt)  # the one-word heading before the list stays with it
+    assert lead == "Here is a news headline with the start of the article. What is it about?\n"
+    assert rest.startswith("Options:\n{labels}\n\nNews: {text}")
+
+    # no lead: the whole prompt is rewritten, and must keep its placeholders
+    no_lead = TASK.replace("Classify the sentiment of the review as one of:\n  ", "")
+    (tmp_path / "task.yaml").write_text(no_lead)
+    task = load_task(tmp_path / "task.yaml")
+    assert split(task.prompt)[0] == ""
+    asked: list[str] = []
+    replies = iter(["Pick one:\n{labels}\nReview: {text}", "Pick one of {labels}."])
+    logged: list[str] = []
+    out = propose(task, lambda msg: asked.append(msg) or next(replies), 2, logged.append)
+    assert [t.prompt for _, t in out] == ["Pick one:\n{labels}\nReview: {text}"]
+    assert "Keep the placeholders {labels}, {text} exactly as written" in asked[0]
+    assert logged == [
+        "the prompt starts with a placeholder: the teacher rewrites the whole prompt",
+        "dropped: reply does not have the placeholders {labels}, {text}, each once",
+        "proposed 2 rewrites of the instruction: kept 1, dropped 1",
+    ]
+
+    # a reflection request: replies that quote the shown mistakes are dropped
+    (tmp_path / "lead.yaml").write_text(TASK)
+    task = load_task(tmp_path / "lead.yaml")
+    mistakes = _mistake(task, "it was good", 0, 1)
+    replies = iter(["Text: it was fine\nCorrect answer: positive review", "Say if it was good.", "Judge it."])
+    logged.clear()
+    out = propose(task, lambda msg: next(replies), 3, logged.append, mistakes)
+    assert [t.prompt for _, t in out] == ["Judge it.\n{labels}\n\nReview: {text}\n"]
+    assert logged.count("dropped: reply quotes the mistakes") == 2
 
 
 def test_tune_rounds_reflect_on_mistakes(tmp_path, monkeypatch):
@@ -140,12 +199,12 @@ def test_tune_rounds_reflect_on_mistakes(tmp_path, monkeypatch):
 
     replies = iter(
         [
-            "Plain:\n{labels}\nReview: {text}",  # round 1: wrong everywhere, like the task
+            "Plain:",  # round 1: wrong everywhere, like the task
             "Pick one of {labels}.",  # dropped
-            "BETTER:\n{labels}\nReview: {text}",  # round 2: right on the scored half
-            "OVERFIT:\n{labels}\nReview: {text}",  # right on the shown half only
-            "Again:\n{labels}\nReview: {text}",  # round 3: no improvement, so no round 4
-            "Plain:\n{labels}\nReview: {text}",  # a repeat of round 1
+            "BETTER:",  # round 2: right on the scored half
+            "OVERFIT:",  # right on the shown half only
+            "Again:",  # round 3: no improvement, so no round 4
+            "Plain:",  # a repeat of round 1
         ]
     )
     monkeypatch.setattr(LabelScorer, "score_many", score_many)

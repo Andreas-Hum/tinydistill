@@ -21,10 +21,17 @@ that label descriptions made the 1.5B teacher collapse onto one label, before an
 ### Let the teacher propose instructions
 
 `--propose N` has the (first) teacher write N rewrites of the task's instruction and scores them alongside the
-other task files. A rewrite is kept only if it has every placeholder of the original (`{labels}`, `{text}`,
-`{examples}` or `{label}`) exactly once and no other; `tune` logs how many were dropped. A version of the task
-with label names only (no descriptions) is always tried when the task has descriptions: on AG News that alone
-was the difference in the table above.
+other task files. Only the instruction is rewritten: the text before the prompt's first placeholder (`{labels}`,
+`{text}`, `{examples}` or `{label}`). The rest of the prompt, from there on, is kept as written; a one-word
+heading line just before the placeholder, such as `Options:`, is part of it. The teacher is shown the whole
+prompt, with the placeholders as plain descriptions such as `[the list of categories]`, and replies with the new
+instruction only, so a small teacher has no placeholders to lose. A reply is dropped when it is empty, longer
+than 600 characters (or twice the instruction, if more), or has a placeholder or the whole list of label names;
+`tune` logs the reason for each, and how many were kept. A prompt that starts with a placeholder has no
+instruction to rewrite on its own: the teacher then rewrites the whole prompt, a reply is kept only if it has
+every placeholder of the original exactly once and no other, and `tune` says so in the log. A version of the
+task with label names only (no descriptions) is always tried when the task has descriptions: on AG News that
+alone was the difference in the table above.
 
 ```sh
 tinydistill tune task.yaml --data train.csv --dev-size 200 --few-shot 0 --propose 8 --out tune
@@ -41,9 +48,9 @@ be better; check the winner on more data before relying on it.
 
 With `--rounds R`, each later round starts from the best instruction so far and shows the teacher up to 8 dev
 texts it got wrong, each with the correct label and the teacher's answer (long texts cut to 300 characters). The
-teacher writes N rewrites meant to fix those mistakes; the same placeholder check applies, and an instruction
-already tried is not scored again. The search stops after R rounds, or earlier when a round finds nothing
-better.
+teacher writes N rewrites of the instruction meant to fix those mistakes; the same checks apply, a reply that
+quotes the shown mistakes is dropped too, and an instruction already tried is not scored again. The search
+stops after R rounds, or earlier when a round finds nothing better.
 
 ```sh
 tinydistill tune task.yaml --data train.csv --dev-size 400 --few-shot 0 --propose 4 --rounds 4 --out tune

@@ -1861,9 +1861,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         metavar="N",
-        help="the (first) teacher writes N rewrites of the task's instruction; those that keep its "
-        "placeholders are tried too, as is the task without label descriptions. Writes each candidate as "
-        "OUT-<name>.yaml and the best task file as OUT-best.yaml",
+        help="the (first) teacher writes N rewrites of the task's instruction, the text before its first "
+        "placeholder (the rest of the prompt is kept as written); they are tried too, as is the task "
+        "without label descriptions. Writes each candidate as OUT-<name>.yaml and the best task file as "
+        "OUT-best.yaml",
     )
     tun.add_argument(
         "--rounds",
