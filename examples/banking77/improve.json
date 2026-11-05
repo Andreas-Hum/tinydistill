@@ -1,0 +1,38 @@
+[
+  {
+    "round": 0,
+    "dir": "runs/banking77-7b-similar16-improve/round-0",
+    "added": 0,
+    "train": 9003,
+    "n_held_out": 1000,
+    "held_out": 0.854,
+    "test": 0.855952380952381
+  },
+  {
+    "round": 1,
+    "dir": "runs/banking77-7b-similar16-improve/round-1",
+    "added": 294,
+    "train": 9297,
+    "n_held_out": 1000,
+    "held_out": 0.857,
+    "test": 0.8551948051948052
+  },
+  {
+    "round": 2,
+    "dir": "runs/banking77-7b-similar16-improve/round-2",
+    "added": 297,
+    "train": 9594,
+    "n_held_out": 1000,
+    "held_out": 0.863,
+    "test": 0.8534632034632034
+  },
+  {
+    "round": 3,
+    "dir": "runs/banking77-7b-similar16-improve/round-3",
+    "added": 296,
+    "train": 9890,
+    "n_held_out": 1000,
+    "held_out": 0.867,
+    "test": 0.8556277056277056
+  }
+]

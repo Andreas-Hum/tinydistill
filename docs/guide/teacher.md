@@ -77,6 +77,10 @@ use the same teacher. With `--prompts`, every member reasons. It works with loca
 writes the reasoning through its completions endpoint), for single-label tasks; hosted APIs return no
 log-probabilities of the answer after the reasoning, so `--api-url` refuses it.
 
+On AG News, reasoning made the 1.5B teacher more accurate (0.778 against 0.755) but not its student (0.785 both
+ways; [Benchmarks](../results.md#a-reasoning-step-before-the-answer)). Compare both on a sample (`--limit`) before
+paying for reasoning on all your texts.
+
 ## A vLLM server
 
 A vLLM server can be the teacher instead of a local model, so a large model on a GPU cluster does the

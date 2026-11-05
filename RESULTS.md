@@ -156,6 +156,28 @@ does worse than chance at every budget, by about ten points with 1,000 texts: th
 few hundred texts, pick ambiguous and unusual texts rather than useful ones. A random sample is therefore the
 default.
 
+### Rounds of teacher-written texts for the student's confusions
+
+[`examples/banking77/improve.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/banking77/improve.sh)
+runs `tinydistill improve` on the run above: three rounds in which the 7B teacher writes about 300 texts for the
+label pairs the student confuses most on 1,000 held-out training texts, labels them, and the student is trained
+again:
+
+<!-- results: banking77/improve.md -->
+| round | texts added | training texts | held-out agreement | test accuracy |
+|---|---|---|---|---|
+| 0 | 0 | 9003 | 0.854 | 0.856 |
+| 1 | 294 | 9297 | 0.857 | 0.855 |
+| 2 | 297 | 9594 | 0.863 | 0.853 |
+| 3 | 296 | 9890 | 0.867 | 0.856 |
+
+Held-out agreement: the student's agreement with the teacher on 1000 held-out training texts. Best by it: round 3 (runs/banking77-7b-similar16-improve/round-3). Round 0 is the run retrained without the held-out texts.
+<!-- /results -->
+
+The student agrees more with its teacher on the held-out texts after each round (0.854 to 0.867), but its test
+accuracy does not move (0.856 before and after). On a task where the student already matches its teacher, the
+extra texts teach it the teacher's view of the confusing pairs, not the gold labels.
+
 ### Compared with SetFit
 
 [SetFit](https://github.com/huggingface/setfit) is a strong few-shot method that needs no LLM: it fine-tunes a
@@ -269,6 +291,25 @@ The student answers every text and passes its least confident ones to the teache
 
 The teacher goes from 0.304 to 0.749, and the student, trained on its soft labels for 10,000 articles, is a
 little more accurate than the teacher.
+
+### A reasoning step before the answer
+
+[`examples/ag-news/reason.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/ag-news/reason.sh)
+labels the same 3,000 training and 2,000 test articles with the 1.5B teacher twice: scoring the labels directly,
+and after the teacher writes up to 256 tokens of reasoning (`label --reason`):
+
+<!-- results: ag-news/reason.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ag-news-1.5b-plain3k | zero-shot `Qwen/Qwen2.5-1.5B-Instruct` | 0.755 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.785 ± 0.002 | 0.785 ± 0.002 | 0.825 ± 0.010 | ONNX int8 | 3.4 | 208.9 | 23 |
+| ag-news-1.5b-reason3k | zero-shot, reasoning `Qwen/Qwen2.5-1.5B-Instruct` | 0.778 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.785 ± 0.004 | 0.777 ± 0.004 | 0.914 ± 0.003 | ONNX int8 | 3.5 | 208.3 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+Reasoning makes the teacher more accurate (0.778 against 0.755) and its student agrees with it more, but the
+student is not more accurate (0.785 both ways, with a slightly lower macro-F1), so here the extra labelling time
+buys nothing for the deployed model.
 
 ## Financial tweets: an easier task
 

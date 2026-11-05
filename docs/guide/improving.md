@@ -166,6 +166,11 @@ so that every round is compared on texts it did not train on. Each round is a ne
 (texts added, held-out agreement, test accuracy) to `RUN-improve/improve.md` and `improve.json`. Single-label
 runs with a local teacher only; it needs a GPU for real use, since the teacher writes text every round.
 
+On Banking77, three rounds raised the student's agreement with the teacher on the held-out texts from 0.854 to
+0.867 but left its test accuracy where it was (0.856;
+[Benchmarks](../results.md#rounds-of-teacher-written-texts-for-the-students-confusions)): the new texts teach the
+teacher's view of the confusing pairs, which helps only where the teacher is better than the student.
+
 ## More varied synthetic texts: synth --vary
 
 Texts the teacher writes from the label alone are much alike ([No unlabelled data](no-data.md)). Conditioning

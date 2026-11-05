@@ -14,3 +14,4 @@ for r in plain3k reason3k; do
   cp "runs/ag-news-1.5b-$r/results.json" "examples/ag-news/ag-news-1.5b-$r.json"
   cp "runs/ag-news-1.5b-$r/results.md" "examples/ag-news/ag-news-1.5b-$r.md"
 done
+tinydistill compare runs/ag-news-1.5b-plain3k runs/ag-news-1.5b-reason3k > examples/ag-news/reason.md
