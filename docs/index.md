@@ -61,6 +61,9 @@ flowchart LR
     V["vLLM server ·<br/>hosted API"] -.-> B
     K["A few gold labels<br/>per class"] -.-> B
     K -.-> C
+    K -.-> P["Linear probe on the<br/>teacher's hidden states"]
+    B -. "hidden states" .-> P
+    P -. "averaged with<br/>the prompt's scores" .-> C
     B -- "soft labels<br/>(ensembled)" --> C["Small encoder<br/>student"]
     C --> D["ONNX / int8<br/>export"]
     D --> E["Fast CPU<br/>inference"]
