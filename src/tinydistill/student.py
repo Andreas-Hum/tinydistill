@@ -90,6 +90,89 @@ def few_gold(gold: list[int | None], k: int, seed: int = 0) -> list[int | None]:
     return [g if i in keep else None for i, g in enumerate(gold)]
 
 
+def contrastive_pairs(classes: Sequence[int | None], n: int, seed: int = 0) -> list[tuple[int, int, float]]:
+    """``n`` contrastive pairs of the texts that have a class (``classes[i]``, None for none), as SetFit
+    generates them (Tunstall et al., 2022): ``n // 2`` positives, two different texts of one class with target
+    1, and the rest negatives, texts of two different classes with target 0, in a seeded random order. A
+    positive's first text is drawn from the texts whose class has another text, a negative's from all texts
+    with a class; each partner is drawn from the texts that fit."""
+    by_class: dict[int, list[int]] = {}
+    for i, c in enumerate(classes):
+        if c is not None:
+            by_class.setdefault(c, []).append(i)
+    anchors = [i for idx in by_class.values() if len(idx) > 1 for i in idx]
+    if len(by_class) < 2 or not anchors:
+        raise ValueError(
+            f"contrastive pairs need texts of at least two classes and a class with two texts: "
+            f"{sum(map(len, by_class.values()))} texts in {len(by_class)} classes"
+        )
+    labelled = [i for idx in by_class.values() for i in idx]
+    rng = random.Random(seed)
+    pairs: list[tuple[int, int, float]] = []
+    for _ in range(n // 2):
+        i = rng.choice(anchors)
+        j = rng.choice(by_class[classes[i]])  # type: ignore[index]
+        while j == i:
+            j = rng.choice(by_class[classes[i]])  # type: ignore[index]
+        pairs.append((i, j, 1.0))
+    for _ in range(n - n // 2):
+        i, j = rng.choice(labelled), rng.choice(labelled)
+        while classes[j] == classes[i]:
+            j = rng.choice(labelled)
+        pairs.append((i, j, 0.0))
+    rng.shuffle(pairs)
+    return pairs
+
+
+def _schedule(opt: torch.optim.Optimizer, steps: int) -> torch.optim.lr_scheduler.LambdaLR:
+    """Linear warm-up over the first tenth of the steps, then linear decay to zero."""
+    warm = max(1, steps // 10)
+    return torch.optim.lr_scheduler.LambdaLR(
+        opt, lambda s: min((s + 1) / warm, max(0.0, (steps - s) / (steps - warm + 1e-9)))
+    )
+
+
+def contrastive_warmup(
+    model,
+    tok,
+    texts: Sequence[str],
+    pairs: list[tuple[int, int, float]],
+    epochs: int = 1,
+    batch_size: int = 32,
+    lr: float = 1e-4,
+    max_length: int = 128,
+    seed: int = 0,
+    log: Callable[[str], None] = print,
+) -> None:
+    """SetFit's contrastive step (Tunstall et al., 2022) on the student: the mean squared error between the
+    cosine similarity of each pair's two representations (:func:`head_input`, what the classifier reads) and
+    its target (1 same class, 0 different), for ``epochs`` passes over ``pairs`` in batches of
+    ``batch_size`` pairs. The classifier's final layer gets no gradient and stays as it was."""
+    rng = random.Random(seed)
+    pairs = list(pairs)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+    sched = _schedule(opt, epochs * math.ceil(len(pairs) / batch_size))
+    model.train()
+    for epoch in range(epochs):
+        rng.shuffle(pairs)
+        t0, total = time.perf_counter(), 0.0
+        for b in range(0, len(pairs), batch_size):
+            batch = pairs[b : b + batch_size]
+            ids = sorted({i for i, j, _ in batch} | {j for i, j, _ in batch})
+            at = {i: k for k, i in enumerate(ids)}
+            f = head_input(model, tok, [texts[i] for i in ids], max_length).float()
+            sim = F.cosine_similarity(f[[at[i] for i, _, _ in batch]], f[[at[j] for _, j, _ in batch]])
+            loss = F.mse_loss(sim, torch.tensor([y for *_, y in batch], device=sim.device))
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            opt.step()
+            sched.step()
+            opt.zero_grad(set_to_none=True)
+            total += loss.item() * len(batch)
+        loss_ = total / len(pairs)
+        log(f"warm-up epoch {epoch + 1}/{epochs}: cosine loss {loss_:.4f} ({time.perf_counter() - t0:.0f}s)")
+
+
 def train_student(
     texts: list[str],
     teacher_probs: torch.Tensor | None,
@@ -115,6 +198,9 @@ def train_student(
     outside: str | None = None,
     trim_texts: Sequence[str] | None = None,
     trim_keep: int = TRIM_KEEP,
+    warmup_pairs: int = 0,
+    warmup_epochs: int = 1,
+    warmup_confidence: float = 0.9,
 ) -> int:
     """Train and save the student; returns the epoch whose model is saved. With ``val_share`` > 0 that share
     of the texts is held out (texts without gold labels when there is a teacher), the loss on them is measured
@@ -126,7 +212,12 @@ def train_student(
     :func:`init_head_from_names`. ``outside``: the id of the task's `outside` label, saved with the model so
     that Predictor and the web page can tell it apart. ``trim_texts``: before training, cut the vocabulary to
     the tokens of these texts with :func:`trim_vocab` (and ``trim_keep``), so the student trains and is saved
-    trimmed."""
+    trimmed. ``warmup_pairs`` > 0: before distillation (and before ``init_head``), train the encoder with
+    :func:`contrastive_warmup` for ``warmup_epochs`` on that many :func:`contrastive_pairs` of the training
+    texts (not the held-out ones) with a class: the gold label where there is one, else the teacher's top
+    label where its probability is at least ``warmup_confidence``. Single-label tasks only."""
+    if warmup_pairs < 0 or (warmup_pairs and multi_label):
+        raise ValueError(f"warmup_pairs must be 0 or more, and 0 for a multi-label task: {warmup_pairs}")
     torch.manual_seed(seed)
     rng = random.Random(seed)
     if static := encoder_of(model_name):
@@ -158,9 +249,6 @@ def train_student(
     if chunk_tokens and max_length < chunk_tokens + tok.num_special_tokens_to_add():
         max_length = chunk_tokens + tok.num_special_tokens_to_add()
         log(f"max_length raised to {max_length}: a window of {chunk_tokens} tokens plus special tokens")
-    if init_head:
-        init_head_from_names(model, tok, init_head, max_length=max_length)
-        log("classifier initialised from the label names")
     gold = gold or [None] * len(texts)
     if multi_label:  # multi-hot gold, and which texts have it
         has_gold = torch.tensor([g is not None for g in gold])
@@ -178,6 +266,26 @@ def train_student(
         )
     held = set(val)
     order = [i for i in range(len(texts)) if i not in held]
+    if warmup_pairs:
+        sure: list[int | None] = [None] * len(texts)  # the teacher's top label where it is confident enough
+        if teacher_probs is not None:
+            p, top = teacher_probs.max(-1)
+            sure = [
+                int(c) if q >= warmup_confidence else None
+                for q, c in zip(p.tolist(), top.tolist(), strict=True)
+            ]
+        classes = [
+            None if i in held else s if g is None else g
+            for i, (g, s) in enumerate(zip(gold, sure, strict=True))
+        ]
+        n_gold = sum(g is not None and i not in held for i, g in enumerate(gold))
+        n = sum(c is not None for c in classes)
+        log(f"contrastive warm-up: {warmup_pairs} pairs of {n} texts, {n_gold} with gold labels")
+        pairs = contrastive_pairs(classes, warmup_pairs, seed + 3)  # type: ignore[arg-type]  # single-label
+        contrastive_warmup(model, tok, texts, pairs, warmup_epochs, batch_size, lr, max_length, seed + 3, log)
+    if init_head:
+        init_head_from_names(model, tok, init_head, max_length=max_length)
+        log("classifier initialised from the label names")
 
     def loss_of(idx: list[int]) -> torch.Tensor:
         enc = tok(
@@ -197,10 +305,7 @@ def train_student(
 
     steps = epochs * math.ceil(len(order) / batch_size)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
-    warm = max(1, steps // 10)
-    sched = torch.optim.lr_scheduler.LambdaLR(
-        opt, lambda s: min((s + 1) / warm, max(0.0, (steps - s) / (steps - warm + 1e-9)))
-    )
+    sched = _schedule(opt, steps)
 
     best_loss, best_state, best_epoch = math.inf, None, epochs
     history: list[dict] = []  # per epoch, saved as history.json next to the model
@@ -403,21 +508,30 @@ def init_head_from_names(model, tok, names: list[str], scale: float = 10.0, max_
             f"cannot initialise the head: {len(names)} names, {n} labels, linear head found: {bool(found)}"
         )
     head = found[-1]  # the classifier is the last module registered (BERT, RoBERTa/MPNet, ModernBERT, static)
-    seen: list[torch.Tensor] = []
-    hook = head.register_forward_hook(lambda _m, args, _out: seen.append(args[0]))
     was_training = model.training
     model.eval()
     try:
-        enc = tok(names, padding=True, truncation=True, max_length=max_length, return_tensors="pt")
-        dev = head.weight.device
-        model(**{k: v.to(dev) for k, v in enc.items()})
+        f = head_input(model, tok, names, max_length).float()
     finally:
-        hook.remove()
         model.train(was_training)
-    f = seen[0].float()
     head.weight.copy_(F.normalize(f, dim=-1) * (scale / f.norm(dim=-1).mean().clamp_min(1e-9)))
     if head.bias is not None:
         head.bias.zero_()
+
+
+def head_input(model, tok, texts: Sequence[str], max_length: int = 128) -> torch.Tensor:
+    """What the classifier's final linear layer receives for each text, one row per text: the pooled
+    sentence of a transformer student, the mean token vector of the static one. Differentiable."""
+    n = model.config.num_labels
+    head = [m for m in model.modules() if isinstance(m, torch.nn.Linear) and m.out_features == n][-1]
+    seen: list[torch.Tensor] = []
+    hook = head.register_forward_hook(lambda _m, args, _out: seen.append(args[0]))
+    try:
+        enc = tok(list(texts), padding=True, truncation=True, max_length=max_length, return_tensors="pt")
+        model(**{k: v.to(head.weight.device) for k, v in enc.items()})
+    finally:
+        hook.remove()
+    return seen[0]
 
 
 def load_student(path: Path, device: str = "cpu"):

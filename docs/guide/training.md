@@ -99,6 +99,29 @@ students, the first token through a dense layer for RoBERTa and MPNet, the mean 
 layer and norm for ModernBERT, Ettin and mmBERT, and the mean token vector for the static student. For a
 multi-label task the start ranks the labels but does not yet decide which apply.
 
+## Contrastive warm-up
+
+`--warmup-pairs N` trains the student's encoder contrastively before distillation, as SetFit does
+([Tunstall et al., 2022](https://arxiv.org/abs/2209.11055)). It draws N pairs of training texts: half are two
+texts of the same class, with target 1, and half are texts of two different classes, with target 0. The loss is
+the squared difference between each pair's cosine similarity and its target. The representation is the one the
+classifier reads, as for `--init-head` above. The encoder trains on the pairs for `--warmup-epochs E`
+(default 1), at the run's `--lr` and `--batch-size` (in pairs). Distillation then starts from the warmed-up
+encoder, with the usual loss.
+
+```sh
+tinydistill train run --gold-per-class 8 --warmup-pairs 20000
+```
+
+A text's class is its gold label where it has one (`--gold-per-class`, `--gold-file`). Otherwise it is the
+teacher's top label, if the teacher gives that label a probability of at least `--warmup-confidence C`
+(default 0.9). The probabilities are the teacher's own, as stored in `train.jsonl`. Texts held out by
+`--val-share` are not used. The pairs are drawn with the run's seed. The option is off by default, changes only
+the encoder's starting point, and applies to the distilled student only, not to the `--gold-only` and
+`--upper-bound` baselines. It works for transformer students and the static student. It needs a single-label
+task: a multi-label task is refused. `meta.json` records `warmup_pairs`, `warmup_epochs` and
+`warmup_confidence`, and `refresh` and `improve` train with them.
+
 ## Long texts
 
 Inputs are cut to `--max-length` tokens (default 128), which suits short messages. Past that, the student never

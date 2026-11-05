@@ -473,6 +473,12 @@ def cmd_train(a: argparse.Namespace) -> None:
         raise SystemExit("--gold-per-class and --upper-bound need gold labels in the training data")
     if a.gold_only and not (a.gold_per_class or a.gold_file):
         raise SystemExit("--gold-only needs --gold-per-class K or --gold-file FILE")
+    if a.warmup_pairs and task.multi_label:
+        raise SystemExit(
+            "--warmup-pairs needs a single-label task: its pairs are texts of the same class or not"
+        )
+    if a.warmup_pairs < 0:
+        raise SystemExit(f"--warmup-pairs must be 0 (off) or more: {a.warmup_pairs}")
     pick = few_gold_sets if task.multi_label else few_gold
     # per text: a label index, or (multi-label) a list of them; fixed by --seed
     gold: list[Any] | None = pick(all_gold, a.gold_per_class, a.seed) if a.gold_per_class else None
@@ -550,6 +556,9 @@ def cmd_train(a: argparse.Namespace) -> None:
                 a.ce_weight,
                 *hp,
                 on_step=bar.update,
+                warmup_pairs=a.warmup_pairs,
+                warmup_epochs=a.warmup_epochs,
+                warmup_confidence=a.warmup_confidence,
                 **sel,
             )
         )
@@ -592,6 +601,9 @@ def cmd_train(a: argparse.Namespace) -> None:
             "student": a.student,
             "epochs": a.epochs,
             "init_head": a.init_head,
+            "warmup_pairs": a.warmup_pairs,
+            "warmup_epochs": a.warmup_epochs if a.warmup_pairs else None,
+            "warmup_confidence": a.warmup_confidence if a.warmup_pairs else None,
             "val_share": a.val_share,
             "patience": a.patience if a.val_share else None,
             "kept_epochs": kept if a.val_share else None,
@@ -1283,6 +1295,9 @@ def cmd_refresh(a: argparse.Namespace) -> None:
 RUN_KEYS = (
     "student",
     "init_head",
+    "warmup_pairs",
+    "warmup_epochs",
+    "warmup_confidence",
     "epochs",
     "val_share",
     "patience",
@@ -1707,6 +1722,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="`names`: before training, set each label's classifier weights to the student's own embedding "
         "of the label's name (and description), so the untrained student ranks labels by similarity to "
         "their names (default: a random head)",
+    )
+    train.add_argument(
+        "--warmup-pairs",
+        type=int,
+        default=0,
+        metavar="N",
+        help="before distillation, train the student's encoder contrastively on N pairs of training texts, "
+        "half of the same class and half of different classes, as SetFit does: the gold label where a text "
+        "has one, else the teacher's top label if it is at least --warmup-confidence; single-label tasks "
+        "only; the gold-only and upper-bound baselines do not warm up (default 0: off)",
+    )
+    train.add_argument(
+        "--warmup-epochs", type=int, default=1, metavar="E", help="passes over the warm-up pairs (default 1)"
+    )
+    train.add_argument(
+        "--warmup-confidence",
+        type=float,
+        default=0.9,
+        metavar="C",
+        help="a text without a gold label joins the warm-up if the teacher's top label has at least this "
+        "probability, with that label as its class (default 0.9)",
     )
     train.add_argument("--epochs", type=int, default=10, help="passes over the training texts (default 10)")
     train.add_argument(

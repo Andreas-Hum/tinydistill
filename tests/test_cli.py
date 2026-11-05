@@ -1272,3 +1272,27 @@ def test_refresh_trains_with_the_runs_settings(tmp_path, monkeypatch):
     assert (a.student, a.epochs, a.seeds, a.init_head) == (TINY_ENCODER, 7, 2, "names")
     main([*args, "--out", str(tmp_path / "new2"), "--epochs", "3"])  # a flag given on the command line wins
     assert (trained[-1].epochs, trained[-1].seeds) == (3, 2)
+
+
+def test_train_warmup_is_recorded_and_carried_over(tmp_path):
+    from tinydistill.cli import _run_settings
+
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "task.yaml").write_text(TASK)
+    texts = ["good", "bad", "great", "awful", "fine", "terrible"]
+    rows = [
+        {"text": t, "gold": i % 2, "scores": [0.0, -3.0][:: 1 - 2 * (i % 2)]} for i, t in enumerate(texts)
+    ]
+    write_jsonl(run / "train.jsonl", rows)
+    common = ["--student", TINY_ENCODER, "--epochs", "1", "--batch-size", "4", "--device", "cpu"]
+    main(["train", str(run), *common, "--warmup-pairs", "6", "--warmup-confidence", "0.8"])
+    meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
+    keys = ("warmup_pairs", "warmup_epochs", "warmup_confidence")
+    assert [meta[k] for k in keys] == [_run_settings(run)[k] for k in keys] == [6, 1, 0.8]
+    with pytest.raises(SystemExit, match="0 \\(off\\) or more"):
+        main(["train", str(run), *common, "--warmup-pairs", "-1"])
+    multi = TASK.replace("Review: {text}", "Review: {text}\n  Is it {label}?") + "multi_label: true\n"
+    (run / "task.yaml").write_text(multi)
+    with pytest.raises(SystemExit, match="single-label"):
+        main(["train", str(run), *common, "--warmup-pairs", "6"])
