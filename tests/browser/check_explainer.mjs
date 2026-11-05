@@ -139,7 +139,7 @@ for (const url of args) {
   // scrolls away, the handle that resizes it and the large view
   for (const [width, height] of [[1366, 768], [1920, 1080]]) {
     const where = `${url} at ${width}x${height}`;
-    const page = await browser.newPage({ viewport: { width, height } });
+    const page = await newPage({ viewport: { width, height } });
     page.on("pageerror", (e) => problems.push(`${where}: page error: ${e}`));
     page.on("console", (m) => m.type() === "error" && problems.push(`${where}: console error: ${m.text()}`));
     await page.goto(url);
