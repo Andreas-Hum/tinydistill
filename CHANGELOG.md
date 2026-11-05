@@ -2,10 +2,8 @@
 
 ## Unreleased
 
-- Distillation playground (`demo/playground/`, published at /demo/playground/): a static page that trains small
-  networks in the browser on 2D toy data. A larger teacher network labels the unlabelled points; three students
-  of the same size learn from gold labels only, from the teacher's hard labels, and from its soft labels with
-  KL plus lambda times cross-entropy on gold, as `train` does. Its settings and seed live in the URL.
+- The README and docs link the [Distillation Playground](https://andreas-hum.github.io/distillation-playground/), which trains small networks in the
+  browser on 2D toy data and compares a student from scratch, one on the teacher's hard labels and a distilled one.
 - `refresh` trains the new student with the run's own training settings (as `improve` does) instead of the
   defaults; a training flag given with another value than its default still wins.
 - `web`: the page leads with a card of teacher against student (model, size, time per text, test accuracy;

@@ -9,7 +9,7 @@ student is exported to ONNX for fast inference on a CPU, in a browser or behind 
 
 [Get started](getting-started/installation.md){ .md-button .md-button--primary }
 [Try the live demo](https://andreas-hum.github.io/tinydistill/demo/){ .md-button }
-[Distillation playground](https://andreas-hum.github.io/tinydistill/demo/playground/){ .md-button }
+[Distillation playground](https://andreas-hum.github.io/distillation-playground/){ .md-button }
 
 ## In one minute
 
