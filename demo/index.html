@@ -299,14 +299,42 @@
     #sel { margin-left: 0; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+  .picker { position: relative; flex: none; max-width: 100%; }
+  .picker details { width: fit-content; }
+  .picker summary { list-style: none; cursor: pointer; padding: 2px 12px; border: 1px solid var(--line);
+                    border-radius: 999px; background: var(--card); white-space: nowrap; font-size: .9em; }
+  .picker summary::-webkit-details-marker { display: none; }
+  .picker summary::after { content: " \25BE"; color: var(--muted); }
+  .picker details[open] summary { border-color: var(--accent); color: var(--accent); }
+  .picker ul { position: absolute; z-index: 50; top: calc(100% + 6px); left: 0; width: min(380px, calc(100vw - 32px));
+               max-height: 60vh; overflow-y: auto; margin: 0; padding: 4px; list-style: none; background: var(--card);
+               border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, .2); }
+  .picker ul button { display: block; width: 100%; text-align: left; padding: 7px 10px; margin: 0; border: 0;
+                      border-radius: 7px; background: transparent; color: var(--fg); font: inherit; font-size: .9em; }
+  .picker ul button:hover { background: var(--soft); }
+  .picker ul button[aria-current="true"] { background: var(--soft); box-shadow: inset 3px 0 var(--accent); }
+  .picker ul button[aria-current="true"] b::after { content: "  (on show)"; color: var(--muted); font-weight: 400; }
+  .picker ul b { display: block; }
+  .picker ul span { display: block; color: var(--muted); font-size: .9em; overflow-wrap: anywhere; }
+  #pick-msg { margin: 6px 0 0; color: var(--muted); font-size: .85em; max-width: 34em; }
+  #pick-msg.err { color: var(--teacher); }
+  #pick-bar { display: block; width: 100%; height: 6px; margin-top: 4px; accent-color: var(--accent); }
+  #pick-bar[hidden] { display: none; }
+  @media (max-width: 600px) {  /* fixed, so the menu never runs off the screen; its top stays under the button */
+    .picker ul { position: fixed; top: auto; left: 16px; right: 16px; width: auto; margin-top: 6px; }
+  }
 </style>
 </head>
 <body>
 <div class="app">
   <header class="top">
     <nav class="pages" aria-label="Pages"><a href="./" aria-current="page">Inside the model</a><a href="simple/" data-base="simple/">Simple</a></nav>
-    <h1>Banking77 intent classifier</h1>
-    <p class="sub">The distilled student, running in your browser on your text. Test accuracy 0.855 on 3080 held-out texts. Distilled from Qwen/Qwen2.5-7B-Instruct (16 similar examples, 4-bit) into sentence-transformers/all-MiniLM-L6-v2.</p>
+    <h1 data-t="title">Banking77 intent classifier</h1>
+    <div class="picker" id="picker" hidden>
+    <details id="pick"><summary>Switch model</summary><ul id="pick-list" aria-label="Models"></ul></details>
+    <p id="pick-msg" role="status" hidden><span id="pick-text"></span><progress id="pick-bar" hidden></progress></p>
+  </div>
+    <p class="sub">The distilled student, running in your browser on your text. <span data-t="summary">Test accuracy 0.855 on 3080 held-out texts. Distilled from Qwen/Qwen2.5-7B-Instruct (16 similar examples, 4-bit) into sentence-transformers/all-MiniLM-L6-v2.</span></p>
     <button id="tour-start" disabled title="Walk through the page step by step">Guided tour</button>
     <button class="info" aria-expanded="false" aria-controls="i-page" aria-label="About this page">i</button>
   </header>
@@ -323,7 +351,7 @@
       <div class="toks" id="tokens"></div>
       <footer>Made with <a href="https://github.com/Andreas-Hum/tinydistill">tinydistill</a>,
         <a href="https://github.com/huggingface/transformers.js">transformers.js</a> and
-        <a href="https://katex.org">KaTeX</a>. Trained on the Banking77 dataset (PolyAI, CC BY 4.0), labelled by Qwen2.5-7B-Instruct shown each text&#x27;s 16 most similar gold examples.</footer>
+        <a href="https://katex.org">KaTeX</a>. <span data-t="note">Trained on the Banking77 dataset (PolyAI, CC BY 4.0), labelled by Qwen2.5-7B-Instruct shown each text&#x27;s 16 most similar gold examples.</span></footer>
     </aside>
 
     <main id="centre" aria-label="The network">
@@ -403,7 +431,7 @@
       <button id="tour-back">Back</button><button id="tour-next">Next</button></div>
   </section>
 </div>
-<script type="application/json" id="data">{"labels": ["activate_my_card", "age_limit", "apple_pay_or_google_pay", "atm_support", "automatic_top_up", "balance_not_updated_after_bank_transfer", "balance_not_updated_after_cheque_or_cash_deposit", "beneficiary_not_allowed", "cancel_transfer", "card_about_to_expire", "card_acceptance", "card_arrival", "card_delivery_estimate", "card_linking", "card_not_working", "card_payment_fee_charged", "card_payment_not_recognised", "card_payment_wrong_exchange_rate", "card_swallowed", "cash_withdrawal_charge", "cash_withdrawal_not_recognised", "change_pin", "compromised_card", "contactless_not_working", "country_support", "declined_card_payment", "declined_cash_withdrawal", "declined_transfer", "direct_debit_payment_not_recognised", "disposable_card_limits", "edit_personal_details", "exchange_charge", "exchange_rate", "exchange_via_app", "extra_charge_on_statement", "failed_transfer", "fiat_currency_support", "get_disposable_virtual_card", "get_physical_card", "getting_spare_card", "getting_virtual_card", "lost_or_stolen_card", "lost_or_stolen_phone", "order_physical_card", "passcode_forgotten", "pending_card_payment", "pending_cash_withdrawal", "pending_top_up", "pending_transfer", "pin_blocked", "receiving_money", "Refund_not_showing_up", "request_refund", "reverted_card_payment?", "supported_cards_and_currencies", "terminate_account", "top_up_by_bank_transfer_charge", "top_up_by_card_charge", "top_up_by_cash_or_cheque", "top_up_failed", "top_up_limits", "top_up_reverted", "topping_up_by_card", "transaction_charged_twice", "transfer_fee_charged", "transfer_into_account", "transfer_not_received_by_recipient", "transfer_timing", "unable_to_verify_identity", "verify_my_identity", "verify_source_of_funds", "verify_top_up", "virtual_card_not_working", "visa_or_mastercard", "why_verify_identity", "wrong_amount_of_cash_received", "wrong_exchange_rate_for_cash_withdrawal"], "multi": false, "dtype": "q8", "model": "model-52e98c44ed", "max_length": 128, "outside": null, "config": {"model_type": "bert", "num_hidden_layers": 6, "num_attention_heads": 12, "hidden_size": 384, "intermediate_size": 1536, "hidden_act": "gelu", "layer_norm_eps": 1e-12, "vocab_size": 30522}, "teacher": "Qwen/Qwen2.5-7B-Instruct", "training": {"ce_weight": 1.0, "n_gold": 616}, "samples": [{"text": "How do I locate my card?", "gold": 11, "teacher": [[38, 0.9242], [41, 0.0463], [10, 0.0176], [14, 0.0094], [43, 0.0016], [11, 0.0005], [13, 0.0002], [12, 0.0], [0, 0.0], [40, 0.0], [23, 0.0], [16, 0.0], [52, 0.0], [70, 0.0], [50, 0.0], [69, 0.0], [49, 0.0], [68, 0.0], [8, 0.0], [18, 0.0], [39, 0.0], [74, 0.0], [54, 0.0], [15, 0.0], [35, 0.0], [45, 0.0], [6, 0.0], [21, 0.0], [47, 0.0], [75, 0.0], [22, 0.0], [30, 0.0], [17, 0.0], [63, 0.0], [73, 0.0], [48, 0.0], [44, 0.0], [72, 0.0], [29, 0.0], [51, 0.0], [28, 0.0], [7, 0.0], [71, 0.0], [20, 0.0], [24, 0.0], [66, 0.0], [3, 0.0], [58, 0.0], [33, 0.0], [9, 0.0], [2, 0.0], [36, 0.0], [25, 0.0], [55, 0.0], [19, 0.0], [34, 0.0], [76, 0.0], [67, 0.0], [1, 0.0], [5, 0.0], [31, 0.0], [4, 0.0], [60, 0.0], [53, 0.0], [59, 0.0], [56, 0.0], [37, 0.0], [57, 0.0], [46, 0.0], [62, 0.0], [65, 0.0], [26, 0.0], [32, 0.0], [27, 0.0], [64, 0.0], [42, 0.0], [61, 0.0]]}, {"text": "I bought something in a foreign currency but the rate applied is wrong!", "gold": 17, "teacher": [[17, 0.9526], [76, 0.0474], [32, 0.0], [63, 0.0], [20, 0.0], [35, 0.0], [23, 0.0], [74, 0.0], [47, 0.0], [21, 0.0], [24, 0.0], [48, 0.0], [52, 0.0], [72, 0.0], [41, 0.0], [75, 0.0], [16, 0.0], [31, 0.0], [73, 0.0], [49, 0.0], [8, 0.0], [25, 0.0], [29, 0.0], [6, 0.0], [51, 0.0], [28, 0.0], [2, 0.0], [34, 0.0], [5, 0.0], [30, 0.0], [58, 0.0], [53, 0.0], [57, 0.0], [68, 0.0], [70, 0.0], [46, 0.0], [36, 0.0], [44, 0.0], [43, 0.0], [7, 0.0], [4, 0.0], [64, 0.0], [33, 0.0], [42, 0.0], [3, 0.0], [1, 0.0], [22, 0.0], [12, 0.0], [56, 0.0], [40, 0.0], [14, 0.0], [45, 0.0], [54, 0.0], [71, 0.0], [38, 0.0], [59, 0.0], [0, 0.0], [61, 0.0], [67, 0.0], [55, 0.0], [26, 0.0], [60, 0.0], [37, 0.0], [66, 0.0], [15, 0.0], [19, 0.0], [65, 0.0], [50, 0.0], [27, 0.0], [11, 0.0], [10, 0.0], [18, 0.0], [9, 0.0], [13, 0.0], [39, 0.0], [69, 0.0], [62, 0.0]]}, {"text": "What fiat currencies are supported for holding and exchange?", "gold": 36, "teacher": [[36, 0.8559], [54, 0.1441], [31, 0.0], [47, 0.0], [48, 0.0], [50, 0.0], [24, 0.0], [40, 0.0], [20, 0.0], [28, 0.0], [19, 0.0], [29, 0.0], [35, 0.0], [73, 0.0], [51, 0.0], [7, 0.0], [63, 0.0], [37, 0.0], [72, 0.0], [23, 0.0], [76, 0.0], [5, 0.0], [21, 0.0], [44, 0.0], [52, 0.0], [2, 0.0], [33, 0.0], [6, 0.0], [46, 0.0], [41, 0.0], [17, 0.0], [25, 0.0], [3, 0.0], [68, 0.0], [58, 0.0], [74, 0.0], [64, 0.0], [57, 0.0], [22, 0.0], [30, 0.0], [0, 0.0], [67, 0.0], [60, 0.0], [43, 0.0], [1, 0.0], [8, 0.0], [4, 0.0], [32, 0.0], [38, 0.0], [70, 0.0], [56, 0.0], [34, 0.0], [49, 0.0], [27, 0.0], [15, 0.0], [66, 0.0], [42, 0.0], [45, 0.0], [26, 0.0], [39, 0.0], [16, 0.0], [55, 0.0], [53, 0.0], [75, 0.0], [13, 0.0], [14, 0.0], [10, 0.0], [59, 0.0], [65, 0.0], [71, 0.0], [11, 0.0], [12, 0.0], [62, 0.0], [69, 0.0], [18, 0.0], [61, 0.0], [9, 0.0]]}, {"text": "My card is broke, what do I do?", "gold": 14, "teacher": [[14, 1.0], [16, 0.0], [15, 0.0], [17, 0.0], [23, 0.0], [18, 0.0], [20, 0.0], [21, 0.0], [49, 0.0], [8, 0.0], [41, 0.0], [68, 0.0], [29, 0.0], [35, 0.0], [25, 0.0], [12, 0.0], [0, 0.0], [63, 0.0], [38, 0.0], [47, 0.0], [75, 0.0], [73, 0.0], [72, 0.0], [24, 0.0], [52, 0.0], [51, 0.0], [2, 0.0], [59, 0.0], [45, 0.0], [6, 0.0], [10, 0.0], [30, 0.0], [13, 0.0], [22, 0.0], [48, 0.0], [11, 0.0], [28, 0.0], [33, 0.0], [19, 0.0], [66, 0.0], [43, 0.0], [74, 0.0], [7, 0.0], [44, 0.0], [3, 0.0], [58, 0.0], [69, 0.0], [5, 0.0], [60, 0.0], [1, 0.0], [31, 0.0], [40, 0.0], [36, 0.0], [57, 0.0], [4, 0.0], [50, 0.0], [9, 0.0], [76, 0.0], [64, 0.0], [46, 0.0], [55, 0.0], [70, 0.0], [34, 0.0], [54, 0.0], [56, 0.0], [67, 0.0], [32, 0.0], [62, 0.0], [53, 0.0], [26, 0.0], [61, 0.0], [65, 0.0], [39, 0.0], [71, 0.0], [37, 0.0], [42, 0.0], [27, 0.0]]}, {"text": "What age can sign up for services?", "gold": 1, "teacher": [[1, 1.0], [2, 0.0], [6, 0.0], [43, 0.0], [0, 0.0], [5, 0.0], [38, 0.0], [23, 0.0], [20, 0.0], [51, 0.0], [37, 0.0], [21, 0.0], [48, 0.0], [50, 0.0], [42, 0.0], [25, 0.0], [52, 0.0], [30, 0.0], [7, 0.0], [68, 0.0], [27, 0.0], [8, 0.0], [73, 0.0], [74, 0.0], [29, 0.0], [26, 0.0], [24, 0.0], [36, 0.0], [19, 0.0], [60, 0.0], [47, 0.0], [34, 0.0], [40, 0.0], [15, 0.0], [4, 0.0], [41, 0.0], [33, 0.0], [63, 0.0], [54, 0.0], [44, 0.0], [67, 0.0], [76, 0.0], [66, 0.0], [35, 0.0], [69, 0.0], [16, 0.0], [32, 0.0], [49, 0.0], [53, 0.0], [72, 0.0], [28, 0.0], [31, 0.0], [59, 0.0], [10, 0.0], [22, 0.0], [58, 0.0], [55, 0.0], [56, 0.0], [39, 0.0], [14, 0.0], [57, 0.0], [3, 0.0], [70, 0.0], [13, 0.0], [17, 0.0], [11, 0.0], [75, 0.0], [45, 0.0], [64, 0.0], [61, 0.0], [62, 0.0], [9, 0.0], [65, 0.0], [46, 0.0], [12, 0.0], [71, 0.0], [18, 0.0]]}, {"text": "new customer and filling gas today, it's not working, the thing shows pending half an hour!", "gold": 47, "teacher": [[45, 0.9971], [46, 0.0022], [47, 0.0007], [48, 0.0], [25, 0.0], [35, 0.0], [26, 0.0], [63, 0.0], [16, 0.0], [59, 0.0], [20, 0.0], [6, 0.0], [50, 0.0], [51, 0.0], [14, 0.0], [66, 0.0], [75, 0.0], [56, 0.0], [49, 0.0], [57, 0.0], [68, 0.0], [40, 0.0], [23, 0.0], [58, 0.0], [72, 0.0], [5, 0.0], [54, 0.0], [41, 0.0], [73, 0.0], [44, 0.0], [8, 0.0], [28, 0.0], [52, 0.0], [76, 0.0], [62, 0.0], [71, 0.0], [2, 0.0], [67, 0.0], [53, 0.0], [19, 0.0], [29, 0.0], [70, 0.0], [7, 0.0], [34, 0.0], [4, 0.0], [33, 0.0], [61, 0.0], [3, 0.0], [64, 0.0], [22, 0.0], [31, 0.0], [38, 0.0], [21, 0.0], [36, 0.0], [60, 0.0], [30, 0.0], [24, 0.0], [1, 0.0], [43, 0.0], [39, 0.0], [32, 0.0], [0, 0.0], [55, 0.0], [65, 0.0], [37, 0.0], [17, 0.0], [27, 0.0], [15, 0.0], [42, 0.0], [74, 0.0], [10, 0.0], [69, 0.0], [13, 0.0], [18, 0.0], [12, 0.0], [11, 0.0], [9, 0.0]]}]}</script>
+<script type="application/json" id="data">{"labels": ["activate_my_card", "age_limit", "apple_pay_or_google_pay", "atm_support", "automatic_top_up", "balance_not_updated_after_bank_transfer", "balance_not_updated_after_cheque_or_cash_deposit", "beneficiary_not_allowed", "cancel_transfer", "card_about_to_expire", "card_acceptance", "card_arrival", "card_delivery_estimate", "card_linking", "card_not_working", "card_payment_fee_charged", "card_payment_not_recognised", "card_payment_wrong_exchange_rate", "card_swallowed", "cash_withdrawal_charge", "cash_withdrawal_not_recognised", "change_pin", "compromised_card", "contactless_not_working", "country_support", "declined_card_payment", "declined_cash_withdrawal", "declined_transfer", "direct_debit_payment_not_recognised", "disposable_card_limits", "edit_personal_details", "exchange_charge", "exchange_rate", "exchange_via_app", "extra_charge_on_statement", "failed_transfer", "fiat_currency_support", "get_disposable_virtual_card", "get_physical_card", "getting_spare_card", "getting_virtual_card", "lost_or_stolen_card", "lost_or_stolen_phone", "order_physical_card", "passcode_forgotten", "pending_card_payment", "pending_cash_withdrawal", "pending_top_up", "pending_transfer", "pin_blocked", "receiving_money", "Refund_not_showing_up", "request_refund", "reverted_card_payment?", "supported_cards_and_currencies", "terminate_account", "top_up_by_bank_transfer_charge", "top_up_by_card_charge", "top_up_by_cash_or_cheque", "top_up_failed", "top_up_limits", "top_up_reverted", "topping_up_by_card", "transaction_charged_twice", "transfer_fee_charged", "transfer_into_account", "transfer_not_received_by_recipient", "transfer_timing", "unable_to_verify_identity", "verify_my_identity", "verify_source_of_funds", "verify_top_up", "virtual_card_not_working", "visa_or_mastercard", "why_verify_identity", "wrong_amount_of_cash_received", "wrong_exchange_rate_for_cash_withdrawal"], "multi": false, "dtype": "q8", "max_length": 128, "outside": null, "config": {"model_type": "bert", "num_hidden_layers": 6, "num_attention_heads": 12, "hidden_size": 384, "intermediate_size": 1536, "hidden_act": "gelu", "layer_norm_eps": 1e-12, "vocab_size": 30522}, "teacher": "Qwen/Qwen2.5-7B-Instruct", "training": {"ce_weight": 1.0, "n_gold": 616}, "samples": [{"text": "How do I locate my card?", "gold": 11, "teacher": [[38, 0.9242], [41, 0.0463], [10, 0.0176], [14, 0.0094], [43, 0.0016], [11, 0.0005], [13, 0.0002], [12, 0.0], [0, 0.0], [40, 0.0], [23, 0.0], [16, 0.0], [52, 0.0], [70, 0.0], [50, 0.0], [69, 0.0], [49, 0.0], [68, 0.0], [8, 0.0], [18, 0.0], [39, 0.0], [74, 0.0], [54, 0.0], [15, 0.0], [35, 0.0], [45, 0.0], [6, 0.0], [21, 0.0], [47, 0.0], [75, 0.0], [22, 0.0], [30, 0.0], [17, 0.0], [63, 0.0], [73, 0.0], [48, 0.0], [44, 0.0], [72, 0.0], [29, 0.0], [51, 0.0], [28, 0.0], [7, 0.0], [71, 0.0], [20, 0.0], [24, 0.0], [66, 0.0], [3, 0.0], [58, 0.0], [33, 0.0], [9, 0.0], [2, 0.0], [36, 0.0], [25, 0.0], [55, 0.0], [19, 0.0], [34, 0.0], [76, 0.0], [67, 0.0], [1, 0.0], [5, 0.0], [31, 0.0], [4, 0.0], [60, 0.0], [53, 0.0], [59, 0.0], [56, 0.0], [37, 0.0], [57, 0.0], [46, 0.0], [62, 0.0], [65, 0.0], [26, 0.0], [32, 0.0], [27, 0.0], [64, 0.0], [42, 0.0], [61, 0.0]]}, {"text": "I bought something in a foreign currency but the rate applied is wrong!", "gold": 17, "teacher": [[17, 0.9526], [76, 0.0474], [32, 0.0], [63, 0.0], [20, 0.0], [35, 0.0], [23, 0.0], [74, 0.0], [47, 0.0], [21, 0.0], [24, 0.0], [48, 0.0], [52, 0.0], [72, 0.0], [41, 0.0], [75, 0.0], [16, 0.0], [31, 0.0], [73, 0.0], [49, 0.0], [8, 0.0], [25, 0.0], [29, 0.0], [6, 0.0], [51, 0.0], [28, 0.0], [2, 0.0], [34, 0.0], [5, 0.0], [30, 0.0], [58, 0.0], [53, 0.0], [57, 0.0], [68, 0.0], [70, 0.0], [46, 0.0], [36, 0.0], [44, 0.0], [43, 0.0], [7, 0.0], [4, 0.0], [64, 0.0], [33, 0.0], [42, 0.0], [3, 0.0], [1, 0.0], [22, 0.0], [12, 0.0], [56, 0.0], [40, 0.0], [14, 0.0], [45, 0.0], [54, 0.0], [71, 0.0], [38, 0.0], [59, 0.0], [0, 0.0], [61, 0.0], [67, 0.0], [55, 0.0], [26, 0.0], [60, 0.0], [37, 0.0], [66, 0.0], [15, 0.0], [19, 0.0], [65, 0.0], [50, 0.0], [27, 0.0], [11, 0.0], [10, 0.0], [18, 0.0], [9, 0.0], [13, 0.0], [39, 0.0], [69, 0.0], [62, 0.0]]}, {"text": "What fiat currencies are supported for holding and exchange?", "gold": 36, "teacher": [[36, 0.8559], [54, 0.1441], [31, 0.0], [47, 0.0], [48, 0.0], [50, 0.0], [24, 0.0], [40, 0.0], [20, 0.0], [28, 0.0], [19, 0.0], [29, 0.0], [35, 0.0], [73, 0.0], [51, 0.0], [7, 0.0], [63, 0.0], [37, 0.0], [72, 0.0], [23, 0.0], [76, 0.0], [5, 0.0], [21, 0.0], [44, 0.0], [52, 0.0], [2, 0.0], [33, 0.0], [6, 0.0], [46, 0.0], [41, 0.0], [17, 0.0], [25, 0.0], [3, 0.0], [68, 0.0], [58, 0.0], [74, 0.0], [64, 0.0], [57, 0.0], [22, 0.0], [30, 0.0], [0, 0.0], [67, 0.0], [60, 0.0], [43, 0.0], [1, 0.0], [8, 0.0], [4, 0.0], [32, 0.0], [38, 0.0], [70, 0.0], [56, 0.0], [34, 0.0], [49, 0.0], [27, 0.0], [15, 0.0], [66, 0.0], [42, 0.0], [45, 0.0], [26, 0.0], [39, 0.0], [16, 0.0], [55, 0.0], [53, 0.0], [75, 0.0], [13, 0.0], [14, 0.0], [10, 0.0], [59, 0.0], [65, 0.0], [71, 0.0], [11, 0.0], [12, 0.0], [62, 0.0], [69, 0.0], [18, 0.0], [61, 0.0], [9, 0.0]]}, {"text": "My card is broke, what do I do?", "gold": 14, "teacher": [[14, 1.0], [16, 0.0], [15, 0.0], [17, 0.0], [23, 0.0], [18, 0.0], [20, 0.0], [21, 0.0], [49, 0.0], [8, 0.0], [41, 0.0], [68, 0.0], [29, 0.0], [35, 0.0], [25, 0.0], [12, 0.0], [0, 0.0], [63, 0.0], [38, 0.0], [47, 0.0], [75, 0.0], [73, 0.0], [72, 0.0], [24, 0.0], [52, 0.0], [51, 0.0], [2, 0.0], [59, 0.0], [45, 0.0], [6, 0.0], [10, 0.0], [30, 0.0], [13, 0.0], [22, 0.0], [48, 0.0], [11, 0.0], [28, 0.0], [33, 0.0], [19, 0.0], [66, 0.0], [43, 0.0], [74, 0.0], [7, 0.0], [44, 0.0], [3, 0.0], [58, 0.0], [69, 0.0], [5, 0.0], [60, 0.0], [1, 0.0], [31, 0.0], [40, 0.0], [36, 0.0], [57, 0.0], [4, 0.0], [50, 0.0], [9, 0.0], [76, 0.0], [64, 0.0], [46, 0.0], [55, 0.0], [70, 0.0], [34, 0.0], [54, 0.0], [56, 0.0], [67, 0.0], [32, 0.0], [62, 0.0], [53, 0.0], [26, 0.0], [61, 0.0], [65, 0.0], [39, 0.0], [71, 0.0], [37, 0.0], [42, 0.0], [27, 0.0]]}, {"text": "What age can sign up for services?", "gold": 1, "teacher": [[1, 1.0], [2, 0.0], [6, 0.0], [43, 0.0], [0, 0.0], [5, 0.0], [38, 0.0], [23, 0.0], [20, 0.0], [51, 0.0], [37, 0.0], [21, 0.0], [48, 0.0], [50, 0.0], [42, 0.0], [25, 0.0], [52, 0.0], [30, 0.0], [7, 0.0], [68, 0.0], [27, 0.0], [8, 0.0], [73, 0.0], [74, 0.0], [29, 0.0], [26, 0.0], [24, 0.0], [36, 0.0], [19, 0.0], [60, 0.0], [47, 0.0], [34, 0.0], [40, 0.0], [15, 0.0], [4, 0.0], [41, 0.0], [33, 0.0], [63, 0.0], [54, 0.0], [44, 0.0], [67, 0.0], [76, 0.0], [66, 0.0], [35, 0.0], [69, 0.0], [16, 0.0], [32, 0.0], [49, 0.0], [53, 0.0], [72, 0.0], [28, 0.0], [31, 0.0], [59, 0.0], [10, 0.0], [22, 0.0], [58, 0.0], [55, 0.0], [56, 0.0], [39, 0.0], [14, 0.0], [57, 0.0], [3, 0.0], [70, 0.0], [13, 0.0], [17, 0.0], [11, 0.0], [75, 0.0], [45, 0.0], [64, 0.0], [61, 0.0], [62, 0.0], [9, 0.0], [65, 0.0], [46, 0.0], [12, 0.0], [71, 0.0], [18, 0.0]]}, {"text": "new customer and filling gas today, it's not working, the thing shows pending half an hour!", "gold": 47, "teacher": [[45, 0.9971], [46, 0.0022], [47, 0.0007], [48, 0.0], [25, 0.0], [35, 0.0], [26, 0.0], [63, 0.0], [16, 0.0], [59, 0.0], [20, 0.0], [6, 0.0], [50, 0.0], [51, 0.0], [14, 0.0], [66, 0.0], [75, 0.0], [56, 0.0], [49, 0.0], [57, 0.0], [68, 0.0], [40, 0.0], [23, 0.0], [58, 0.0], [72, 0.0], [5, 0.0], [54, 0.0], [41, 0.0], [73, 0.0], [44, 0.0], [8, 0.0], [28, 0.0], [52, 0.0], [76, 0.0], [62, 0.0], [71, 0.0], [2, 0.0], [67, 0.0], [53, 0.0], [19, 0.0], [29, 0.0], [70, 0.0], [7, 0.0], [34, 0.0], [4, 0.0], [33, 0.0], [61, 0.0], [3, 0.0], [64, 0.0], [22, 0.0], [31, 0.0], [38, 0.0], [21, 0.0], [36, 0.0], [60, 0.0], [30, 0.0], [24, 0.0], [1, 0.0], [43, 0.0], [39, 0.0], [32, 0.0], [0, 0.0], [55, 0.0], [65, 0.0], [37, 0.0], [17, 0.0], [27, 0.0], [15, 0.0], [42, 0.0], [74, 0.0], [10, 0.0], [69, 0.0], [13, 0.0], [18, 0.0], [12, 0.0], [11, 0.0], [9, 0.0]]}], "size_mb": 23.18, "student": "sentence-transformers/all-MiniLM-L6-v2", "score": "test accuracy 0.855", "text": {"title": "Banking77 intent classifier", "summary": "Test accuracy 0.855 on 3080 held-out texts. Distilled from Qwen/Qwen2.5-7B-Instruct (16 similar examples, 4-bit) into sentence-transformers/all-MiniLM-L6-v2.", "note": "Trained on the Banking77 dataset (PolyAI, CC BY 4.0), labelled by Qwen2.5-7B-Instruct shown each text's 16 most similar gold examples."}, "file": "explorer", "repo": "Shroomy/tinydistill-banking77-minilm", "models": [{"repo": "Shroomy/tinydistill-banking77-minilm", "title": "Banking77 intent classifier", "student": "sentence-transformers/all-MiniLM-L6-v2", "size": "23 MB", "score": "test accuracy 0.855", "explainer": true}, {"repo": "Shroomy/tinydistill-clinc150-minilm", "title": "CLINC150 intent classifier", "student": "sentence-transformers/all-MiniLM-L6-v2", "size": "23 MB", "score": "test accuracy 0.574", "explainer": true}, {"repo": "Shroomy/tinydistill-go-emotions-minilm", "title": "GoEmotions emotion tagger", "student": "sentence-transformers/all-MiniLM-L6-v2", "size": "23 MB", "score": "test macro-F1 0.199", "explainer": true}, {"repo": "Shroomy/tinydistill-financial-tweets-minilm", "title": "Financial news sentiment", "student": "sentence-transformers/all-MiniLM-L6-v2", "size": "23 MB", "score": "test accuracy 0.820", "explainer": true}]}</script>
 <script type="module">
   import { AutoTokenizer, AutoModel, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
   env.allowLocalModels = true;  // the model files sit next to this page
@@ -411,8 +439,8 @@
   env.localModelPath = "./";
   const katexReady = import("https://cdn.jsdelivr.net/npm/katex@0.16.47/dist/katex.mjs").then((m) => m.default, () => null);  // without it: TeX source
 
-  const D = JSON.parse(document.getElementById("data").textContent), C = D.config;
-  const L = C.num_hidden_layers, H = C.num_attention_heads, DIM = C.hidden_size, NL = D.labels.length;
+  let D = JSON.parse(document.getElementById("data").textContent), C = D.config;  // let: another model can be picked
+  let L = C.num_hidden_layers, H = C.num_attention_heads, DIM = C.hidden_size, NL = D.labels.length;
   const $ = (id) => document.getElementById(id);
   const el = (tag, props = {}, ...kids) => {
     const e = document.createElement(tag);
@@ -426,6 +454,100 @@
     e.append(...kids);
     return e;
   };
+  // ---- the model picker: `web --models` lists other models, which load from the Hugging Face Hub ----
+  const HUB = window.TINYDISTILL_HUB ?? "https://huggingface.co/";  // the browser tests serve a copy of a repo
+  const D0 = D, MODELS = D.models;  // the menu: this page's own model first
+  const fromURL = new URLSearchParams(location.search).get("model");  // ?model=user/name: one in the menu
+  let pickNow = MODELS.find((m) => m.repo && m.repo === fromURL) ?? MODELS[0], pickSeq = 0;
+  async function pageData(m, key) {  // a model's data for this page: its own, or from its tinydistill-page.json
+    if (m === MODELS[0]) return D0;
+    const r = await fetch(`${HUB}${m.repo}/resolve/main/tinydistill-page.json`);
+    if (!r.ok) throw new Error(`its tinydistill-page.json gave HTTP ${r.status}`);
+    const d = (await r.json())[key];
+    if (!d) throw new Error("it has no data for this page");
+    return { ...d, repo: m.repo };
+  }
+  function loadModel(d, progress) {  // [tokenizer, model], from next to the page or from the Hub
+    env.allowLocalModels = !d.repo; env.allowRemoteModels = !!d.repo; env.remoteHost = HUB;
+    const files = {};
+    const progress_callback = (e) => {  // download progress of every file, summed
+      if (e.status !== "progress" || !e.total) return;
+      files[e.file] = [e.loaded, e.total];
+      let a = 0, b = 0;
+      for (const [x, y] of Object.values(files)) { a += x; b += y; }
+      progress(a, b);
+    };
+    const id = d.repo ?? d.model;
+    return Promise.all([AutoTokenizer.from_pretrained(id, { progress_callback }),
+      AutoModel.from_pretrained(id, { dtype: d.dtype, model_file_name: d.file, progress_callback })]);
+  }
+  const withModel = (u) => { if (pickNow !== MODELS[0]) u.searchParams.set("model", pickNow.repo); };
+  const setModelURL = () => {
+    const u = new URL(location.href);
+    u.searchParams.delete("model");
+    withModel(u);
+    history.replaceState(null, "", u);
+  };
+  const say = (msg, err = false) => {
+    $("pick-msg").hidden = !msg; $("pick-msg").classList.toggle("err", err);
+    $("pick-text").textContent = msg; $("pick-bar").hidden = true;
+  };
+  const markPick = () => {
+    for (const b of document.querySelectorAll("#pick-list button")) {
+      b.setAttribute("aria-current", String(b.dataset.repo === (pickNow.repo ?? "")));
+    }
+  };
+  const failed = (m, e) => {  // the message when m did not load; pickNow is the model the page keeps
+    console.warn(e);
+    const why = e instanceof TypeError ? "the Hub could not be reached (are you offline?)" : e.message
+      .replace(/^Could not locate file: "(?:.*\/)?([^/"]+)"/, "its $1 is missing on the Hub").replace(/\.+$/, "");
+    say(`${m.title} did not load: ${why}. The page still runs ${pickNow.title}.`, true);
+  };
+  const fallBack = (e) => {  // the model ?model= asked for did not load: this page's own instead
+    const m = pickNow;
+    pickNow = MODELS[0];
+    setModelURL(); markPick(); failed(m, e);
+  };
+  function picker(entries, choose) {  // the menu, a button per model
+    if (entries.length < 2) return;
+    $("picker").hidden = false;
+    $("pick-list").replaceChildren(...entries.map((m) => {
+      const b = el("button", { type: "button", onclick: () => { $("pick").open = false; if (m !== pickNow) choose(m); } },
+        el("b", { textContent: m.title }), el("span", { textContent: [m.student, m.size, m.score].filter(Boolean).join(", ") }));
+      b.dataset.repo = m.repo ?? "";
+      return el("li", {}, b);
+    }));
+    markPick();
+    $("pick").addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && $("pick").open) { $("pick").open = false; $("pick").querySelector("summary").focus(); }
+    });
+    document.addEventListener("click", (e) => { if (!$("pick").contains(e.target)) $("pick").open = false; });
+  }
+  async function switchTo(m, key, apply) {  // load m, then apply(data, tokenizer, model); on failure keep the old one
+    const seq = ++pickSeq;
+    say(`Loading ${m.title}...`);
+    try {
+      const d = await pageData(m, key);
+      const [t, model] = await loadModel(d, (a, b) => {
+        if (seq !== pickSeq) return;
+        say(`Downloading ${m.title}: ${(a / 1e6).toFixed(1)} of ${(b / 1e6).toFixed(1)} MB`);
+        Object.assign($("pick-bar"), { hidden: false, max: b, value: a });
+      });
+      if (seq !== pickSeq) return;
+      pickNow = m;
+      setModelURL(); markPick(); say("");
+      await apply(d, t, model);
+    } catch (e) {
+      if (seq === pickSeq) failed(m, e);
+    }
+  }
+
+  if (!pickNow.explainer) {  // ?model= names a model without this page: its simple page, which says so
+    const u = new URL("simple/", location.href);
+    u.search = location.search;
+    location.replace(u);
+    await new Promise(() => {});  // nothing more to do here
+  }
   const range = (n) => Array.from({ length: n }, (_, i) => i);
   const name = (i) => D.labels[i].replaceAll("_", " ");
   const short = (s, n) => (s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s);
@@ -1270,14 +1392,25 @@
     if (R && s !== size) { size = s; drawNet(R); }
   }).observe(netbox);
   const text = $("text"), status = $("status");
-  $("samples").replaceChildren(...D.samples.map((s) => el("button", { className: "chip", title: s.text,
-    "aria-pressed": "false", onclick: () => { text.value = s.text; run(); } }, el("span", { textContent: s.text }))));
+  function useData(d) {  // a model's data, at the start and when another model is picked
+    D = d; C = D.config; L = C.num_hidden_layers; H = C.num_attention_heads; DIM = C.hidden_size; NL = D.labels.length;
+    Object.assign(ST, { layer: L - 1, head: -1, peek: null, hover: null, pin: null, mapLayer: L, label: 0 });
+    document.title = `${D.text.title}: inside the model`;
+    for (const e of document.querySelectorAll("[data-t]")) e.textContent = D.text[e.dataset.t] ?? "";
+    $("samples").replaceChildren(...D.samples.map((s) => el("button", { className: "chip", title: s.text,
+      "aria-pressed": "false", onclick: () => { text.value = s.text; run(); } }, el("span", { textContent: s.text }))));
+  }
+  if (pickNow !== MODELS[0]) {  // ?model= asks for one of the other models
+    try { D = await pageData(pickNow, "explainer"); } catch (e) { fallBack(e); }
+  }
+  useData(D);
   const params = new URLSearchParams(location.search);  // ?text= opens the page on a text, ?tour=1 starts the tour
   text.value = params.get("text")?.trim() ? params.get("text") : D.samples[0]?.text ?? "";
-  const withText = () => {  // the tab to the simple page carries the current text
+  const withText = () => {  // the tab to the simple page carries the current text and model
     for (const a of document.querySelectorAll("a[data-base]")) {
       const u = new URL(a.dataset.base, location.href), v = text.value.trim();
       if (v) u.searchParams.set("text", v);
+      withModel(u);
       a.href = u.href;
     }
   };
@@ -1499,13 +1632,18 @@
     if (e.key === "ArrowLeft") { e.preventDefault(); back(); }
   });
   text.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(); } });
+  const progress = (a, b) => { status.textContent = `Downloading the model: ${(a / 1e6).toFixed(1)} of ${(b / 1e6).toFixed(1)} MB`; };
   try {
-    tok = await AutoTokenizer.from_pretrained(D.model);
-    model = await AutoModel.from_pretrained(D.model, { dtype: D.dtype });
-  } catch (e) {
-    status.textContent = `The model did not load: ${e.message}`;
-    throw e;
+    [tok, model] = await loadModel(D, progress);
+  } catch (e) {  // the model ?model= asked for did not load: this page's own instead
+    if (D === D0) { status.textContent = `The model did not load: ${e.message}`; throw e; }
+    fallBack(e); useData(D0);
+    [tok, model] = await loadModel(D, progress);
   }
+  picker(MODELS.filter((m) => m.explainer), (m) => switchTo(m, "explainer", async (d, t, mod) => {
+    useData(d); tok = t; model = mod;
+    await run();
+  }));
   if (text.value) await run(); else status.textContent = "Type a text.";
   if (params.get("tour") === "1") startTour();
 </script>
