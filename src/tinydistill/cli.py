@@ -1944,7 +1944,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="the teacher labels only N training texts (for paid APIs): N/R at random, then in each of "
         "--rounds R rounds the N/R unlabelled texts the student trained so far is least sure of",
     )
-    rn.add_argument("--rounds", type=int, default=4, metavar="R", help="with --budget: rounds (default 4)")
+    rn.add_argument(
+        "--rounds",
+        type=int,
+        default=1,
+        metavar="R",
+        help="with --budget: rounds; 1 (the default) labels N texts at random, more pick each later "
+        "round's texts by the student's uncertainty (worse than random on Banking77, see the docs)",
+    )
     rn.set_defaults(fn=cmd_run)
     return p
 

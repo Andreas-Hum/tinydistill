@@ -16,3 +16,4 @@ for n in 1000 2500 5000; do
     cp $out/results.md examples/banking77/budget$n-r$r.md
   done
 done
+python examples/banking77/budget_table.py

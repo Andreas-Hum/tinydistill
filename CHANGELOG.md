@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `run --budget N` labels a random sample of N texts by default (`--rounds` now defaults to 1, was 4): on Banking77
+  the uncertainty rounds were worse than a random sample of the same size at every budget tried (1,000, 2,500 and
+  5,000 of 10,003 texts). `--rounds R` still picks each later round's texts by the student's uncertainty.
 - Several models in one site, loaded from the Hub: `web --models hf:user/a,hf:user/b` adds a "Switch model"
   menu to both pages (task, student, size and test score of each, read from its `tinydistill-page.json` at build
   time; a model without one is skipped). A pick loads in the browser from the Hub without a reload, with

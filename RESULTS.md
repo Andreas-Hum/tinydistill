@@ -133,6 +133,29 @@ because its prompt is far shorter (157 ms per text against 264). The student fol
 its teacher and above the 0.813 of the same student trained for 20 epochs on the 8-per-class teacher. Its
 cascade gains little, since the student is already about as accurate as the teacher it would ask.
 
+### Labelling on a budget
+
+[`examples/banking77/budget.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/banking77/budget.sh)
+has the teacher label only part of the training texts (`run --budget N`), chosen at random or over four rounds by
+the student's uncertainty (`--rounds 4`). The teacher's labels come from the score cache of the run above, so only
+the choice of texts differs:
+
+<!-- results: banking77/budget.md -->
+| Texts the teacher labels | At random (`--budget N`) | By the student's uncertainty (`--rounds 4`) |
+|---|---|---|
+| 1,000 of 10,003 | 0.480 ± 0.017 | 0.383 ± 0.016 |
+| 2,500 of 10,003 | 0.735 ± 0.011 | 0.725 ± 0.017 |
+| 5,000 of 10,003 | 0.830 ± 0.012 | 0.826 ± 0.011 |
+| all 10,003 | 0.857 ± 0.001 | |
+
+Banking77, 3080 test texts; the teacher of similar.sh (16 most similar examples), its labels read from the score cache. Student accuracy (PyTorch), mean ± standard deviation over 3 training seeds.
+<!-- /results -->
+
+A random half of the texts gets within three points of labelling them all. Choosing by the student's uncertainty
+does worse than chance at every budget, by about ten points with 1,000 texts: the first students, trained on a
+few hundred texts, pick ambiguous and unusual texts rather than useful ones. A random sample is therefore the
+default.
+
 ### Compared with SetFit
 
 [SetFit](https://github.com/huggingface/setfit) is a strong few-shot method that needs no LLM: it fine-tunes a

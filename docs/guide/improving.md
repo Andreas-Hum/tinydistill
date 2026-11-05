@@ -98,21 +98,28 @@ tinydistill train RUN --gold-file to_label.jsonl
 
 ## Label on a budget: run --budget
 
-With a paid API teacher every labelled text costs money. `run --budget N --rounds R` has the teacher label only
-N training texts, in R rounds (default 4) of N/R:
+With a paid API teacher every labelled text costs money. `run --budget N` has the teacher label only N training
+texts, picked at random (`--seed`):
 
 ```sh
 tinydistill run task.yaml --data train.csv --test test.csv --teacher gpt-4o-mini \
-  --api-url https://api.openai.com/v1 --budget 2000 --rounds 4 --out run
+  --api-url https://api.openai.com/v1 --budget 2000 --out run
 ```
 
-Round 1 labels N/R texts picked at random (`--seed`) and trains the student. Each later round, the student
+With `--rounds R`, the N texts are labelled in R rounds of N/R instead. Round 1 labels N/R texts picked at random
+and trains the student. Each later round, the student
 scores the texts not labelled yet, the teacher labels the N/R it is least sure of (the highest entropy of its
 predicted distribution; multi-label, the mean binary entropy of its labels), and the student is trained again
 on everything labelled so far. The last training is the final student, which is exported and evaluated as
 usual. This is uncertainty sampling, the classic active-learning rule ([Lewis and Gale,
 1994](https://arxiv.org/abs/cmp-lg/9407020)); LLKD ([Li et al., 2024](https://arxiv.org/abs/2411.08028))
 also uses the student's uncertainty to choose the texts.
+
+On Banking77 the uncertainty rounds did worse than a random sample of the same size, at every budget tried
+([Benchmarks](../results.md#labelling-on-a-budget)): with 1,000 of the 10,003 training texts the student reached
+0.383 after 4 rounds against 0.480 at random, and with 5,000, 0.826 against 0.830. The early students, trained on
+a few hundred texts, pick ambiguous and unusual texts rather than useful ones. That is why one round, a random
+sample, is the default.
 
 - The rounds only choose which texts the teacher labels; the student is trained on them exactly as without a
   budget.
