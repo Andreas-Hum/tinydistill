@@ -125,6 +125,10 @@ the encoder's starting point, and applies to the distilled student only, not to 
 task: a multi-label task is refused. `meta.json` records `warmup_pairs`, `warmup_epochs` and
 `warmup_confidence`, and `refresh` and `improve` train with them.
 
+Measured on Banking77 ([RESULTS](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#a-contrastive-warm-up-of-the-student)),
+the warm-up helps when the teacher labels only a small share of the texts (`run --budget`) and adds nothing
+once it labels them all, so it is off by default.
+
 ## Long texts
 
 Inputs are cut to `--max-length` tokens (default 128), which suits short messages. Past that, the student never

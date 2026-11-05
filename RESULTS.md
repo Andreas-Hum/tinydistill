@@ -187,6 +187,27 @@ does worse than chance at every budget, by about ten points with 1,000 texts: th
 few hundred texts, pick ambiguous and unusual texts rather than useful ones. A random sample is therefore the
 default.
 
+### A contrastive warm-up of the student
+
+[`examples/banking77/warmup.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/banking77/warmup.sh)
+first trains the student's encoder on 20,000 SetFit-style pairs (`train --warmup-pairs 20000`: same class or
+not, by gold label or the teacher's confident top label), then distils as usual. The teacher's labels come from
+the score cache of the run above:
+
+<!-- results: banking77/warmup.md -->
+| Texts the teacher labels | Without warm-up | With `--warmup-pairs 20000` |
+|---|---|---|
+| 1,000 of 10,003, at random | 0.480 ± 0.017 | 0.510 ± 0.023 |
+| 2,500 of 10,003, at random | 0.735 ± 0.011 | 0.739 ± 0.010 |
+| all 10,003 | 0.857 ± 0.001 | 0.855 ± 0.002 |
+| all 10,003, deployed (ONNX int8) | 0.855 | 0.850 |
+
+Banking77, 3080 test texts; the teacher of similar.sh (16 most similar examples), its labels read from the score cache. Student accuracy (PyTorch unless marked), mean ± standard deviation over 3 training seeds.
+<!-- /results -->
+
+The warm-up helps only when the teacher labels few texts: three points with 1,000, nothing measurable with 2,500,
+and nothing with all of them. It stays off by default.
+
 ### Rounds of teacher-written texts for the student's confusions
 
 [`examples/banking77/improve.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/banking77/improve.sh)
