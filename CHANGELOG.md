@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Contrastive warm-up: `train --warmup-pairs N` first trains the student's encoder on N SetFit-style pairs
+  (Tunstall et al., 2022), half of the same class and half of different classes, with a cosine-similarity loss,
+  then distils as usual. Classes are the gold labels and, for other texts, the teacher's top label where its
+  probability is at least `--warmup-confidence` (default 0.9). `--warmup-epochs` (default 1). Single-label tasks
+  only. Off by default; `meta.json` records the settings and `refresh` and `improve` reuse them.
 - Demonstration ensembling: `label --few-shot-similar M --few-shot-sets K` scores each text K times, set k
   showing it ranks k·M+1 to (k+1)·M of its most similar gold examples, and averages the label probabilities
   (Khalifa et al., 2023). Each set is a member of the teacher with its own score cache, as in a prompt ensemble.
