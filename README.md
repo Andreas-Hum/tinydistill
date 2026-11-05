@@ -32,7 +32,7 @@ optimisation by distilling LLMs.
   </a>
 </p>
 <p align="center"><i>The <a href="https://andreas-hum.github.io/tinydistill/demo/">live demo</a>: a 23 MB student distilled from Qwen2.5-7B runs in your
-browser. <a href="https://andreas-hum.github.io/tinydistill/demo/explainer/?tour=1">Inside the model</a> shows every layer and
+browser. <a href="https://andreas-hum.github.io/tinydistill/demo/?tour=1">Inside the model</a> shows every layer and
 attention head as it reads your text, with a guided tour.</i></p>
 
 ## Highlights

@@ -1,7 +1,7 @@
 // Opens a page written by `tinydistill web` in Chromium at phone width and checks that the model runs in the
 // browser, classifies as you type, checks itself on the bundled test texts, and that every step of the
 // "Inside the model" view (with the math) fills in, with no errors. When the folder has an explainer page, the page
-// has tabs to it and a link that opens it on the current text, and its "Try it" tab brings the text back.
+// has tabs to it and a link that opens it on the current text, and its "Simple" tab brings the text back.
 //   node tests/browser/check_page.mjs http://127.0.0.1:8000/ [screenshot.png]
 // NO_EXPLAIN=1 for a page whose model has no layer or attention outputs.
 import { chromium } from "playwright";
@@ -81,12 +81,14 @@ if (width > 390) problems.push(`the page is ${width}px wide on a 390px screen`);
 if (screenshot) await page.screenshot({ path: screenshot, fullPage: true });
 
 // the tabs, only when `web` wrote the explainer, and the text going there and back
-const explainer = (await page.request.get(new URL("explainer/", url).href)).ok();
+// `web` writes the explainer as the main page and this page to simple/, one folder down
+const up = await page.request.get(new URL("../", url).href);
+const explainer = up.ok() && (await up.text()).includes('aria-current="page">Inside the model');
 const tabs = await page.locator("nav.pages a").count();
 if (tabs !== (explainer ? 2 : 0)) problems.push(`${tabs} page tabs, with${explainer ? "" : "out"} an explainer page`);
 if (!explainer && (await page.locator(".deeper").count())) problems.push("a link to the explainer, which does not exist");
 if (explainer) {
-  if ((await text('nav.pages a[aria-current="page"]')) !== "Try it") problems.push("the tabs do not mark this page");
+  if ((await text('nav.pages a[aria-current="page"]')) !== "Simple") problems.push("the tabs do not mark this page");
   const mine = "a text of my own, there and back";
   await page.fill("#text", mine);
   for (const sel of [".deeper a.go", "nav.pages a:not([aria-current])"]) {
@@ -99,7 +101,7 @@ if (explainer) {
   if ((await text('nav.pages a[aria-current="page"]')) !== "Inside the model") problems.push("the explainer's tabs do not mark it");
   await page.click("nav.pages a:not([aria-current])");
   await wait((t) => document.getElementById("loading").hidden && document.getElementById("reason").textContent.includes(t), mine);
-  if ((await page.inputValue("#text")) !== mine) problems.push("the \"Try it\" tab did not bring the text back");
+  if ((await page.inputValue("#text")) !== mine) problems.push("the \"Simple\" tab did not bring the text back");
 }
 // a long label never runs into its percentage (both at this width and on a phone)
 for (const width of [1280, 390]) {

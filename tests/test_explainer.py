@@ -97,7 +97,7 @@ def test_explainer_page(tmp_path, multi):
     assert data["training"] == {"ce_weight": 0.5, "n_gold": 20}
     assert len(data["samples"][0]["teacher"]) == 2  # every label's soft label, for the loss in the page
     assert "katex@0.16." in text and not re.search(r"__[A-Z_]+__", text)  # every placeholder filled
-    assert '<a href="../" data-base="../">Try it</a>' in text and 'id="tour-start"' in text  # tabs, tour
+    assert '<a href="simple/" data-base="simple/">Simple</a>' in text and 'id="tour-start"' in text
 
 
 def test_explainer_needs_the_pytorch_student(tmp_path):
@@ -106,3 +106,20 @@ def test_explainer_needs_the_pytorch_student(tmp_path):
     (tmp_path / "student" / "config.json").unlink()
     with pytest.raises(ValueError, match="PyTorch student"):
         build_explainer(tmp_path / "onnx", tmp_path / "site")
+
+
+def test_web_makes_the_explainer_the_main_page(tmp_path):
+    from tinydistill.cli import main
+
+    run = tmp_path / "run"
+    _student(run / "student", ("neg", "pos"))
+    export_onnx(run / "student", run / "onnx", int8=True)
+    site = tmp_path / "site"
+    (site / "explainer" / "model-0123456789").mkdir(parents=True)  # an explainer where it was before 0.4
+    (site / "explainer" / "index.html").write_text("the old explainer")
+    main(["web", str(run / "onnx"), "--out", str(site)])
+    assert 'aria-current="page">Inside the model' in (site / "index.html").read_text(encoding="utf-8")
+    assert 'aria-current="page">Simple' in (site / "simple" / "index.html").read_text(encoding="utf-8")
+    old = site / "explainer" / "index.html"  # the old address forwards, with its ?text= and ?tour=1
+    assert 'location.replace("../" + location.search' in old.read_text(encoding="utf-8")
+    assert [p.name for p in (site / "explainer").iterdir()] == ["index.html"]

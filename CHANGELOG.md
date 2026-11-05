@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `web`: "Inside the model" (the explainer) is the main page, `site/index.html`, and the simpler page moves to
+  `site/simple/`; the tabs read "Inside the model" and "Simple". A student without the layer view gets only the
+  simple page. An old `site/explainer/` forwards to the new address.
 - `web`: the main page and the explainer have tabs to each other ("Try it", "Inside the model"), and the main
   page links to the explainer under the answer; the links carry the current text (`?text=`). The tabs appear only
   when the explainer was written. The explainer has a guided tour (its "Guided tour" button, or `?tour=1`): eleven

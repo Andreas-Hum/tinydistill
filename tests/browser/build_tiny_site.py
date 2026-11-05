@@ -69,10 +69,12 @@ if not multi:
         {"share_to_teacher": 1.0, "threshold": 1.0, "accuracy": 1.0},
     ]
 (run / "results.json").write_text(json.dumps(results), encoding="utf-8")
-# as `tinydistill web` does: the explainer first, then the main page with tabs to it when there is one
-if not multi:  # the multi-label page's PyTorch student was removed above, so it has no explainer
-    print(build_explainer(run / "onnx", out / "explainer", title="Browser test"))
-print(build_site(run / "onnx", out, title="Browser test", explainer=not multi))
+# as `tinydistill web` does: the explainer is the main page and the plain page goes to simple/; the
+# multi-label model has no PyTorch student (removed above), so its plain page is its only page
+if not multi:
+    print(build_explainer(run / "onnx", out, title="Browser test"))
+simple = out if multi else out / "simple"
+print(build_site(run / "onnx", simple, title="Browser test", explainer=not multi))
 if multi:
     raise SystemExit
 

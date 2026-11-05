@@ -830,16 +830,17 @@ def _card(res: dict | None, deployed: str, multi: bool) -> str:
     )
 
 
-# the tabs between the two pages and the way into the explainer, when `web` wrote one
+# the tabs between the two pages and the way into the explainer, when `web` wrote one: the explainer is the
+# main page (one folder up) and this page is the simple one
 TABS = (
-    '<nav class="pages" aria-label="Pages"><a href="./" aria-current="page">Try it</a>'
-    '<a href="explainer/" data-base="explainer/">Inside the model</a></nav>'
+    '<nav class="pages" aria-label="Pages"><a href="../" data-base="../">Inside the model</a>'
+    '<a href="./" aria-current="page">Simple</a></nav>'
 )
 INSIDE = """<div class="deeper">
     <p><b>See inside the model on this text</b>Every layer, every attention head and the math, as the model
       reads it, in your browser.</p>
-    <a href="explainer/?tour=1" data-base="explainer/?tour=1">Guided tour</a>
-    <a class="go" href="explainer/" data-base="explainer/">See inside</a>
+    <a href="../?tour=1" data-base="../?tour=1">Guided tour</a>
+    <a class="go" href="../" data-base="../">See inside</a>
   </div>"""
 
 
@@ -859,9 +860,9 @@ def build_site(
     PyTorch student is next to the export, the page's model also returns each layer's answer and the
     attention of the first token, for the "Inside the model" view. ``samples`` example buttons (one per gold
     label); the page also holds up to ``BUNDLE`` test texts with their gold and teacher labels. ``note`` is an
-    extra line for the footer, such as the dataset's licence. ``explainer``: ``out/explainer/`` holds the explainer
-    page (``explainer.build_explainer``), so the page gets tabs to it and a link that opens it on the current
-    text."""
+    extra line for the footer, such as the dataset's licence. ``explainer``: the explainer page
+    (``explainer.build_explainer``) is the main page one folder up (``out/..``), as `tinydistill web` writes it,
+    so this page gets tabs to it and a link that opens it on the current text."""
     from .export import export_explain
     from .static import is_static
 

@@ -1,10 +1,10 @@
-// Opens explainer pages written by `tinydistill web` (DIR/explainer/) in Chromium, at phone width in light mode
+// Opens explainer pages written by `tinydistill web` (DIR/, the main page) in Chromium, at phone width in light mode
 // and at desktop width in dark mode. It checks that the network, the heads, the output and every detail tab draw
 // something, that hovering a token highlights it everywhere, that typing reruns the model, that the formulas
 // render, that the page never scrolls sideways (and fits one screen on the desktop) and that nothing logs an error.
 // Then it opens the page with ?tour=1&text=... and runs the guided tour through every step (each spotlight on
 // screen and the page driven as the step says) and out again, with the tabs and the text they carry.
-//   node tests/browser/check_explainer.mjs http://127.0.0.1:8000/explainer/ [more URLs] [--shot explainer.png]
+//   node tests/browser/check_explainer.mjs http://127.0.0.1:8000/ [more URLs] [--shot explainer.png]
 import { chromium } from "playwright";
 
 const args = process.argv.slice(2), shotAt = args.indexOf("--shot");
@@ -129,7 +129,7 @@ async function tour(page, url, where) {
   if ((await page.inputValue("#text")) !== mine) problems.push(`${where}: ?text= did not fill the text box`);
   if ((await page.textContent('nav.pages a[aria-current="page"]')) !== "Inside the model") problems.push(`${where}: the tabs do not mark this page`);
   const back = new URL(await page.getAttribute("nav.pages a:not([aria-current])", "href"));
-  if (back.searchParams.get("text") !== mine) problems.push(`${where}: the "Try it" tab does not carry the text (${back})`);
+  if (back.searchParams.get("text") !== mine) problems.push(`${where}: the "Simple" tab does not carry the text (${back})`);
   const cols = await page.locator("#netbox .colhead").count(), n = Number((await page.textContent("#tour-n")).split(" of ")[1]);
   if (!(n >= 8 && n <= 11)) problems.push(`${where}: the tour has ${n} steps`);
   const titles = [];

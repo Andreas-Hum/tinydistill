@@ -274,7 +274,7 @@
 <body>
 <div class="app">
   <header class="top">
-    <nav class="pages" aria-label="Pages"><a href="../" data-base="../">Try it</a><a href="./" aria-current="page">Inside the model</a></nav>
+    <nav class="pages" aria-label="Pages"><a href="./" aria-current="page">Inside the model</a><a href="simple/" data-base="simple/">Simple</a></nav>
     <h1>__TITLE__</h1>
     <p class="sub">The distilled student, running in your browser on your text. __SUMMARY__</p>
     <button id="tour-start" disabled title="Walk through the page step by step">Guided tour</button>
@@ -1149,7 +1149,7 @@
     "aria-pressed": "false", onclick: () => { text.value = s.text; run(); } }, el("span", { textContent: s.text }))));
   const params = new URLSearchParams(location.search);  // ?text= opens the page on a text, ?tour=1 starts the tour
   text.value = params.get("text")?.trim() ? params.get("text") : D.samples[0]?.text ?? "";
-  const withText = () => {  // the tab back to the main page carries the current text
+  const withText = () => {  // the tab to the simple page carries the current text
     for (const a of document.querySelectorAll("a[data-base]")) {
       const u = new URL(a.dataset.base, location.href), v = text.value.trim();
       if (v) u.searchParams.set("text", v);

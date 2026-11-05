@@ -958,18 +958,36 @@ def cmd_web(a: argparse.Namespace) -> None:
             "warning: this model reads long texts in windows, but the page reads only the first one "
             "(predict, serve and Predictor read them all)"
         )
+    import shutil
+
     from .explainer import build_explainer
 
-    # the explainer first, so the main page knows whether to link it (build_site leaves explainer/ alone)
+    # the explainer is the main page (out/index.html) and the plain page goes to out/simple/; a model with no
+    # explainer (static, ModernBERT) gets the plain page as its only page
+    out = Path(a.out)
     try:
-        explainer = build_explainer(folder, Path(a.out) / "explainer", a.title, note=a.note)
+        explainer = build_explainer(folder, out, a.title, note=a.note)
     except ValueError as e:
         explainer = None
         log(f"no explainer page: {e}")
-    page = build_site(folder, Path(a.out), a.title, note=a.note, explainer=explainer is not None)
-    log(f"wrote {page}; serve the folder over HTTP, e.g. python -m http.server -d {a.out}")
+    simple = out / "simple" if explainer else out
+    page = build_site(folder, simple, a.title, note=a.note, explainer=bool(explainer))
     if explainer:
-        log(f"wrote {explainer}, an interactive view of the model's layers and heads")
+        old = out / "explainer"  # where the explainer was before: its links (with ?text=, ?tour=1) still work
+        if old.is_dir():
+            shutil.rmtree(old)
+            old.mkdir()
+            (old / "index.html").write_text(REDIRECT, encoding="utf-8")
+        log(f"wrote {explainer}, the model's layers and heads as it reads a text, and {page}, a simpler page")
+    else:
+        log(f"wrote {page}")
+    log(f"serve the folder over HTTP, e.g. python -m http.server -d {a.out}")
+
+
+REDIRECT = """<!doctype html><meta charset="utf-8"><title>Moved</title>
+<script>location.replace("../" + location.search + location.hash)</script>
+<p>This page moved to <a href="../">the folder above</a>.</p>
+"""
 
 
 def cmd_synth(a: argparse.Namespace) -> None:

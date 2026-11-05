@@ -30,10 +30,19 @@ curl -s localhost:8000/predict -d '{"texts": ["Oil prices fall as demand weakens
 
 ## A web page
 
-`tinydistill web RUN/onnx --out site` writes a static page plus the model in the layout
+`tinydistill web RUN/onnx --out site` writes two static pages plus the model in the layout
 [transformers.js](https://github.com/huggingface/transformers.js) expects. The int8 model then runs in the
 visitor's browser with no server at all; any static host works, GitHub Pages included. The
-[live demo](https://andreas-hum.github.io/tinydistill/demo/) is such a page.
+[live demo](https://andreas-hum.github.io/tinydistill/demo/) is such a site.
+
+- `site/index.html`, "Inside the model": the network as it reads the visitor's text (below).
+- `site/simple/index.html`, "Simple": the answer, the examples and the checks, described first.
+
+A student without the layer view (below) gets only the simple page, as `site/index.html`. Running `web` again
+over a folder written by an earlier version turns its old `site/explainer/` into a page that forwards to the new
+address, so links to it keep working.
+
+The simple page:
 
 - At the top, a card sets the teacher against the student: model, size, time per text and test accuracy
   (macro-F1 for multi-label tasks). The numbers come from the run's `results.json`; the student's time is
@@ -59,7 +68,7 @@ The model folder is named after a hash of its contents, so browsers never mix a 
 page. The layer-by-layer view works for BERT-, RoBERTa-, MPNet- and DeBERTa-style students; for others, such as
 ModernBERT and ALBERT, the page shows the answer, the probabilities and which words matter without it.
 
-The same command writes a second page, `site/explainer/`: a one-screen playground of the model as it reads the
+The main page, "Inside the model", is a one-screen playground of the model as it reads the
 visitor's text. On the left, the text (the model reruns as you type), the bundled examples and the tokens. In the
 middle, the network: a column of token nodes after the embeddings and after each layer, with lines between columns
 for the attention of the chosen head (or the mean over heads), each token's strongest only, and under each layer the
@@ -72,8 +81,8 @@ the embeddings, a map of the token vectors per layer (PCA, computed in the page)
 score. "Math" shows each one's formulas with the current numbers, rendered with [KaTeX](https://katex.org). On a
 phone the panes stack and the network scrolls inside its own box.
 
-When the explainer is written, both pages get two tabs at the top, "Try it" (the main page) and "Inside the
-model" (the explainer), and the main page gets a link under the answer, "See inside the model on this text". The
+Both pages have two tabs at the top, "Inside the model" (the main page) and "Simple", and the simple page has a
+link under the answer, "See inside the model on this text". The
 links carry the current text in the URL (`?text=...`), and each page opens on the text it is given there.
 
 "Guided tour" in the explainer's header (or `?tour=1` in the URL) walks through the page in eleven steps: the
@@ -88,7 +97,7 @@ bottom of the screen.
 The explainer runs `explorer.onnx`, exported from the run's PyTorch student (`RUN/student`) with every head's
 attention and the hidden states as extra outputs, so it reads at most 128 tokens. It needs a BERT-, RoBERTa- or
 MPNet-style student; for a static or ModernBERT student, or a model from the Hub without its run folder,
-`tinydistill web` writes only the main page and says why. The Python function is
+`tinydistill web` writes only the simple page and says why. The Python function is
 `tinydistill.explainer.build_explainer`.
 
 ## Hugging Face Hub
