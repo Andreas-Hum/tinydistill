@@ -369,6 +369,14 @@ async function picker(url) {
   if (model() !== "test/multi" || (await rows()) !== 3) problems.push("picker: a failed model did not keep the old one");
   broken = false;
 
+  // back to the page's own model, with fewer labels: no rows of the last model's labels are left over
+  await pick("");
+  await until(() => document.querySelector("h1").textContent !== "News Topics" && document.body.dataset.ready === "1")
+    .catch(() => problems.push("picker: the page's own model did not come back"));
+  await p.waitForTimeout(500);
+  const left = await p.$$eval("#probs .prow", (r) => r.map((x) => x.querySelector(".nm").textContent));
+  if (left.length !== 2) problems.push(`picker: ${left.length} label rows for a two-label model: ${left.join(", ")}`);
+
   // a model without the explainer opens on the simple page, which says why
   await p.goto(`${url}?model=test/plain&text=hello`);
   await until(() => location.pathname.endsWith("/simple/") && document.getElementById("loading").hidden)

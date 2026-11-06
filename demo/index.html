@@ -512,7 +512,7 @@
     if (entries.length < 2) return;
     $("picker").hidden = false;
     $("pick-list").replaceChildren(...entries.map((m) => {
-      const b = el("button", { type: "button", onclick: () => { $("pick").open = false; if (m !== pickNow) choose(m); } },
+      const b = el("button", { type: "button", onclick: () => { $("pick").open = false; choose(m); } },
         el("b", { textContent: m.title }), el("span", { textContent: [m.student, m.size, m.score].filter(Boolean).join(", ") }));
       b.dataset.repo = m.repo ?? "";
       return el("li", {}, b);
@@ -525,6 +525,7 @@
   }
   async function switchTo(m, key, apply) {  // load m, then apply(data, tokenizer, model); on failure keep the old one
     const seq = ++pickSeq;
+    if (m === pickNow) { say(""); return; }  // the model in use: a pending switch is called off
     say(`Loading ${m.title}...`);
     try {
       const d = await pageData(m, key);
@@ -1395,6 +1396,7 @@
   function useData(d) {  // a model's data, at the start and when another model is picked
     D = d; C = D.config; L = C.num_hidden_layers; H = C.num_attention_heads; DIM = C.hidden_size; NL = D.labels.length;
     Object.assign(ST, { layer: L - 1, head: -1, peek: null, hover: null, pin: null, mapLayer: L, label: 0 });
+    rows.clear(); $("probs").replaceChildren();  // the last model's label rows, which may outnumber this one's
     document.title = `${D.text.title}: inside the model`;
     for (const e of document.querySelectorAll("[data-t]")) e.textContent = D.text[e.dataset.t] ?? "";
     $("samples").replaceChildren(...D.samples.map((s) => el("button", { className: "chip", title: s.text,

@@ -994,7 +994,7 @@ PICKER_JS = r"""  // ---- the model picker: `web --models` lists other models, w
     if (entries.length < 2) return;
     $("picker").hidden = false;
     $("pick-list").replaceChildren(...entries.map((m) => {
-      const b = el("button", { type: "button", onclick: () => { $("pick").open = false; if (m !== pickNow) choose(m); } },
+      const b = el("button", { type: "button", onclick: () => { $("pick").open = false; choose(m); } },
         el("b", { textContent: m.title }), el("span", { textContent: [m.student, m.size, m.score].filter(Boolean).join(", ") }));
       b.dataset.repo = m.repo ?? "";
       return el("li", {}, b);
@@ -1007,6 +1007,7 @@ PICKER_JS = r"""  // ---- the model picker: `web --models` lists other models, w
   }
   async function switchTo(m, key, apply) {  // load m, then apply(data, tokenizer, model); on failure keep the old one
     const seq = ++pickSeq;
+    if (m === pickNow) { say(""); return; }  // the model in use: a pending switch is called off
     say(`Loading ${m.title}...`);
     try {
       const d = await pageData(m, key);

@@ -8,6 +8,10 @@
   the deployed students from 0.855 to 0.872 on Banking77 and from 0.760 to 0.813 on CLINC150. Both are the new
   Hub models and live demo models; the README headline, the Hub table and "How it compares" use them.
 - The "How it works" flowchart in the README and the docs shows the probe; the README's copy matches the docs'.
+- Fixed: on the "Inside the model" page, switching to a model with fewer labels left the last model's extra
+  label rows in the probabilities list, where their names overlapped the new ones.
+- Fixed: picking the model in use while another one downloads now calls the switch off; before, the page
+  switched anyway when the download finished.
 
 ## 0.5.0 (2026-11-05)
 
