@@ -20,7 +20,7 @@ SetFit, GLiClass zero-shot and the LLM itself, with accuracy, CPU latency, size 
 [`examples/compare/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples/compare).
 
 On Banking77 the best student reaches 0.875 against 0.796 for SetFit with the same encoder, which trains in 7
-minutes on a CPU and needs no LLM; on CLINC150, 0.817 against 0.712. With a zero-shot teacher and no gold labels
+minutes on a CPU and needs no LLM; on CLINC150, 0.850 against 0.712. With a zero-shot teacher and no gold labels
 the CLINC150 student (0.573) is below both SetFit and the encoder fine-tuned on the gold labels alone (0.580).
 
 ## Banking77: the hard case
@@ -704,9 +704,9 @@ of Qwen3.5-9B (0.867), with a teacher that takes 155 ms per text on the GPU agai
 from the fit (`--probe-dev`), the probe alone is below the prompt on Banking77 (75.6% against 78.0% of 123) and
 above it on CLINC150 (96.7% against 94.6% of 242), and combined beats both on Banking77 (78.9%) but not the
 probe alone on CLINC150 (95.5%); those held-out texts are few, and the test sets are the measure.
-Both students are on the Hub ([Banking77](https://huggingface.co/Shroomy/tinydistill-banking77-minilm),
-[CLINC150](https://huggingface.co/Shroomy/tinydistill-clinc150-minilm)) and in the
-[live demo](https://andreas-hum.github.io/tinydistill/demo/).
+The Banking77 student is on the [Hub](https://huggingface.co/Shroomy/tinydistill-banking77-minilm) and in the
+[live demo](https://andreas-hum.github.io/tinydistill/demo/); on CLINC150 the student of Gemma 4 12B (below)
+replaced this one.
 
 ## The newer teachers with similar examples, and both together
 
@@ -728,6 +728,25 @@ The ensemble is the most accurate teacher on Banking77 so far (0.879, against 0.
 student reaches 0.875, level with the student of the 7B teacher with the probe; deployed in int8 it is 0.870
 against that student's 0.872. It costs both teachers' labelling: 3.6 s per text on the GPU against 155 ms, so the
 probe stays the Hub model.
+
+On CLINC150, with the shortlist of 20 plus out of scope:
+
+<!-- results: teachers-2026/similar/clinc150.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| clinc150-qwen35-9b-similar16 | 16 similar examples, 4-bit `Qwen/Qwen3.5-9B` | 0.841 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.805 ± 0.005 | 0.848 ± 0.004 | 0.822 ± 0.003 | ONNX int8 | 1.0 | 23.7 | 23 |
+| clinc150-gemma4-12b-similar16 | 16 similar examples, 4-bit `google/gemma-4-12B-it` | 0.914 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.850 ± 0.002 | 0.880 ± 0.002 | 0.863 ± 0.003 | ONNX int8 | 1.3 | 24.5 | 23 |
+| clinc150-ensemble-similar16 | teacher ensemble of 2, 16 similar examples, 4-bit `Qwen/Qwen3.5-9B,google/gemma-4-12B-it` | 0.914 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.836 ± 0.001 | 0.873 ± 0.001 | 0.856 ± 0.001 | ONNX int8 | 1.1 | 24.7 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+Gemma 4 12B is far ahead of Qwen3.5-9B here (0.914 against 0.841), and averaging the two adds nothing to the
+teacher (0.914) and costs the student: 0.836 against 0.850 for the student of Gemma alone, which reaches 0.849
+deployed in int8, against 0.813 for the probe student. It took 8 hours of labelling on the GPU, against 26
+minutes for the probe run. It is the new
+[CLINC150 model on the Hub](https://huggingface.co/Shroomy/tinydistill-clinc150-minilm) and in the
+[live demo](https://andreas-hum.github.io/tinydistill/demo/).
 
 ## A vLLM teacher agrees with the local one
 

@@ -10,6 +10,8 @@
 - RESULTS.md: Qwen3.5-9B and Gemma 4 12B, each with 16 similar examples, and both as an ensemble
   (`examples/teachers-2026/similar.sh`). On Banking77 the ensemble is the most accurate teacher so far (0.879),
   and its student ties the probe student (0.875) at 23 times the labelling time per text.
+  On CLINC150 Gemma 4 12B alone is the best teacher (0.914) and its student reaches 0.849 deployed, against
+  0.813; it is the new CLINC150 Hub and live demo model, and "How it compares" and the README use it.
 - `examples/compare/table.py`: a tie at three decimals goes to the better int8 model, then the smaller one.
 - The "How it works" flowchart in the README and the docs shows the probe; the README's copy matches the docs'.
 - Fixed: on the "Inside the model" page, switching to a model with fewer labels left the last model's extra
