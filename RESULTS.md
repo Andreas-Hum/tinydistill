@@ -697,8 +697,9 @@ All latencies on the CPU with 2 threads.
 
 The probe lifts the teacher from 0.851 to 0.859 on Banking77 and from 0.775 to 0.842 on CLINC150, and the
 students gain more than their teachers: 0.857 to 0.875 and 0.767 to 0.817, or 0.872 and 0.813 deployed in int8
-(from 0.855 and 0.760). The Banking77 student is the most accurate on this page with 8 gold labels per class,
-above the student of Qwen3.5-9B (0.867), with a teacher that takes 155 ms per text on the GPU against Qwen3.5-9B's
+(from 0.855 and 0.760). The Banking77 student is the most accurate on this page with 8 gold labels per class (level with the
+student of the two-teacher ensemble below, 0.875, and above it in int8, 0.872 against 0.870), above the student
+of Qwen3.5-9B (0.867), with a teacher that takes 155 ms per text on the GPU against Qwen3.5-9B's
 924 ms. On the gold examples held out
 from the fit (`--probe-dev`), the probe alone is below the prompt on Banking77 (75.6% against 78.0% of 123) and
 above it on CLINC150 (96.7% against 94.6% of 242), and combined beats both on Banking77 (78.9%) but not the
@@ -706,6 +707,27 @@ probe alone on CLINC150 (95.5%); those held-out texts are few, and the test sets
 Both students are on the Hub ([Banking77](https://huggingface.co/Shroomy/tinydistill-banking77-minilm),
 [CLINC150](https://huggingface.co/Shroomy/tinydistill-clinc150-minilm)) and in the
 [live demo](https://andreas-hum.github.io/tinydistill/demo/).
+
+## The newer teachers with similar examples, and both together
+
+[`examples/teachers-2026/similar.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/similar.sh)
+shows Qwen3.5-9B and Gemma 4 12B each text's 16 most similar of the 8 gold examples per class, then averages the
+two as an ensemble, read from the score cache the single runs filled. On Banking77:
+
+<!-- results: teachers-2026/similar/banking77.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| banking77-qwen35-9b-similar16 | 16 similar examples, 4-bit `Qwen/Qwen3.5-9B` | 0.861 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.867 ± 0.004 | 0.867 ± 0.004 | 0.905 ± 0.001 | ONNX int8 | 0.9 | 33.0 | 23 |
+| banking77-gemma4-12b-similar16 | 16 similar examples, 4-bit `google/gemma-4-12B-it` | 0.870 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.870 ± 0.005 | 0.869 ± 0.004 | 0.913 ± 0.001 | ONNX int8 | 1.2 | 37.5 | 23 |
+| banking77-ensemble-similar16 | teacher ensemble of 2, 16 similar examples, 4-bit `Qwen/Qwen3.5-9B,google/gemma-4-12B-it` | 0.879 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.875 ± 0.003 | 0.875 ± 0.003 | 0.924 ± 0.001 | ONNX int8 | 1.4 | 40.6 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+The ensemble is the most accurate teacher on Banking77 so far (0.879, against 0.861 and 0.870 alone), and its
+student reaches 0.875, level with the student of the 7B teacher with the probe; deployed in int8 it is 0.870
+against that student's 0.872. It costs both teachers' labelling: 3.6 s per text on the GPU against 155 ms, so the
+probe stays the Hub model.
 
 ## A vLLM teacher agrees with the local one
 

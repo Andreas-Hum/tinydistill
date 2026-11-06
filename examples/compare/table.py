@@ -1,8 +1,8 @@
 """Write examples/compare/<task>.md, one table per task, from the runners' files in examples/compare/results/
 and the saved tinydistill results in examples/ (examples/<task>/*.json, examples/<task>/students/*.json and
 examples/teachers-2026/*/<task>-*.json). The tinydistill row is the saved run with the most accurate
-student that uses at most 8 gold labels per class, so a new run there is picked up when this script runs
-again."""
+student that uses at most 8 gold labels per class (a tie at three decimals goes to the better int8 model,
+then the smaller), so a new run there is picked up when this script runs again."""
 
 import json
 from pathlib import Path
@@ -192,7 +192,16 @@ def table(name: str) -> str | None:
         )
     notes = []
     if runs:
-        best_path, best = max(runs, key=lambda fr: row(fr[1], "student, PyTorch")["accuracy"])
+        # a tie at the precision shown goes to the better int8 model (the one deployed), then the smaller
+        best_path, best = max(
+            runs,
+            key=lambda fr: (
+                round(row(fr[1], "student, PyTorch")["accuracy"], 3),
+                round(row(fr[1], "student, ONNX int8")["accuracy"], 3),
+                -row(fr[1], "student, ONNX int8")["size_mb"],
+                row(fr[1], "student, PyTorch")["accuracy"],
+            ),
+        )
         shown = [(p, r) for p, r in runs if p.relative_to(EXAMPLES).as_posix() in ALSO.get(name, ())]
         shown = [(p, r) for p, r in shown if p != best_path] + [(best_path, best)]
         for path, run in shown:
@@ -203,8 +212,9 @@ def table(name: str) -> str | None:
         notes.append(
             f"The last tinydistill row is [`examples/{rel}`](https://github.com/Andreas-Hum/tinydistill/blob/"
             f"main/examples/{rel}), the most accurate of {len(runs)} saved runs on this test set that use at "
-            f"most {GOLD_PER_CLASS} gold labels per class (picked on the test set); the int8 model it times "
-            f"scores {int8['accuracy']:.3f}."
+            f"most {GOLD_PER_CLASS} gold labels per class (picked on the test set, a tie at three decimals "
+            "going to the better int8 model, then the smaller); the int8 model it times scores "
+            f"{int8['accuracy']:.3f}."
         )
         if best["task"] != name:
             notes.append(

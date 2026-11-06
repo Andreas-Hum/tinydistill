@@ -1,0 +1,196 @@
+{
+  "task": "banking77",
+  "teacher": "Qwen/Qwen3.5-9B,google/gemma-4-12B-it",
+  "student": "sentence-transformers/all-MiniLM-L6-v2",
+  "data": {
+    "train": "hf:PolyAI/banking77:train",
+    "test": "hf:PolyAI/banking77:test",
+    "n_train": 10003,
+    "n_test": 3080
+  },
+  "training": {
+    "epochs": 10,
+    "val_share": 0.0,
+    "patience": null,
+    "kept_epochs": null,
+    "lr": 0.0001,
+    "batch_size": 32,
+    "gold_per_class": 8,
+    "gold_file": null,
+    "n_gold_file": 0,
+    "n_gold": 616,
+    "upper_bound": false,
+    "gold_only": false,
+    "seeds": 3,
+    "n_gold_upper_bound": null,
+    "label_texts_scored": 0,
+    "few_shot": 8,
+    "few_shot_similar": 16,
+    "few_shot_sets": 1,
+    "few_shot_model": null,
+    "n_examples": 616,
+    "ce_weight": 1.0,
+    "student_device": "cuda",
+    "train_seconds": 189.2,
+    "teacher_device": "cuda:0",
+    "label_seconds": 0.0,
+    "load_4bit": true,
+    "shortlist": null,
+    "shortlist_model": null,
+    "shortlist_keep": null,
+    "chunk_tokens": null,
+    "chunk_stride": null,
+    "budget": null,
+    "rounds": null,
+    "probe": null
+  },
+  "environment": {
+    "cpu": "x86_64",
+    "cpu_threads": 2,
+    "torch": "2.15.0+cu132",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "omp_num_threads": "2"
+  },
+  "models": [
+    {
+      "role": "teacher",
+      "name": "teacher ensemble of 2, 16 similar examples, 4-bit",
+      "device": "cuda",
+      "top3_accuracy": 0.9581168831168831,
+      "accuracy": 0.8785714285714286,
+      "macro_f1": 0.8775880997285229,
+      "size_mb": 15033.774433999999,
+      "latency_ms_b1": 3589.5670609752415,
+      "throughput_per_s": 0.27858512823780823
+    },
+    {
+      "role": "teacher member",
+      "name": "teacher, 16 similar examples, 4-bit: Qwen3.5-9B",
+      "device": "cuda",
+      "model": "Qwen/Qwen3.5-9B",
+      "top3_accuracy": 0.951948051948052,
+      "accuracy": 0.8607142857142858,
+      "macro_f1": 0.860179584101143,
+      "size_mb": 7529.850112,
+      "params_m": 5494.55104,
+      "latency_ms_b1": 807.7443144866265,
+      "throughput_per_s": 1.1960557973562782,
+      "latency_ms_b32": 26754.604652000125
+    },
+    {
+      "role": "teacher member",
+      "name": "teacher, 16 similar examples, 4-bit: gemma-4-12B-it",
+      "device": "cuda",
+      "model": "google/gemma-4-12B-it",
+      "top3_accuracy": 0.938961038961039,
+      "accuracy": 0.8701298701298701,
+      "macro_f1": 0.8687165120315834,
+      "size_mb": 7503.924322,
+      "params_m": 6487.883776,
+      "latency_ms_b1": 2781.822746488615,
+      "throughput_per_s": 0.3594765343199025
+    },
+    {
+      "role": "student",
+      "name": "student, PyTorch",
+      "device": "cpu",
+      "top3_accuracy": 0.9574675324675325,
+      "top3_accuracy_std": 0.0017180203318600928,
+      "top3_accuracy_seeds": [
+        0.9561688311688312,
+        0.9568181818181818,
+        0.9594155844155844
+      ],
+      "accuracy": 0.8753246753246753,
+      "accuracy_std": 0.0030972051994056613,
+      "accuracy_seeds": [
+        0.8724025974025974,
+        0.875,
+        0.8785714285714286
+      ],
+      "macro_f1": 0.8749198856882748,
+      "macro_f1_std": 0.002946385025972851,
+      "macro_f1_seeds": [
+        0.8721870476152903,
+        0.874531345531107,
+        0.8780412639184271
+      ],
+      "agreement": 0.924134199134199,
+      "agreement_std": 0.0009372569305026475,
+      "agreement_seeds": [
+        0.923051948051948,
+        0.9246753246753247,
+        0.9246753246753247
+      ],
+      "params_m": 22.742861,
+      "size_mb": 90.98346,
+      "latency_ms_b1": 5.208962989854626,
+      "latency_ms_b32": 88.44213299744297,
+      "throughput_per_s": 361.81850115402784
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX fp32",
+      "device": "cpu",
+      "top3_accuracy": 0.9561688311688312,
+      "accuracy": 0.8724025974025974,
+      "macro_f1": 0.8721870476152903,
+      "agreement": 0.923051948051948,
+      "size_mb": 91.104327,
+      "latency_ms_b1": 3.06847550382372,
+      "latency_ms_b32": 82.00112149643246,
+      "throughput_per_s": 390.2385652297718
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX int8",
+      "device": "cpu",
+      "top3_accuracy": 0.9561688311688312,
+      "accuracy": 0.8698051948051948,
+      "macro_f1": 0.8693884734641535,
+      "agreement": 0.9178571428571428,
+      "size_mb": 23.072582,
+      "latency_ms_b1": 1.3610155001515523,
+      "latency_ms_b32": 40.6159425037913,
+      "throughput_per_s": 787.8679658120196
+    }
+  ],
+  "cascade": [
+    {
+      "share_to_teacher": 0.0,
+      "threshold": 0.15294361114501953,
+      "accuracy": 0.8698051948051948,
+      "macro_f1": 0.8693884734641535
+    },
+    {
+      "share_to_teacher": 0.1,
+      "threshold": 0.6409022212028503,
+      "accuracy": 0.8834415584415585,
+      "macro_f1": 0.8826999298697832
+    },
+    {
+      "share_to_teacher": 0.2,
+      "threshold": 0.8039155602455139,
+      "accuracy": 0.8808441558441559,
+      "macro_f1": 0.8799517685976915
+    },
+    {
+      "share_to_teacher": 0.3,
+      "threshold": 0.8758737444877625,
+      "accuracy": 0.8808441558441559,
+      "macro_f1": 0.8799094371971616
+    },
+    {
+      "share_to_teacher": 0.5,
+      "threshold": 0.9330477714538574,
+      "accuracy": 0.8788961038961038,
+      "macro_f1": 0.8779075228953029
+    },
+    {
+      "share_to_teacher": 1.0,
+      "threshold": 1.0,
+      "accuracy": 0.8785714285714286,
+      "macro_f1": 0.8775880997285229
+    }
+  ]
+}

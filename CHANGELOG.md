@@ -7,6 +7,10 @@
 - RESULTS.md: the linear probe on the teacher's hidden states (`--probe`) measured on the same runs; it lifted
   the deployed students from 0.855 to 0.872 on Banking77 and from 0.760 to 0.813 on CLINC150. Both are the new
   Hub models and live demo models; the README headline, the Hub table and "How it compares" use them.
+- RESULTS.md: Qwen3.5-9B and Gemma 4 12B, each with 16 similar examples, and both as an ensemble
+  (`examples/teachers-2026/similar.sh`). On Banking77 the ensemble is the most accurate teacher so far (0.879),
+  and its student ties the probe student (0.875) at 23 times the labelling time per text.
+- `examples/compare/table.py`: a tie at three decimals goes to the better int8 model, then the smaller one.
 - The "How it works" flowchart in the README and the docs shows the probe; the README's copy matches the docs'.
 - Fixed: on the "Inside the model" page, switching to a model with fewer labels left the last model's extra
   label rows in the probabilities list, where their names overlapped the new ones.
