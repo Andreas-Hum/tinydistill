@@ -1,0 +1,162 @@
+{
+  "task": "financial-tweets",
+  "teacher": "google/gemma-4-12B-it",
+  "student": "sentence-transformers/all-MiniLM-L6-v2",
+  "data": {
+    "train": "hf:zeroshot/twitter-financial-news-sentiment:train",
+    "test": "hf:zeroshot/twitter-financial-news-sentiment:validation",
+    "n_train": 9543,
+    "n_test": 2388
+  },
+  "training": {
+    "epochs": 5,
+    "val_share": 0.0,
+    "patience": null,
+    "kept_epochs": null,
+    "lr": 0.0001,
+    "batch_size": 32,
+    "gold_per_class": 8,
+    "gold_file": null,
+    "n_gold_file": 0,
+    "n_gold": 24,
+    "upper_bound": false,
+    "gold_only": false,
+    "seeds": 3,
+    "n_gold_upper_bound": null,
+    "label_texts_scored": 11931,
+    "few_shot": 8,
+    "few_shot_similar": 16,
+    "few_shot_sets": 1,
+    "few_shot_model": null,
+    "n_examples": 24,
+    "ce_weight": 1.0,
+    "student_device": "cuda",
+    "train_seconds": 83.0,
+    "teacher_device": "cuda:0",
+    "label_seconds": 3626.5,
+    "load_4bit": true,
+    "shortlist": null,
+    "shortlist_model": null,
+    "shortlist_keep": null,
+    "chunk_tokens": null,
+    "chunk_stride": null,
+    "budget": null,
+    "rounds": null,
+    "probe": null
+  },
+  "environment": {
+    "cpu": "x86_64",
+    "cpu_threads": 2,
+    "torch": "2.15.0+cu132",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "omp_num_threads": "2"
+  },
+  "models": [
+    {
+      "role": "teacher",
+      "name": "teacher, 16 similar examples, 4-bit",
+      "device": "cuda",
+      "model": "google/gemma-4-12B-it",
+      "accuracy": 0.8458961474036851,
+      "macro_f1": 0.8232047495642627,
+      "size_mb": 7503.924322,
+      "params_m": 6487.883776,
+      "latency_ms_b1": 342.1404385007918,
+      "throughput_per_s": 3.186890749127798,
+      "latency_ms_b32": 10041.134923987556
+    },
+    {
+      "role": "student",
+      "name": "student, PyTorch",
+      "device": "cpu",
+      "accuracy": 0.8029034059184813,
+      "accuracy_std": 0.005685486279848221,
+      "accuracy_seeds": [
+        0.7998324958123953,
+        0.809463986599665,
+        0.7994137353433836
+      ],
+      "macro_f1": 0.7659794662378784,
+      "macro_f1_std": 0.00821636290910957,
+      "macro_f1_seeds": [
+        0.76082653582008,
+        0.7754547792155132,
+        0.7616570836780422
+      ],
+      "agreement": 0.8372417643774428,
+      "agreement_std": 0.003170803096482585,
+      "agreement_seeds": [
+        0.8358458961474037,
+        0.8408710217755444,
+        0.8350083752093802
+      ],
+      "params_m": 22.714371,
+      "size_mb": 90.869492,
+      "latency_ms_b1": 4.096278978977352,
+      "latency_ms_b32": 138.12190797762014,
+      "throughput_per_s": 231.6793944461363
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX fp32",
+      "device": "cpu",
+      "accuracy": 0.7998324958123953,
+      "macro_f1": 0.76082653582008,
+      "agreement": 0.8358458961474037,
+      "size_mb": 90.990363,
+      "latency_ms_b1": 2.54098599543795,
+      "latency_ms_b32": 139.1042924951762,
+      "throughput_per_s": 230.04322459071264
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX int8",
+      "device": "cpu",
+      "accuracy": 0.7914572864321608,
+      "macro_f1": 0.7522671251305822,
+      "agreement": 0.8266331658291457,
+      "size_mb": 23.043866,
+      "latency_ms_b1": 1.119370514061302,
+      "latency_ms_b32": 67.53738399129361,
+      "throughput_per_s": 473.811659689472
+    }
+  ],
+  "cascade": [
+    {
+      "share_to_teacher": 0.0,
+      "threshold": 0.3649754822254181,
+      "accuracy": 0.7914572864321608,
+      "macro_f1": 0.7522671251305822
+    },
+    {
+      "share_to_teacher": 0.10008375209380234,
+      "threshold": 0.7508282661437988,
+      "accuracy": 0.8165829145728644,
+      "macro_f1": 0.7820924767770147
+    },
+    {
+      "share_to_teacher": 0.20016750418760468,
+      "threshold": 0.9004738330841064,
+      "accuracy": 0.8241206030150754,
+      "macro_f1": 0.7919645181072567
+    },
+    {
+      "share_to_teacher": 0.2998324958123953,
+      "threshold": 0.9621642827987671,
+      "accuracy": 0.8341708542713567,
+      "macro_f1": 0.8057418160129842
+    },
+    {
+      "share_to_teacher": 0.5,
+      "threshold": 0.9891597628593445,
+      "accuracy": 0.8463149078726968,
+      "macro_f1": 0.8215950337339545
+    },
+    {
+      "share_to_teacher": 1.0,
+      "threshold": 1.0,
+      "accuracy": 0.8458961474036851,
+      "macro_f1": 0.8232047495642627
+    }
+  ]
+}

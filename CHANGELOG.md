@@ -9,6 +9,8 @@
 - RESULTS.md: the probe on Gemma 4 12B with 16 similar examples on CLINC150
   (`examples/teachers-2026/probe-gemma.sh`): the teacher goes from 0.914 to 0.941 and its student from 0.850 to
   0.860, 0.860 deployed (from 0.849). It is the new CLINC150 Hub and live demo model.
+- RESULTS.md: Qwen3.5-9B, Gemma 4 12B and their ensemble with 16 similar examples on financial tweets; the
+  ensemble's student (0.827, 0.829 deployed) ties the zero-shot three-family ensemble's (0.828, 0.829 deployed).
 - `examples/teachers-2026/similar.sh` also runs financial tweets and takes task names to run only those;
   `examples/teachers-2026/probe-gemma.sh` runs the probe on Gemma 4 12B with similar examples (CLINC150, Danish
   MASSIVE).

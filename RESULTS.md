@@ -800,6 +800,24 @@ Here the better teacher pays off for the multilingual student: 0.811, 0.810 depl
 the 8-shot 7B teacher's labels, and above its own teacher (0.806). It is the Danish model on the Hub and in the
 live demo now.
 
+On financial tweets (3 classes, so the 16 similar examples are 16 of the 24 gold texts), with 5 epochs as in the
+financial-tweets section:
+
+<!-- results: teachers-2026/similar/financial-tweets.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| financial-tweets-qwen35-9b-similar16 | 16 similar examples, 4-bit `Qwen/Qwen3.5-9B` | 0.821 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.805 ± 0.005 | 0.752 ± 0.006 | 0.836 ± 0.004 | ONNX int8 | 1.2 | 66.9 | 23 |
+| financial-tweets-gemma4-12b-similar16 | 16 similar examples, 4-bit `google/gemma-4-12B-it` | 0.846 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.803 ± 0.006 | 0.766 ± 0.008 | 0.837 ± 0.003 | ONNX int8 | 1.1 | 67.5 | 23 |
+| financial-tweets-ensemble-similar16 | teacher ensemble of 2, 16 similar examples, 4-bit `Qwen/Qwen3.5-9B,google/gemma-4-12B-it` | 0.859 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.827 ± 0.008 | 0.788 ± 0.008 | 0.853 ± 0.001 | ONNX int8 | 1.3 | 67.6 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+The teachers rank as on the other tasks, the ensemble first (0.859), but Gemma 4 12B's student is no better than
+Qwen3.5-9B's (0.803 against 0.805) for a teacher 2.5 points more accurate. The ensemble's student, 0.827 and 0.829
+deployed in int8, ties the student of the zero-shot three-family ensemble of the financial-tweets section (0.828,
+0.829 deployed), which needs no gold labels and took 6 minutes of labelling against an hour and a half.
+
 ## A vLLM teacher agrees with the local one
 
 [`examples/vllm-smoke.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/vllm-smoke.sh)
