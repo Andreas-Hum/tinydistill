@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.1 (2026-11-07)
 
 - RESULTS.md: demonstration ensembling (`--few-shot-sets 3`) measured on Banking77 and CLINC150 with the 7B
   teacher; three sets of 16 similar examples were worse than one, for the teacher and the student.
@@ -12,7 +12,10 @@
   and its student ties the probe student (0.875) at 23 times the labelling time per text.
   On CLINC150 Gemma 4 12B alone is the best teacher (0.914) and its student reaches 0.849 deployed, against
   0.813; it is the new CLINC150 Hub and live demo model, and "How it compares" and the README use it.
-- `examples/compare/table.py`: a tie at three decimals goes to the better int8 model, then the smaller one.
+  On Danish MASSIVE the ensemble helps (teacher 0.806, English MiniLM-L6 student 0.771, 0.764 deployed), a
+  little above the trimmed multilingual student on the Hub (0.759 deployed), which stays.
+- `examples/compare/table.py`: a tie at three decimals goes to the better int8 model, then the smaller one; an
+  ensemble read from the score cache is given its members' labelling time.
 - The "How it works" flowchart in the README and the docs shows the probe; the README's copy matches the docs'.
 - Fixed: on the "Inside the model" page, switching to a model with fewer labels left the last model's extra
   label rows in the probabilities list, where their names overlapped the new ones.
