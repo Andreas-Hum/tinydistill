@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- RESULTS.md: the trimmed multilingual Danish student on the labels of the Qwen3.5-9B and Gemma 4 12B ensemble
+  (`examples/massive-da/ensemble-multilingual.sh`, from the score cache): 0.811, 0.810 deployed, against 0.761
+  on the 8-shot 7B teacher's labels and above the ensemble itself (0.806). It is the new Danish Hub and live demo
+  model, and "How it compares" uses it.
+- `examples/teachers-2026/similar.sh` also runs financial tweets and takes task names to run only those;
+  `examples/teachers-2026/probe-gemma.sh` runs the probe on Gemma 4 12B with similar examples (CLINC150, Danish
+  MASSIVE).
+
 ## 0.5.1 (2026-11-07)
 
 - RESULTS.md: demonstration ensembling (`--few-shot-sets 3`) measured on Banking77 and CLINC150 with the 7B
