@@ -118,6 +118,23 @@ def teacher_facts(best: dict, runs: list[tuple[Path, dict]]) -> tuple[dict, floa
     seconds = best["training"].get("label_seconds") or max(
         (r["training"].get("label_seconds") or 0 for r, _ in same), default=0
     )
+    members = best["teacher"].split(",")
+    if not seconds and len(members) > 1:
+        # an ensemble read from the cache its members' runs filled: their labelling is its labelling
+        prompt = teacher["name"].split(", ", 1)[-1]
+        seconds = sum(
+            max(
+                (
+                    r["training"].get("label_seconds") or 0
+                    for _, r in runs
+                    if r["teacher"] == member
+                    and r["data"]["train"] == best["data"]["train"]
+                    and any(m["role"] == "teacher" and m["name"] == f"teacher, {prompt}" for m in r["models"])
+                ),
+                default=0,
+            )
+            for member in members
+        )
     return teacher, seconds
 
 

@@ -1,0 +1,11 @@
+{
+  "task": "massive-da",
+  "method": "tinydistill",
+  "results_file": "teachers-2026/similar/massive-da-ensemble.json",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "n_test": 2974,
+  "accuracy": 0.7639542703429725,
+  "macro_f1": 0.6856910236949557,
+  "latency_ms_b1": 0.7759579748380929,
+  "latency_threads": 2
+}

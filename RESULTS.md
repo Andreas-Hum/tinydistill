@@ -748,6 +748,25 @@ minutes for the probe run. It is the new
 [CLINC150 model on the Hub](https://huggingface.co/Shroomy/tinydistill-clinc150-minilm) and in the
 [live demo](https://andreas-hum.github.io/tinydistill/demo/).
 
+On Danish MASSIVE, with the English `all-MiniLM-L6-v2` student:
+
+<!-- results: teachers-2026/similar/massive-da.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| massive-da-qwen35-9b-similar16 | 16 similar examples, 4-bit `Qwen/Qwen3.5-9B` | 0.781 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.756 ± 0.002 | 0.700 ± 0.004 | 0.782 ± 0.002 | ONNX int8 | 0.9 | 30.4 | 23 |
+| massive-da-gemma4-12b-similar16 | 16 similar examples, 4-bit `google/gemma-4-12B-it` | 0.798 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.760 ± 0.003 | 0.706 ± 0.009 | 0.796 ± 0.005 | ONNX int8 | 0.9 | 28.8 | 23 |
+| massive-da-ensemble-similar16 | teacher ensemble of 2, 16 similar examples, 4-bit `Qwen/Qwen3.5-9B,google/gemma-4-12B-it` | 0.806 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.771 ± 0.003 | 0.710 ± 0.012 | 0.807 ± 0.003 | ONNX int8 | 0.8 | 29.1 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+Both teachers are well above the 8-shot Qwen2.5-7B-Instruct of the Danish section (0.781 and 0.798 against
+0.736), and here the ensemble helps: 0.806 for the teacher, and 0.771 for its student, 0.764 deployed in int8,
+against 0.724 for the same English student of the 8-shot 7B teacher. That is above the trimmed multilingual
+student of the 7B teacher (0.761, 0.759 deployed), at the same size and over twice as fast, but it took 12 hours of labelling with two teachers against 31
+minutes with one; the trimmed multilingual student stays the Danish model on the Hub. The multilingual student
+was not trained on these teachers' labels.
+
 ## A vLLM teacher agrees with the local one
 
 [`examples/vllm-smoke.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/vllm-smoke.sh)
