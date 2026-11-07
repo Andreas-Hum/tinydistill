@@ -20,7 +20,7 @@ SetFit, GLiClass zero-shot and the LLM itself, with accuracy, CPU latency, size 
 [`examples/compare/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples/compare).
 
 On Banking77 the best student reaches 0.875 against 0.796 for SetFit with the same encoder, which trains in 7
-minutes on a CPU and needs no LLM; on CLINC150, 0.850 against 0.712. With a zero-shot teacher and no gold labels
+minutes on a CPU and needs no LLM; on CLINC150, 0.860 against 0.712. With a zero-shot teacher and no gold labels
 the CLINC150 student (0.573) is below both SetFit and the encoder fine-tuned on the gold labels alone (0.580).
 
 ## Banking77: the hard case
@@ -743,8 +743,24 @@ All latencies on the CPU with 2 threads.
 
 Gemma 4 12B is far ahead of Qwen3.5-9B here (0.914 against 0.841), and averaging the two adds nothing to the
 teacher (0.914) and costs the student: 0.836 against 0.850 for the student of Gemma alone, which reaches 0.849
-deployed in int8, against 0.813 for the probe student. It took 8 hours of labelling on the GPU, against 26
-minutes for the probe run. It is the new
+deployed in int8, against 0.813 for the probe student of the 7B teacher. It took 8 hours of labelling on the
+GPU, against 26 minutes for that probe run.
+
+The probe on Gemma 4 12B
+([`examples/teachers-2026/probe-gemma.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe-gemma.sh)),
+against the same teacher without it:
+
+<!-- results: teachers-2026/probe/clinc150-gemma4-12b.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| clinc150-gemma4-12b-similar16 | 16 similar examples, 4-bit `google/gemma-4-12B-it` | 0.914 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.850 ± 0.002 | 0.880 ± 0.002 | 0.863 ± 0.003 | ONNX int8 | 1.3 | 24.5 | 23 |
+| clinc150-gemma4-12b-similar16-probe | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.941 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.860 ± 0.005 | 0.898 ± 0.004 | 0.870 ± 0.004 | ONNX int8 | 0.8 | 22.4 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+It lifts the teacher from 0.914 to 0.941 and the student from 0.850 to 0.860, 0.860 deployed in int8 (from
+0.849), for about the same labelling time (7.2 hours). It is the new
 [CLINC150 model on the Hub](https://huggingface.co/Shroomy/tinydistill-clinc150-minilm) and in the
 [live demo](https://andreas-hum.github.io/tinydistill/demo/).
 

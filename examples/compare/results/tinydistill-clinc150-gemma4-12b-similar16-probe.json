@@ -1,0 +1,11 @@
+{
+  "task": "clinc150",
+  "method": "tinydistill",
+  "results_file": "teachers-2026/probe/clinc150-gemma4-12b-similar16-probe.json",
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "n_test": 5500,
+  "accuracy": 0.8594545454545455,
+  "macro_f1": 0.8963955603640227,
+  "latency_ms_b1": 0.7970510341692716,
+  "latency_threads": 2
+}

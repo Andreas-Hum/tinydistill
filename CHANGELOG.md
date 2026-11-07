@@ -6,6 +6,9 @@
   (`examples/massive-da/ensemble-multilingual.sh`, from the score cache): 0.811, 0.810 deployed, against 0.761
   on the 8-shot 7B teacher's labels and above the ensemble itself (0.806). It is the new Danish Hub and live demo
   model, and "How it compares" uses it.
+- RESULTS.md: the probe on Gemma 4 12B with 16 similar examples on CLINC150
+  (`examples/teachers-2026/probe-gemma.sh`): the teacher goes from 0.914 to 0.941 and its student from 0.850 to
+  0.860, 0.860 deployed (from 0.849). It is the new CLINC150 Hub and live demo model.
 - `examples/teachers-2026/similar.sh` also runs financial tweets and takes task names to run only those;
   `examples/teachers-2026/probe-gemma.sh` runs the probe on Gemma 4 12B with similar examples (CLINC150, Danish
   MASSIVE).

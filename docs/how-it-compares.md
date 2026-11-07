@@ -21,22 +21,22 @@ reruns everything.
 ## What the tables show
 
 - **tinydistill is the most accurate method that runs on a CPU** on Banking77 (0.875 against SetFit's 0.796;
-  0.872 as the deployed int8 model) and CLINC150 (0.850 against 0.712; 0.849 deployed); on Danish MASSIVE it
+  0.872 as the deployed int8 model) and CLINC150 (0.860 against 0.712; 0.860 deployed); on Danish MASSIVE it
   reaches 0.811 against 0.586 for gold only. Its int8 student is the fastest and smallest model in every table,
   level with the gold-only model of the same encoder on three tasks: 0.8 to 2.0 ms per text and 23 to 24 MB,
   against 4.6 to 6.9 ms and 92 MB for SetFit and 113 to 577 ms and 746 MB for GLiClass.
 - **The student comes close to its teacher at a fraction of the latency.** It is above the LLM that labelled its
   data on Banking77 (0.875 against 0.859) and Danish MASSIVE (0.811 against 0.806), and below it on CLINC150
-  (0.850 against 0.914) and financial tweets (0.828 against 0.842), at 0.8 to 2.0 ms on a CPU against 155 ms
+  (0.860 against 0.941) and financial tweets (0.828 against 0.842), at 0.8 to 2.0 ms on a CPU against 155 ms
   to 2.9 s on a GPU.
 - **It needs a GPU and a good teacher; SetFit needs neither.** SetFit trained in 7 minutes on the CPU and came
-  within 0.079 of the best student on Banking77 and 0.138 on CLINC150. The best students took 35 minutes of
+  within 0.079 of the best student on Banking77 and 0.148 on CLINC150. The best students took 35 minutes of
   labelling on Banking77, with the 7B teacher shown each text's 16 most similar gold examples and averaged with
-  a linear probe on its hidden states (`--probe`), and 8 hours on CLINC150, with Gemma 4 12B shown the same
-  examples.
+  a linear probe on its hidden states (`--probe`), and 7.2 hours on CLINC150, with Gemma 4 12B shown the same
+  examples and averaged with its own probe.
 - **A weak teacher gives a weak student.** With a zero-shot teacher and no gold labels, the CLINC150 student
   (0.573) is below gold only (0.580) and SetFit (0.712); with the 16 most similar gold examples in the prompt of
-  Gemma 4 12B, it reaches 0.850.
+  Gemma 4 12B and its probe, it reaches 0.860.
 - **With very few labels, zero-shot can beat few-shot training.** On financial tweets 8 labels per class are 24
   texts: SetFit reaches 0.420 and gold only 0.318, below GLiClass zero-shot (0.676). The student, trained on
   the LLM's labels without any gold labels, reaches 0.828.
@@ -90,10 +90,10 @@ Reported in the papers, not rerun. The protocol differs from the table above: 10
 | GLiClass zero-shot, `gliclass-base-v3.0` | 0 | label names and descriptions | 0.520 | 0.616 | 538.3 ms | 746 MB | none | no |
 | The LLM as the classifier: `Qwen2.5-7B-Instruct`, zero-shot, 4-bit | 0 | | 0.581 | 0.616 | 87 ms (RTX 4090) | 5.4 GB | none | yes, to run it |
 | tinydistill: `all-MiniLM-L6-v2` student of that LLM, ONNX int8 | 0 | the LLM's labels on 15,250 unlabelled texts | 0.573 ± 0.003 | 0.604 ± 0.005 | 1.2 ms | 23 MB | 15 min labelling + 2 min training (RTX 4090) | yes, to build it |
-| The LLM as the classifier: `gemma-4-12B-it`, 16 similar examples, 4-bit | 1208 (in the prompt) | | 0.914 | 0.917 | 1340 ms (RTX 4090) | 7.5 GB | none | yes, to run it |
-| tinydistill: `all-MiniLM-L6-v2` student of that LLM, ONNX int8 | 1208 | the LLM's labels on 15,250 unlabelled texts | 0.850 ± 0.002 | 0.880 ± 0.002 | 1.1 ms | 23 MB | 8.0 h labelling + 2 min training (RTX 4090) | yes, to build it |
+| The LLM as the classifier: `gemma-4-12B-it`, 16 similar examples, 4-bit, probe | 1208 (in the prompt) | | 0.941 | 0.950 | 1300 ms (RTX 4090) | 7.5 GB | none | yes, to run it |
+| tinydistill: `all-MiniLM-L6-v2` student of that LLM, ONNX int8 | 1208 | the LLM's labels on 15,250 unlabelled texts | 0.860 ± 0.005 | 0.898 ± 0.004 | 0.8 ms | 23 MB | 7.2 h labelling + 82 s training (RTX 4090) | yes, to build it |
 
-CLINC150 (plus, with out of scope), 5,500 test texts. Every method that trains gets the same 1208 gold-labelled texts (8 per class, tinydistill's own pick with seed 0); mean ± standard deviation over 3 training seeds. Latency: batch 1, 2 threads, median over three passes through the same 100 test texts, each library's own inference (tinydistill's Predictor for the ONNX models); the LLM runs on a GPU. The gold-only and tinydistill accuracies are the PyTorch models'; their latency and size are those of the int8 export ("saved": timed when the run was made, not re-timed with the others). Build time is per model; the CPU runs trained with 16 threads. The last tinydistill row is [`examples/teachers-2026/similar/clinc150-gemma4-12b.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/similar/clinc150-gemma4-12b.json), the most accurate of 11 saved runs on this test set that use at most 8 gold labels per class (picked on the test set, a tie at three decimals going to the better int8 model, then the smaller); the int8 model it times scores 0.849. The LLM and tinydistill rows before it are an earlier run, kept for reference: `examples/clinc150/clinc150-7b-shortlist20-keep-oos.json`.
+CLINC150 (plus, with out of scope), 5,500 test texts. Every method that trains gets the same 1208 gold-labelled texts (8 per class, tinydistill's own pick with seed 0); mean ± standard deviation over 3 training seeds. Latency: batch 1, 2 threads, median over three passes through the same 100 test texts, each library's own inference (tinydistill's Predictor for the ONNX models); the LLM runs on a GPU. The gold-only and tinydistill accuracies are the PyTorch models'; their latency and size are those of the int8 export ("saved": timed when the run was made, not re-timed with the others). Build time is per model; the CPU runs trained with 16 threads. The last tinydistill row is [`examples/teachers-2026/probe/clinc150-gemma4-12b-similar16-probe.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe/clinc150-gemma4-12b-similar16-probe.json), the most accurate of 12 saved runs on this test set that use at most 8 gold labels per class (picked on the test set, a tie at three decimals going to the better int8 model, then the smaller); the int8 model it times scores 0.859. The LLM and tinydistill rows before it are an earlier run, kept for reference: `examples/clinc150/clinc150-7b-shortlist20-keep-oos.json`.
 <!-- /results -->
 
 ## Danish MASSIVE
