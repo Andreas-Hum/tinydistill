@@ -6,6 +6,7 @@ watch a run started anywhere, and stopping it never stops the run."""
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import webbrowser
@@ -59,6 +60,12 @@ def state(run: Path) -> dict:
     }
 
 
+class _Server(ThreadingHTTPServer):
+    # on Windows, SO_REUSEADDR lets a second server bind a port that is in use: then the next port is tried
+    allow_reuse_address = os.name != "nt"
+    daemon_threads = True
+
+
 def serve(run: Path, port: int = 8765, open_browser: bool = True) -> ThreadingHTTPServer:
     """Start the page's server in a background thread (on the first free port from ``port``) and return it."""
     page = PAGE.read_bytes()
@@ -84,13 +91,12 @@ def serve(run: Path, port: int = 8765, open_browser: bool = True) -> ThreadingHT
 
     for p in range(port, port + 20):
         try:
-            server = ThreadingHTTPServer(("127.0.0.1", p), Handler)
+            server = _Server(("127.0.0.1", p), Handler)
             break
         except OSError:  # in use
             continue
     else:
         raise SystemExit(f"no free port from {port} to {port + 19} for the live page")
-    server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     print(f"live page: {url}", file=sys.stderr, flush=True)
