@@ -890,6 +890,63 @@ pack texts (Gemma 4) and with many labels. With the fixed prompt, labelling take
 the GPU time `label` measured (RTX 4090, 4 bit); for Danish MASSIVE, the labelling of the Gemma 4 12B probe run
 whose cache the multilingual student read (the same in context and probe labels).
 
+## Which layer the probe reads
+
+By default the probe reads the input of the teacher's LM head, the last layer's output; `label --probe-layer L`
+reads the output of layer L instead.
+[`examples/teachers-2026/probe-layers.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe-layers.sh)
+measures the probe alone (`--probe-only`, zero-shot prompt, 8 gold examples per class) for the default and five
+layers nearer the middle. `Qwen/Qwen2.5-7B-Instruct` has 28 layers and `google/gemma-4-12B-it` 48. On Banking77:
+
+<!-- results: teachers-2026/probe-layers/banking77.md -->
+| Teacher | Prompt | Probe reads | Teacher accuracy | Macro-F1 | Labelling |
+|---|---|---|---|---|---|
+| `Qwen/Qwen2.5-7B-Instruct` | zero-shot | LM head input (default) | 0.795 | 0.792 | from the cache |
+| `Qwen/Qwen2.5-7B-Instruct` | zero-shot | layer -4 | 0.806 | 0.803 | 60 s |
+| `Qwen/Qwen2.5-7B-Instruct` | zero-shot | layer -7 | 0.811 | 0.809 | 61 s |
+| `Qwen/Qwen2.5-7B-Instruct` | zero-shot | layer -10 | 0.779 | 0.777 | 60 s |
+| `Qwen/Qwen2.5-7B-Instruct` | zero-shot | layer -14 | 0.492 | 0.489 | 60 s |
+| `Qwen/Qwen2.5-7B-Instruct` | zero-shot | layer -18 | 0.386 | 0.385 | 59 s |
+
+Test accuracy of the probe alone (`label --probe-only`) on 3,080 test texts.
+<!-- /results -->
+
+On CLINC150:
+
+<!-- results: teachers-2026/probe-layers/clinc150.md -->
+| Teacher | Prompt | Probe reads | Teacher accuracy | Macro-F1 | Labelling |
+|---|---|---|---|---|---|
+| `google/gemma-4-12B-it` | zero-shot | LM head input (default) | 0.891 | 0.914 | 528 s |
+| `google/gemma-4-12B-it` | zero-shot | layer -6 | 0.886 | 0.911 | 517 s |
+| `google/gemma-4-12B-it` | zero-shot | layer -12 | 0.889 | 0.915 | 522 s |
+| `google/gemma-4-12B-it` | zero-shot | layer -18 | 0.859 | 0.880 | 549 s |
+| `google/gemma-4-12B-it` | zero-shot | layer -24 | 0.687 | 0.743 | 564 s |
+| `google/gemma-4-12B-it` | zero-shot | layer -30 | 0.673 | 0.723 | 589 s |
+
+Test accuracy of the probe alone (`label --probe-only`) on 5,500 test texts.
+<!-- /results -->
+
+On Danish MASSIVE:
+
+<!-- results: teachers-2026/probe-layers/massive-da.md -->
+| Teacher | Prompt | Probe reads | Teacher accuracy | Macro-F1 | Labelling |
+|---|---|---|---|---|---|
+| `google/gemma-4-12B-it` | zero-shot | LM head input (default) | 0.760 | 0.740 | from the cache |
+| `google/gemma-4-12B-it` | zero-shot | layer -6 | 0.764 | 0.744 | 1116 s |
+| `google/gemma-4-12B-it` | zero-shot | layer -12 | 0.775 | 0.752 | 874 s |
+| `google/gemma-4-12B-it` | zero-shot | layer -18 | 0.722 | 0.691 | 838 s |
+| `google/gemma-4-12B-it` | zero-shot | layer -24 | 0.538 | 0.493 | 841 s |
+| `google/gemma-4-12B-it` | zero-shot | layer -30 | 0.537 | 0.500 | 918 s |
+
+Test accuracy of the probe alone (`label --probe-only`) on 2,974 test texts.
+<!-- /results -->
+
+A layer about a quarter of the way back is a little better on two tasks (Banking77: 0.811 at layer -7 against
+0.795; Danish MASSIVE: 0.775 at layer -12 against 0.760) and a little worse on the third (CLINC150: 0.889 at
+layer -12 against 0.891). Nearer the middle the probe falls far behind on every task (0.386, 0.673 and 0.537 at
+the furthest layer measured). The default stays the LM head's input; with `--probe-only` a few layers can be
+compared in minutes per task.
+
 ## A vLLM teacher agrees with the local one
 
 [`examples/vllm-smoke.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/vllm-smoke.sh)

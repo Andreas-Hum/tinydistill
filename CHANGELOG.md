@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- RESULTS.md: which layer the probe reads (`examples/teachers-2026/probe-layers.sh`). A layer about a quarter of
+  the way back was 1.5 to 1.6 points better on Banking77 and Danish MASSIVE and slightly worse on CLINC150;
+  layers nearer the middle were far worse. The default stays the LM head's input.
 - RESULTS.md: the probe alone as the teacher (`examples/teachers-2026/probe-only.sh`) on Banking77, CLINC150
   and Danish MASSIVE, with a zero-shot prompt and with 16 similar examples. With the similar examples the
   deployed students are 0.3 to 1.3 points below the runs that also score the labels, after a third to a

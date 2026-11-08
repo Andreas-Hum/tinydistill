@@ -1,0 +1,62 @@
+[
+ {
+  "run": "clinc150-default",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": null,
+  "prompt": "zero-shot",
+  "label_seconds": 527.9,
+  "n_test": 5500,
+  "accuracy": 0.8912727272727273,
+  "macro_f1": 0.9138208028327878
+ },
+ {
+  "run": "clinc150--6",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -6,
+  "prompt": "zero-shot",
+  "label_seconds": 517.2,
+  "n_test": 5500,
+  "accuracy": 0.8856363636363637,
+  "macro_f1": 0.9109821916434905
+ },
+ {
+  "run": "clinc150--12",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -12,
+  "prompt": "zero-shot",
+  "label_seconds": 522.2,
+  "n_test": 5500,
+  "accuracy": 0.8889090909090909,
+  "macro_f1": 0.9145656699215471
+ },
+ {
+  "run": "clinc150--18",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -18,
+  "prompt": "zero-shot",
+  "label_seconds": 548.6,
+  "n_test": 5500,
+  "accuracy": 0.8590909090909091,
+  "macro_f1": 0.8796869409330031
+ },
+ {
+  "run": "clinc150--24",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -24,
+  "prompt": "zero-shot",
+  "label_seconds": 564.3,
+  "n_test": 5500,
+  "accuracy": 0.6870909090909091,
+  "macro_f1": 0.7432862004973063
+ },
+ {
+  "run": "clinc150--30",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -30,
+  "prompt": "zero-shot",
+  "label_seconds": 589.0,
+  "n_test": 5500,
+  "accuracy": 0.6725454545454546,
+  "macro_f1": 0.7225558089749317
+ }
+]

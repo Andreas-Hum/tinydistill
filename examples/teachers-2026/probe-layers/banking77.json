@@ -1,0 +1,62 @@
+[
+ {
+  "run": "banking77-default",
+  "teacher": "Qwen/Qwen2.5-7B-Instruct",
+  "layer": null,
+  "prompt": "zero-shot",
+  "label_seconds": 0.0,
+  "n_test": 3080,
+  "accuracy": 0.7948051948051948,
+  "macro_f1": 0.7918198719203103
+ },
+ {
+  "run": "banking77--4",
+  "teacher": "Qwen/Qwen2.5-7B-Instruct",
+  "layer": -4,
+  "prompt": "zero-shot",
+  "label_seconds": 59.7,
+  "n_test": 3080,
+  "accuracy": 0.8061688311688312,
+  "macro_f1": 0.8034419290035162
+ },
+ {
+  "run": "banking77--7",
+  "teacher": "Qwen/Qwen2.5-7B-Instruct",
+  "layer": -7,
+  "prompt": "zero-shot",
+  "label_seconds": 60.7,
+  "n_test": 3080,
+  "accuracy": 0.811038961038961,
+  "macro_f1": 0.808867468957836
+ },
+ {
+  "run": "banking77--10",
+  "teacher": "Qwen/Qwen2.5-7B-Instruct",
+  "layer": -10,
+  "prompt": "zero-shot",
+  "label_seconds": 59.8,
+  "n_test": 3080,
+  "accuracy": 0.7788961038961039,
+  "macro_f1": 0.7774554062280887
+ },
+ {
+  "run": "banking77--14",
+  "teacher": "Qwen/Qwen2.5-7B-Instruct",
+  "layer": -14,
+  "prompt": "zero-shot",
+  "label_seconds": 60.1,
+  "n_test": 3080,
+  "accuracy": 0.4915584415584416,
+  "macro_f1": 0.4894053039709939
+ },
+ {
+  "run": "banking77--18",
+  "teacher": "Qwen/Qwen2.5-7B-Instruct",
+  "layer": -18,
+  "prompt": "zero-shot",
+  "label_seconds": 58.9,
+  "n_test": 3080,
+  "accuracy": 0.386038961038961,
+  "macro_f1": 0.3845056085635631
+ }
+]

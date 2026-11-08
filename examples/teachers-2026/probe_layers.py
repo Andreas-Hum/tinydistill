@@ -43,7 +43,7 @@ def main() -> None:
         where = "LM head input (default)" if r["layer"] is None else f"layer {r['layer']}"
         lines.append(
             f"| `{r['teacher']}` | {r['prompt']} | {where} | {r['accuracy']:.3f} | {r['macro_f1']:.3f} | "
-            f"{r['label_seconds']:.0f} s |"
+            + (f"{r['label_seconds']:.0f} s |" if r["label_seconds"] else "from the cache |")
         )
     n = rows[0]["n_test"]
     lines += ["", f"Test accuracy of the probe alone (`label --probe-only`) on {n:,} test texts."]

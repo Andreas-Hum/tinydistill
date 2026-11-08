@@ -1,0 +1,62 @@
+[
+ {
+  "run": "massive-da-default",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": null,
+  "prompt": "zero-shot",
+  "label_seconds": 0.0,
+  "n_test": 2974,
+  "accuracy": 0.7602555480833894,
+  "macro_f1": 0.7404804114141177
+ },
+ {
+  "run": "massive-da--6",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -6,
+  "prompt": "zero-shot",
+  "label_seconds": 1116.2,
+  "n_test": 2974,
+  "accuracy": 0.7639542703429725,
+  "macro_f1": 0.7436187906714513
+ },
+ {
+  "run": "massive-da--12",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -12,
+  "prompt": "zero-shot",
+  "label_seconds": 874.0,
+  "n_test": 2974,
+  "accuracy": 0.7753866845998655,
+  "macro_f1": 0.7515877854565401
+ },
+ {
+  "run": "massive-da--18",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -18,
+  "prompt": "zero-shot",
+  "label_seconds": 837.6,
+  "n_test": 2974,
+  "accuracy": 0.7222595830531271,
+  "macro_f1": 0.6906821406797262
+ },
+ {
+  "run": "massive-da--24",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -24,
+  "prompt": "zero-shot",
+  "label_seconds": 840.7,
+  "n_test": 2974,
+  "accuracy": 0.5379959650302623,
+  "macro_f1": 0.49339015171643497
+ },
+ {
+  "run": "massive-da--30",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -30,
+  "prompt": "zero-shot",
+  "label_seconds": 918.5,
+  "n_test": 2974,
+  "accuracy": 0.5369872225958305,
+  "macro_f1": 0.5004960076523927
+ }
+]

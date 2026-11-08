@@ -97,6 +97,11 @@ tinydistill run task.yaml --data train.csv --test test.csv --gold-per-class 8 --
   state, from the position that predicts the first label token. The label logits are a linear function of
   exactly this vector. It is recorded during the normal scoring pass (a hook on the LM head, for packed and
   batch-row scoring alike), so there is no extra forward pass and the scores are unchanged.
+- `--probe-layer L` reads the output of layer L instead (0 the first, -1 the last, -2 the one before), cached
+  in a file of its own. On three tasks a layer about a quarter of the way back was up to 1.6 points better or
+  slightly worse than the default, and layers nearer the middle far worse
+  ([Benchmarks](../results.md#which-layer-the-probe-reads)), so the default stays; with `--probe-only` a few
+  layers can be compared quickly.
 - The states are cached next to the scores, as `teacher-<fingerprint>.states.npz` (text hashes and float16
   states). The fingerprint is the same as without `--probe`. A text whose scores are cached but not its state is
   scored again once, for the state.
