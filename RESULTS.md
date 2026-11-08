@@ -592,6 +592,16 @@ in int8). The same student trained on the 512 gold labels alone reaches 0.639
 ([`hwu64-gemma4-12b-probe-only-zeroshot.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/hwu64/hwu64-gemma4-12b-probe-only-zeroshot.json),
 `--gold-only`).
 
+Published few-shot results on HWU64, reported in the papers and not rerun, use 5 or 10 gold labels per class
+where this run uses 8, and larger models. With 5 and 10: CPFT 0.8203 and 0.8713 (Zhang et al. 2021, Table 2,
+[arXiv 2109.06349](https://arxiv.org/abs/2109.06349)); SetFit 0.7838 and 0.8335, DeBERTa 0.7980 and 0.8693,
+and LLaMA-2 7B classifying every test text with 20 retrieved examples 0.8755 and 0.8782 (Milios et al. 2023,
+Table 1, [arXiv 2309.10954](https://arxiv.org/abs/2309.10954)). The student's 0.891 with 8 is above these; with
+10 it is below the larger LLMs or longer prompts there, each classifying every test text: LLaMA 65B 0.9006,
+LLaMA-2 7B with a 4K prompt 0.9033, LLaMA-2 70B 0.8977, and 0.9173 with a 4K prompt. The training set here has the same 8,954
+texts as theirs, but whether these 1,076 test texts are their test set or their validation set (both have
+1,076) is not stated by the dataset, so take the comparison as a rough one.
+
 ## Newer teachers: Qwen3.5 and Gemma 4
 
 [`examples/teachers-2026/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/run.sh)

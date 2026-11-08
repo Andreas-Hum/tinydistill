@@ -27,6 +27,27 @@ ALSO = {
 PUBLISHED = {
     "banking77": [
         (
+            "SetFit, 5-shot / 10-shot",
+            "385 / 770",
+            "",
+            (0.7989, 0.8451),
+            "Milios et al. 2023, Table 1 ([arXiv 2309.10954](https://arxiv.org/abs/2309.10954))",
+        ),
+        (
+            "CPFT, 5-shot / 10-shot",
+            "385 / 770",
+            "contrastive pre-training on the unlabelled training texts of six intent datasets",
+            (0.8086, 0.8720),
+            "Zhang et al. 2021, Table 2 ([arXiv 2109.06349](https://arxiv.org/abs/2109.06349))",
+        ),
+        (
+            "LLaMA-2 7B as the classifier, 5-shot / 10-shot",
+            "385 / 770",
+            "each test text's 20 most similar gold examples in the prompt (an LLM per text)",
+            (0.8640, 0.8945),
+            "Milios et al. 2023, Table 1 ([arXiv 2309.10954](https://arxiv.org/abs/2309.10954))",
+        ),
+        (
             "RoBERTa-Large + classifier, 10-shot",
             "770",
             "",
@@ -259,15 +280,20 @@ def table(name: str) -> str | None:
     out = "\n".join(lines) + "\n\n" + " ".join([head, *notes]) + "\n"
     if name in PUBLISHED:
         out += (
-            "\nReported in the papers, not rerun. The protocol differs from the table above: 10 gold labels "
-            f"per class (770) against our {GOLD_PER_CLASS} ({n_gold}), plus what the third column says, and "
-            "larger classifiers (RoBERTa-Large, 355M parameters; MPNet, 110M). The test set is the same "
-            "3,080 texts. Lin et al. sample the 10 per class at random, average 5 seeds and train "
-            "RoBERTa-Large for 40 epochs; Loukas et al. train on 10 per class that a human expert picked "
-            "as representative.\n\n"
+            "\nReported in the papers, not rerun. The protocol differs from the table above: 5 or 10 gold "
+            f"labels per class (385 or 770) against our {GOLD_PER_CLASS} ({n_gold}), plus what the third "
+            "column says, and larger models (RoBERTa-Large, 355M parameters; MPNet, 110M; LLaMA-2 7B, an LLM "
+            "that reads every test text). No paper uses 8 per class, so ours sits between their 5-shot and "
+            "10-shot settings. The test set is the same 3,080 texts. Lin et al. sample the 10 per class at "
+            "random, average 5 seeds and train RoBERTa-Large for 40 epochs; Zhang et al. average 5 runs; "
+            "Milios et al. average 3 random splits; Loukas et al. train on 10 per class that a human expert "
+            "picked as representative.\n\n"
             "| Method | Gold labels | Also uses | Accuracy | Source |\n|---|---|---|---|---|\n"
         )
-        out += "".join(f"| {m} | {g} | {u} | {a:.3f} | {s} |\n" for m, g, u, a, s in PUBLISHED[name])
+        for m, g, u, a, s in PUBLISHED[name]:
+            # as precise as the paper reports it (89.45 is 0.8945), not rounded again
+            acc = " / ".join(f"{x:.4f}".rstrip("0") for x in (a if isinstance(a, tuple) else (a,)))
+            out += f"| {m} | {g} | {u} | {acc} | {s} |\n"
     return out
 
 

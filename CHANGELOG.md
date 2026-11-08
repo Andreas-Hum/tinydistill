@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Published few-shot results, read in the papers and not rerun: on Banking77, CPFT, SetFit and LLaMA-2 7B with
+  retrieved examples at 5 and 10 labels per class join the table in "How it compares", at the precision the
+  papers report; on HWU64, CPFT, SetFit, DeBERTa and LLaMA models in RESULTS.md. No paper uses 8 labels per
+  class, so the comparisons say where 8 sits between 5 and 10. CLINC150's are left out: the papers score the
+  150 in-scope intents, and these tables 151 labels with out-of-scope.
 - `examples/benchmark/check.sh`: before a release, label and train one fixed benchmark from scratch and fail
   if the deployed student lost more than a point of accuracy, or labelling took 1.5 times as long, against its
   saved reference.
