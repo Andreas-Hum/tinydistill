@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 (2026-11-09)
 
 - Published few-shot results, read in the papers and not rerun: on Banking77, CPFT, SetFit and LLaMA-2 7B with
   retrieved examples at 5 and 10 labels per class join the table in "How it compares", at the precision the
