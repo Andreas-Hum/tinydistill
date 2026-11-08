@@ -83,14 +83,16 @@ paying for reasoning on all your texts.
 
 ## A probe on the teacher's hidden states
 
-`label --probe` adds a second signal from the gold labels a run already has. It fits a linear classifier on the
+With gold labels (`--gold-per-class`, `--gold-file`) and a local teacher, `label` adds a second signal from them
+by default; `--no-probe` turns it off, and `--probe` asks for it explicitly (an error if it cannot be fit). It
+fits a linear classifier on the
 teacher's own hidden state for the prompt plus each text, and its probabilities are one more ensemble member.
 This is prompt-augmented linear probing (PALP; Cho et al., AAAI 2023,
 [arXiv 2212.10873](https://arxiv.org/abs/2212.10873)): it matches in-context learning at a few labels per class
 and keeps improving as labels are added, where in-context learning levels off.
 
 ```sh
-tinydistill run task.yaml --data train.csv --test test.csv --gold-per-class 8 --probe --out run
+tinydistill run task.yaml --data train.csv --test test.csv --gold-per-class 8 --out run
 ```
 
 - The state is the input of the teacher's LM head at the text's last token: the last layer's normed hidden
@@ -103,7 +105,7 @@ tinydistill run task.yaml --data train.csv --test test.csv --gold-per-class 8 --
   ([Benchmarks](../results.md#which-layer-the-probe-reads)), so the default stays; with `--probe-only` a few
   layers can be compared quickly.
 - The states are cached next to the scores, as `teacher-<fingerprint>.states.npz` (text hashes and float16
-  states). The fingerprint is the same as without `--probe`. A text whose scores are cached but not its state is
+  states). The fingerprint is the same as without the probe. A text whose scores are cached but not its state is
   scored again once, for the state.
 - The probe fits on the gold labels `train` uses: `--gold-per-class K` (the same texts, picked with `--seed`)
   and `--gold-file`. A test text is never used. It is multinomial logistic regression (multi-label: one sigmoid
@@ -252,7 +254,7 @@ With very many labels, see [Many labels](many-labels.md). For documents longer t
 
 ### What the cache holds: tinydistill cache
 
-Caches grow: a run with `--probe` also keeps a state per text, and every setup (teacher, prompt, examples,
+Caches grow: a run with the probe also keeps a state per text, and every setup (teacher, prompt, examples,
 shortlist) has a cache of its own. `tinydistill cache runs/cache` lists them, largest first: the texts, the size,
 when each was last written, and which teacher and runs use it (from the `meta.json` of the runs below `--runs`,
 by default the cache directory's parent). `--prune` deletes the caches no run uses, except those written in the

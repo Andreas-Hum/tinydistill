@@ -157,6 +157,7 @@ def test_few_labels_upper_bound_and_shared_cache(tmp_path, capsys):
             "--gold-only",
             "--seeds",
             "2",
+            "--no-probe",  # (the probe would need the teacher's states, which run a did not record)
         ]
     )
     err = capsys.readouterr().err
@@ -226,6 +227,7 @@ def test_few_shot_teacher(tmp_path, capsys):
             "1",
             "--gold-per-class",
             "1",
+            "--no-probe",
         ]
     )
     examples = [

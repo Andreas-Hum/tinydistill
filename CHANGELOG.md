@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+Upgrade notes:
+
+- The probe on the teacher's hidden states (`--probe`) is now on by default whenever a run has gold labels
+  (`--gold-per-class`, `--gold-file`) and a local teacher; it lifted the deployed student on every task and
+  teacher measured. `--no-probe` turns it off. It stays off with `--vllm-url`, `--api-url`, `--chunk-tokens`
+  and `--reason`, and when there is no gold-labelled training text to fit on. Texts already in a cache filled
+  without it are scored once more, to record their states.
+
 - RESULTS.md: which layer the probe reads (`examples/teachers-2026/probe-layers.sh`). A layer about a quarter of
   the way back was 1.5 to 1.6 points better on Banking77 and Danish MASSIVE and slightly worse on CLINC150;
   layers nearer the middle were far worse. The default stays the LM head's input.

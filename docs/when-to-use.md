@@ -17,7 +17,7 @@ student, the times the labelling on an RTX 4090.
 
 | Your situation | Settings | What it gave |
 |---|---|---|
-| About 8 gold labels per class and a GPU | `--gold-per-class 8 --few-shot 8 --few-shot-similar 16 --probe` | Banking77 0.872 (Qwen2.5-7B, 35 min of labelling); CLINC150 0.859 (Gemma 4 12B) |
+| About 8 gold labels per class and a GPU | `--gold-per-class 8 --few-shot 8 --few-shot-similar 16` (with the probe, on by default with gold labels) | Banking77 0.872 (Qwen2.5-7B, 35 min of labelling); CLINC150 0.859 (Gemma 4 12B) |
 | The same, but labelling has to be fast | the same with `--probe-only` | Banking77 0.869 in 11.5 min; CLINC150 0.851 in 37 min, against 7.2 hours |
 | Minutes, not hours | `--gold-per-class 8 --probe-only`, no examples in the prompt | Banking77 0.824 in 74 seconds |
 | Many labels | `--shortlist 20` (and `--shortlist-keep` for an "other" label) | CLINC150, 151 labels: labelling six times faster, and more accurate |

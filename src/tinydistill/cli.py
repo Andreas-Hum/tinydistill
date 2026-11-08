@@ -149,7 +149,13 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     reason = a.reason_tokens if a.reason else 0
     if a.reason and a.reason_tokens < 1:
         raise SystemExit("--reason-tokens must be positive")
-    probe = a.probe or a.probe_only
+    if a.no_probe and (a.probe or a.probe_only):
+        raise SystemExit("--no-probe cannot be used with --probe or --probe-only")
+    # the default with gold labels and a local teacher (one that gives its hidden states), unless --no-probe
+    auto = bool(a.gold_per_class or a.gold_file) and not (
+        a.no_probe or a.vllm_url or a.api_url or a.chunk_tokens or a.reason
+    )
+    probe = a.probe or a.probe_only or auto
     if probe:
         if a.vllm_url or a.api_url:
             raise SystemExit(
@@ -242,7 +248,12 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     probe_gold: list[tuple[str, Any]] = []
     if probe:
         tests = {e.text for e in rows_of("test", a.test, a.test_limit, False)} if a.test else set()
-        probe_gold = _probe_gold(a, task, list(rows_of("train", a.data, a.limit)), tests)
+        probe_gold = _probe_gold(
+            a, task, list(rows_of("train", a.data, a.limit)), tests, required=bool(a.probe or a.probe_only)
+        )
+        if not probe_gold:  # the default only: no gold-labelled training text to fit on
+            log("no gold-labelled training texts for the probe to fit on: labelling without it")
+            probe = False
 
     caches: list[ScoreCache] = []
     fingerprints, device, costs = [], "cpu", []
@@ -511,7 +522,9 @@ class _Tally:
         tmp.replace(self.path)
 
 
-def _probe_gold(a: argparse.Namespace, task: Task, rows: list, tests: set[str]) -> list[tuple[str, Any]]:
+def _probe_gold(
+    a: argparse.Namespace, task: Task, rows: list, tests: set[str], required: bool = True
+) -> list[tuple[str, Any]]:
     """The (text, gold) pairs label --probe fits on: the gold labels train uses (--gold-per-class K, picked
     from the training rows with --seed as train picks them, and --gold-file), each text once, no test text."""
     from .data import read_examples
@@ -528,7 +541,8 @@ def _probe_gold(a: argparse.Namespace, task: Task, rows: list, tests: set[str]) 
         if g not in (None, []) and t not in tests:
             pairs.setdefault(t, g)
     if not pairs:
-        raise SystemExit("--probe found no gold-labelled training texts to fit on")
+        if required:
+            raise SystemExit("--probe found no gold-labelled training texts to fit on")
     return list(pairs.items())
 
 
@@ -2160,7 +2174,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also fit a linear probe on the teacher's hidden state at each text's last token, on the gold "
         "labels train uses (--gold-per-class, --gold-file), and add its probabilities to the teacher's "
-        "(prompt-augmented linear probing); local teachers only",
+        "(prompt-augmented linear probing); local teachers only. The default with gold labels and a local "
+        "teacher (not with --chunk-tokens or --reason)",
+    )
+    label.add_argument(
+        "--no-probe",
+        action="store_true",
+        help="do not fit the probe, which is otherwise the default with gold labels and a local teacher",
     )
     label.add_argument(
         "--probe-only",

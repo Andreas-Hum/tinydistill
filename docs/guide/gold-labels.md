@@ -44,8 +44,9 @@ tinydistill label task.yaml --data train.csv --teacher Qwen/Qwen2.5-7B-Instruct 
 
 ## In a probe on the teacher
 
-`label --probe` fits a linear probe on the teacher's hidden states with the gold labels of `--gold-per-class`
-and `--gold-file`, and averages its probabilities with the teacher's. See
+With a local teacher, `label` (and `run`) fits a linear probe on the teacher's hidden states with the gold
+labels of `--gold-per-class` and `--gold-file`, and averages its probabilities with the teacher's; it is on by
+default whenever there are gold labels, and `--no-probe` turns it off. See
 [Choosing the teacher](teacher.md#a-probe-on-the-teachers-hidden-states).
 
 ## In the student's loss

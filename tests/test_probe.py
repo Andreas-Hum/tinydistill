@@ -2,6 +2,7 @@ import argparse
 import json
 import math
 import random
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -418,3 +419,26 @@ def test_probe_with_example_sets(tmp_path, data):
     got = _run_teacher(run, "cpu").score_many([r["text"] for r in test])
     for r, g in zip(test, got, strict=True):
         assert g == pytest.approx(r["scores"], abs=1e-4)
+
+
+def test_the_probe_is_the_default_with_gold_labels(tmp_path, data, capsys):
+    meta = lambda run: json.loads((run / "meta.json").read_text(encoding="utf-8"))  # noqa: E731
+    main(["label", *data, "--out", str(tmp_path / "gold"), "--gold-per-class", "3"])
+    assert meta(tmp_path / "gold")["probe"]["n_gold"] == 6 and (tmp_path / "gold" / "probe.pt").exists()
+    main(["label", *data, "--out", str(tmp_path / "off"), "--gold-per-class", "3", "--no-probe"])
+    assert meta(tmp_path / "off")["probe"] is None
+    main(["label", *data, "--out", str(tmp_path / "none")])  # no gold labels: no probe
+    assert meta(tmp_path / "none")["probe"] is None
+    main(["label", *data, "--out", str(tmp_path / "chunks"), "--gold-per-class", "3", "--chunk-tokens", "8"])
+    assert meta(tmp_path / "chunks")["probe"] is None  # windows: no probe by default, and no error
+    with pytest.raises(SystemExit, match="--no-probe cannot be used"):
+        main(["label", *data, "--out", str(tmp_path / "x"), "--gold-per-class", "3", "--probe", "--no-probe"])
+
+
+def test_the_default_probe_without_gold_texts_labels_without_it(tmp_path, data, capsys):
+    """--gold-file with no usable gold (here: only test texts) and no --probe: labelled without the probe."""
+    test = [json.loads(line) for line in Path(data[data.index("--test") + 1]).read_text().splitlines()]
+    write_jsonl(tmp_path / "gold.jsonl", test)
+    main(["label", *data, "--out", str(tmp_path / "r"), "--gold-file", str(tmp_path / "gold.jsonl")])
+    assert "labelling without it" in capsys.readouterr().err
+    assert json.loads((tmp_path / "r" / "meta.json").read_text(encoding="utf-8"))["probe"] is None
