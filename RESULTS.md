@@ -315,6 +315,32 @@ rises from 0.575 to 0.769 and the student follows to 0.767, with 0.915 in-scope 
 Out-of-scope requests are still the weak part: the teacher marks few of them as such (recall 0.126), though
 nearly always correctly (precision 0.969).
 
+### Scored as the few-shot papers score it: 150 intents
+
+The few-shot papers train and test on the 150 intents alone, where these runs have out of scope as a 151st
+label and 5,500 test texts.
+[`examples/clinc150/in_scope.py`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/clinc150/in_scope.py)
+scores two saved Gemma 4 12B runs (described [below](#the-probe-alone-minutes-of-labelling-instead-of-hours))
+on the 4,500 in-scope test texts, taking the best of the 150 intents as a model trained without out of scope
+would answer ([`in-scope.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/clinc150/in-scope.json)):
+
+- the recommended settings, `--probe-only` with 16 similar examples (37 minutes of labelling): the deployed
+  int8 student scores 0.951 (0.950 when its "out of scope" answers count as wrong), the PyTorch students
+  0.952 ± 0.002, the teacher 0.967;
+- the most accurate run on all 5,500 texts, the in-context teacher plus the probe (7.2 hours): the deployed
+  student 0.945 (0.943), the PyTorch students 0.948 ± 0.002, the teacher 0.964.
+
+So the probe-only run is the better of the two on the 150 intents, and loses its 0.008 overall on the
+out-of-scope texts. Published results, reported in the papers and not rerun, use 5 or 10 gold labels per class
+where these runs use 8, and train on in-scope texts only. With 5 and 10: CPFT 0.9234 and 0.9418 (Zhang et al.
+2021, Table 2, [arXiv 2109.06349](https://arxiv.org/abs/2109.06349)); SetFit 0.8868 and 0.9067, DeBERTa 0.9186
+and 0.9505, LLaMA-2 7B classifying every test text with 20 retrieved examples 0.9413 and 0.952 (Milios et al.
+2023, Table 1, [arXiv 2309.10954](https://arxiv.org/abs/2309.10954)). The deployed student's 0.951 with 8 is
+above CPFT and SetFit even at 10, level with DeBERTa and LLaMA-2 7B at 10, and below the longer prompts and
+larger LLMs there, each classifying every test text: LLaMA-2 7B with a 4K prompt 0.9535 and 0.9602, LLaMA-2
+70B 0.9642 and 0.9713, and 0.9756 and 0.9818 with a 4K prompt. The papers do not say which 4,500 test texts
+they use beyond the 150 intents, so take the comparison as a rough one.
+
 ## AG News: the task file depends on the teacher
 
 News articles in four topics ([AG News](https://huggingface.co/datasets/fancyzhx/ag_news)), the example in the

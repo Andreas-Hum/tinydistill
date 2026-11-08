@@ -101,9 +101,13 @@ Reported in the papers, not rerun. The protocol differs from the table above: 5 
 CLINC150 (plus, with out of scope), 5,500 test texts. Every method that trains gets the same 1208 gold-labelled texts (8 per class, tinydistill's own pick with seed 0); mean ± standard deviation over 3 training seeds. Latency: batch 1, 2 threads, median over three passes through the same 100 test texts, each library's own inference (tinydistill's Predictor for the ONNX models); the LLM runs on a GPU. The gold-only and tinydistill accuracies are the PyTorch models'; their latency and size are those of the int8 export ("saved": timed when the run was made, not re-timed with the others). Build time is per model; the CPU runs trained with 16 threads. The last tinydistill row is [`examples/teachers-2026/probe/clinc150-gemma4-12b-similar16-probe.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe/clinc150-gemma4-12b-similar16-probe.json), the most accurate of 14 saved runs on this test set that use at most 8 gold labels per class (picked on the test set, a tie at three decimals going to the better int8 model, then the smaller); the int8 model it times scores 0.859. The LLM and tinydistill rows before it are an earlier run, kept for reference: `examples/clinc150/clinc150-7b-shortlist20-keep-oos.json`.
 <!-- /results -->
 
-Published few-shot results on CLINC150 are not listed: the papers report accuracy on the 150 in-scope
-intents, with out-of-scope texts left out or scored apart, while this table counts out-of-scope as a 151st label
-over all 5,500 test texts.
+Published few-shot results on CLINC150 are not in this table: the papers score the 150 intents on the 4,500
+in-scope test texts, while this table counts out of scope as a 151st label over all 5,500. Scored their way,
+the student of the recommended settings (`--probe-only`, 16 similar examples, 37 minutes of labelling) reaches
+0.951 deployed, against 0.9234 and 0.9418 for CPFT with 5 and 10 labels per class, 0.8868 and 0.9067 for
+SetFit, and 0.9413 and 0.952 for LLaMA-2 7B classifying every test text with 20 retrieved examples; see
+[RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#scored-as-the-few-shot-papers-score-it-150-intents)
+for the sources, the other rows and the caveats.
 
 ## Danish MASSIVE
 
