@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- The Python API's `Distiller` fits the probe on the teacher's hidden states when `fit` gets gold labels, as
+  `tinydistill label` does by default (`probe=False` turns it off), and `probe_only=True` makes the probe the
+  whole teacher, so the teacher scores no label. The states are cached with the scores, in the files the
+  command line uses.
+- `run --dry-run` says "1 seed", not "1 seeds".
+- `examples/hwu64/`: HWU64 (64 intents), a task none of the settings were tuned on.
+
 ## 0.6.0 (2026-11-08)
 
 Highlights:

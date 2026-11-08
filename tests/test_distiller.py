@@ -53,7 +53,7 @@ def test_fit_predict_save_load_and_cache(tmp_path, task, monkeypatch):
         raise AssertionError("the teacher was loaded although every text is cached")
 
     monkeypatch.setattr(tinydistill.teacher, "load_teacher", no_teacher)
-    again = Distiller(**d.get_params()).fit(TEXTS)
+    again = Distiller(**d.get_params()).fit(TEXTS, gold)  # the scores and the probe's states, cached
     assert np.array_equal(again.teacher_scores_, d.teacher_scores_)
 
 
@@ -108,3 +108,18 @@ def test_params_and_not_fitted(task):
         d.predict(["hello"])
     with pytest.raises(NotFittedError):
         d.save("nowhere")
+
+
+def test_the_probe(tmp_path, task):
+    gold = ["pos", "neg", "pos", "neg"] + [None] * (len(TEXTS) - 4)
+    plain = Distiller(task, probe=False, log=quiet, **SMALL).fit(TEXTS, gold)
+    probed = Distiller(task, log=quiet, **SMALL).fit(TEXTS, gold)  # the default with gold labels
+    assert not np.allclose(plain.teacher_scores_, probed.teacher_scores_)
+    no_gold = Distiller(task, log=quiet, **SMALL).fit(TEXTS)  # no gold labels: no probe
+    assert np.allclose(no_gold.teacher_scores_, plain.teacher_scores_, atol=1e-5)
+    only = Distiller(task, probe_only=True, cache_dir=tmp_path / "cache", log=quiet, **SMALL).fit(TEXTS, gold)
+    proba = np.exp(only.teacher_scores_)
+    assert np.allclose(proba.sum(-1), 1, atol=1e-4)  # the probe's own probabilities
+    assert len(list((tmp_path / "cache").glob("teacher-*.states.npz"))) == 1
+    with pytest.raises(ValueError, match="probe_only needs gold labels"):
+        Distiller(task, probe_only=True, log=quiet, **SMALL).fit(TEXTS)

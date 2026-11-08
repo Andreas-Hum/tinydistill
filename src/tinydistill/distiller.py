@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 
@@ -52,6 +53,11 @@ class Distiller:
     :param val_share: hold out this share of the texts and keep the epoch with the lowest loss on them (see
         :func:`~tinydistill.student.train_student`).
     :param ce_weight: weight of the cross-entropy term on the gold labels given to ``fit``.
+    :param probe: when ``fit`` gets gold labels, also fit a linear probe on the teacher's hidden states with
+        them and average its probabilities with the teacher's, as ``tinydistill label`` does by default (see
+        :func:`~tinydistill.teacher.fit_probe`). The states are cached with the scores.
+    :param probe_only: the probe alone is the teacher: the teacher scores no label and only gives the probe
+        its hidden states, so labelling is much faster. Needs gold labels in ``fit``.
     :param log: called with each progress message.
     """
 
@@ -70,6 +76,8 @@ class Distiller:
         seed: int = 0,
         val_share: float = 0.0,
         ce_weight: float = 1.0,
+        probe: bool = True,
+        probe_only: bool = False,
         log: Callable[[str], None] = print,
     ):
         self.task = task
@@ -85,6 +93,8 @@ class Distiller:
         self.seed = seed
         self.val_share = val_share
         self.ce_weight = ce_weight
+        self.probe = probe
+        self.probe_only = probe_only
         self.log = log
 
     def get_params(self, deep: bool = True) -> dict:
@@ -111,40 +121,47 @@ class Distiller:
             return [_gold_set(g, task, None) for g in gold]
         return [_gold_index(g, task, None) for g in gold]
 
-    def _teacher_scores(self, task: Task, texts: list[str]) -> list[list[float]]:
+    def _teacher_scores(self, task: Task, texts: list[str], states: bool) -> tuple[list, list | None]:
+        """The teacher's label scores for ``texts`` and, with ``states``, each text's hidden state (float16,
+        as cached) for the probe; with ``probe_only`` the states alone (the scores are not used)."""
         import gc
 
         import torch
 
-        from .teacher import ScoreCache, iter_unique, load_teacher, quick_key, text_hash
+        from .teacher import LabelScorer, ScoreCache, iter_unique, load_teacher, quick_key
 
-        cache, keys_file, quick = None, None, None
+        only = states and self.probe_only
+        keys_file, quick = None, None
         if self.cache_dir is not None:  # as `tinydistill label --cache-dir` names and finds the files
             cache_dir = Path(self.cache_dir)
             cache_dir.mkdir(parents=True, exist_ok=True)
             keys_file = cache_dir / "teacher-keys.json"
             keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
-            quick = quick_key(self.teacher, task, self.device, self.load_4bit)
+            quick = quick_key(self.teacher, task, self.device, self.load_4bit, states_only=only)
             if quick in keys:
-                cache = ScoreCache(cache_dir / f"teacher-{keys[quick]}.jsonl")
-                if all(text_hash(t) in cache.scores for t in texts):
+                cache = ScoreCache(cache_dir / f"teacher-{keys[quick]}.jsonl", states)
+                if all(cache.has(t) for t in texts):
                     self.log(f"{self.teacher}: every text is in the cache, so the teacher is not loaded")
-                    return [cache.get(t) for t in texts]
+                    return [cache.get(t) for t in texts], [cache.state(t) for t in texts] if states else None
         self.log(f"loading teacher {self.teacher}")
-        scorer = load_teacher(self.teacher, task, self.device, self.load_4bit)
+        # a local teacher (the Distiller loads no other), which can keep its states
+        scorer = cast(LabelScorer, load_teacher(self.teacher, task, self.device, self.load_4bit))
+        scorer.keep_states, scorer.states_only = states, only
         try:
             if keys_file is None:
-                return scorer.score_many(texts)
+                scores = scorer.score_many(texts)
+                kept = [scorer.states[t].numpy().astype(np.float16) for t in texts] if states else None
+                return scores, kept
             fingerprint = scorer.fingerprint()
             keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
             keys[quick] = fingerprint
             tmp = keys_file.with_suffix(".tmp")
             tmp.write_text(json.dumps(keys, indent=1), encoding="utf-8")
             tmp.replace(keys_file)
-            cache = ScoreCache(keys_file.parent / f"teacher-{fingerprint}.jsonl")
+            cache = ScoreCache(keys_file.parent / f"teacher-{fingerprint}.jsonl", states)
             n = cache.fill(scorer, iter_unique(texts))
             self.log(f"{n} texts scored now, the rest from the cache")
-            return [cache.get(t) for t in texts]
+            return [cache.get(t) for t in texts], [cache.state(t) for t in texts] if states else None
         finally:
             del scorer
             gc.collect()
@@ -157,14 +174,14 @@ class Distiller:
         :param texts: the training texts.
         :param gold: optional gold labels, one per text (a label id, name or index, a list of them for a
             multi-label task, or None for a text without one), used in a cross-entropy term weighted by
-            ``ce_weight`` as with ``tinydistill train --gold-file``.
+            ``ce_weight`` as with ``tinydistill train --gold-file``, and (``probe``) to fit the probe.
         :returns: the Distiller, fitted.
         """
         import torch
 
         from .export import Predictor, export_onnx
         from .student import train_student
-        from .teacher import pick_device
+        from .teacher import combine_scores, fit_probe, pick_device, probe_scores
 
         texts = list(texts)
         task = self._task()
@@ -174,7 +191,26 @@ class Distiller:
                 gold = [g or None for g in gold]
             if len(gold) != len(texts):
                 raise ValueError(f"{len(gold)} gold labels for {len(texts)} texts")
-        scores = self._teacher_scores(task, texts)
+        labelled = [i for i, g in enumerate(gold or []) if g not in (None, [])]
+        if self.probe_only and not labelled:
+            raise ValueError("probe_only needs gold labels in fit: the probe is fit on them")
+        use_probe = bool(labelled) and (self.probe or self.probe_only)
+        scores, states = self._teacher_scores(task, texts, use_probe)
+        if use_probe:  # as `tinydistill label`: fit on the gold texts' states, then a member of the teacher
+            multi = task.multi_label
+            x = torch.from_numpy(np.stack(cast(list, states)).astype(np.float32))
+            weight, bias = fit_probe(
+                x[labelled], [cast(list, gold)[i] for i in labelled], len(task.labels), multi
+            )
+            probed = probe_scores(weight, bias, x, multi)
+            scores = (
+                probed
+                if self.probe_only
+                else [combine_scores([s, p], multi) for s, p in zip(scores, probed, strict=True)]
+            )
+            self.log(
+                f"probe fit on {len(labelled)} gold texts" + (", the teacher" if self.probe_only else "")
+            )
         s = torch.tensor(scores, dtype=torch.float64)
         probs = (s.sigmoid() if task.multi_label else s.softmax(-1)).float()  # the soft targets
         work = tempfile.TemporaryDirectory(prefix="tinydistill-")

@@ -26,6 +26,17 @@ clf = Distiller.load("model")  # no teacher needed
 `fit` on the same texts (or a command-line run) does not load the teacher again. `get_params` and `set_params`
 return and set the constructor's arguments, so scikit-learn tools such as `clone` work with it.
 
+With gold labels, `fit(texts, gold)` also fits a linear probe on the teacher's hidden states with them and
+averages its probabilities with the teacher's, as `tinydistill label` does by default
+([Choosing the teacher](../guide/teacher.md#a-probe-on-the-teachers-hidden-states)); `probe=False` turns it off.
+`probe_only=True` makes the probe the whole teacher: the teacher scores no label, it only gives the probe its
+hidden states, so labelling takes a fraction of the time:
+
+```python
+clf = Distiller(task, teacher="Qwen/Qwen2.5-7B-Instruct", load_4bit=True, probe_only=True, cache_dir="cache")
+clf.fit(texts, gold)  # gold: a label for a few texts per class, None for the rest
+```
+
 ## Use a distilled model
 
 `Predictor` runs an exported model with onnxruntime and a tokenizer; it does not need PyTorch.

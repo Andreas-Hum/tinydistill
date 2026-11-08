@@ -677,7 +677,8 @@ def _train_time(a: argparse.Namespace) -> None:
     )
     n = a.seeds * per_seed
     print(
-        f"training: {n:,} batches of {a.student} on {device} ({a.seeds} seeds), about {duration(n * spb)} at "
+        f"training: {n:,} batches of {a.student} on {device} ({a.seeds} seed{'s' * (a.seeds != 1)}), about "
+        f"{duration(n * spb)} at "
         f"{1 / spb:.1f} batches/s (timed on a few); exporting and evaluating come on top"
     )
 
