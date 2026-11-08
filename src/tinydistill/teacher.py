@@ -299,6 +299,9 @@ class LabelScorer(_Prompt):
         self._prefix_state: torch.Tensor | None = None
         # with keep_states, score_many also keeps each text's state (see _forward) in ``states``
         self.keep_states = False
+        # with states_only (label --probe-only), only the states: no continuation is scored, every score is
+        # NOT_SCORED and the fingerprint differs, so such a cache is never read as scores
+        self.states_only = False
         self.states: dict[str, torch.Tensor] = {}
         self._new_states: list[torch.Tensor] = []
 
@@ -385,6 +388,8 @@ class LabelScorer(_Prompt):
             key["shortlist"] = self.shortlist.fingerprint()
         if self.similar is not None:
             key["similar"] = [self.similar.fingerprint(), self.middle]
+        if self.states_only:
+            key["states_only"] = True
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
     @torch.no_grad()
@@ -394,7 +399,10 @@ class LabelScorer(_Prompt):
         if self._prefix_cache is None or (self.keep_states and self._prefix_state is None):
             self._encode_prefix()
         ids = [self.text_ids(t, h) for t, h in zip(texts, self.heads(texts), strict=True)]
-        labels = self.shortlist(texts) if self.shortlist is not None else [None] * len(texts)
+        if self.states_only:  # no label's continuation: a pass runs the texts and keeps their last rows
+            labels: list[list[int] | None] = [[] for _ in texts]
+        else:
+            labels = self.shortlist(texts) if self.shortlist is not None else [None] * len(texts)
         views = [self._view(lab) for lab in labels]
         self._new_states = []
         scores = self._score_packs(ids, views) if self._packable else self._score_batched(ids, views)
@@ -1314,6 +1322,7 @@ def quick_key(
     reason_tokens: int = 0,
     similar_sets: int = 1,
     bucket: int = 0,
+    states_only: bool = False,
 ) -> str:
     """What decides a local teacher's cache fingerprint, from the tokenizer alone (no model weights): the
     rendered prompt and continuations, and how the model would be loaded. `label` maps it to the full
@@ -1341,6 +1350,8 @@ def quick_key(
         key["similar"] = retrieval_key(examples or [], similar, embedder, similar_sets, bucket)
     if reason_tokens:
         key["reason"] = ["reason-v1", reason_tokens]
+    if states_only:
+        key["states_only"] = True
     return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
 

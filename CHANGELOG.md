@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `label --probe-only` no longer scores the labels: it computes only each text's hidden state, which is all
+  the probe reads, so labelling is much faster (on Banking77 with Qwen2.5-7B and a zero-shot prompt, 74 s
+  against 35 minutes for `--probe` with 16 similar examples). Its caches have a fingerprint of their own, and
+  `--probe-dev` reports the probe's accuracy alone. `--probe-only` now also refuses `--few-shot-sets`.
+- `train` notes when the training texts do not look English to the student's tokenizer (under 8% common English
+  words and over 1.5 of its tokens per word) and suggests a multilingual student.
+- Docs: the training guide's Danish numbers include the newer teachers.
 - RESULTS.md: the trimmed multilingual Danish student on the labels of the Qwen3.5-9B and Gemma 4 12B ensemble
   (`examples/massive-da/ensemble-multilingual.sh`, from the score cache): 0.811, 0.810 deployed, against 0.761
   on the 8-shot 7B teacher's labels and above the ensemble itself (0.806); on the labels of Gemma 4 12B with

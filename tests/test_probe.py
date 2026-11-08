@@ -12,6 +12,7 @@ from test_scoring import POOL, SHOTS, hybrid, lm, sliding, unpackable  # noqa: F
 
 from tinydistill.cli import _probe, _run_teacher, main
 from tinydistill.teacher import (
+    NOT_SCORED,
     Ensemble,
     LabelScorer,
     ProbeScorer,
@@ -19,6 +20,7 @@ from tinydistill.teacher import (
     combine_scores,
     fit_probe,
     probe_scores,
+    quick_key,
     text_hash,
 )
 
@@ -64,6 +66,39 @@ def test_batched_states_equal_a_plain_forward_pass(teacher, task, request):
     scorer._encode_prefix()
     assert not scorer._packable
     check_states(scorer, TEXTS)
+
+
+def check_states_only(scorer: LabelScorer, texts: list[str]) -> None:
+    """states_only: the same states as a full pass, no label scored, and a fingerprint of its own."""
+    full = scorer.fingerprint()
+    scorer.keep_states = True
+    scorer.form_scores_many(texts)
+    want = dict(scorer.states)
+    scorer.states_only = True
+    assert scorer.fingerprint() != full
+    got = scorer.form_scores_many(texts)
+    assert (got == NOT_SCORED).all()
+    for t in texts:
+        assert scorer.states[t].tolist() == pytest.approx(want[t].tolist(), abs=1e-4)
+
+
+@pytest.mark.parametrize("max_tokens", [12, 10_000])
+def test_packed_states_only(lm, task, max_tokens):  # noqa: F811
+    check_states_only(LabelScorer(*lm, task, max_tokens=max_tokens), TEXTS)
+
+
+@pytest.mark.parametrize("teacher", [unpackable("hybrid"), unpackable("sliding")])
+def test_batched_states_only(teacher, task, request):
+    model, tok = request.getfixturevalue(teacher)
+    shots = type(task)(**{**task.__dict__, "prompt": SHOTS})
+    scorer = LabelScorer(model, tok, shots, examples=POOL, max_tokens=12)
+    scorer._encode_prefix()
+    assert not scorer._packable
+    check_states_only(scorer, TEXTS)
+
+
+def test_states_only_has_its_own_quick_key(task):
+    assert quick_key(TINY_LM, task, "cpu", False) != quick_key(TINY_LM, task, "cpu", False, states_only=True)
 
 
 def test_states_do_not_change_the_fingerprint(lm, task):  # noqa: F811
@@ -263,6 +298,26 @@ def test_probe_only(tmp_path, data):
     main(["label", *data, "--out", str(run)])  # labelled again without --probe
     assert not (run / "probe.pt").exists()
     assert json.loads((run / "meta.json").read_text(encoding="utf-8"))["probe"] is None
+    # the states-only cache is not read as scores: the same as a run with a fresh cache
+    fresh = [*data[: data.index("--cache-dir")], "--cache-dir", str(tmp_path / "fresh")]
+    main(["label", *fresh, "--out", str(tmp_path / "plain")])
+    for split in ("train", "test"):
+        assert read(run / f"{split}.jsonl") == read(tmp_path / "plain" / f"{split}.jsonl")
+
+
+def test_probe_only_labels_as_the_probe_of_a_full_run(tmp_path, data, capsys):
+    """--probe-only computes the states alone, and its labels are the probe member's of a --probe run."""
+    full, only = tmp_path / "full", tmp_path / "only"
+    main(["label", *data, "--out", str(full), "--probe", "--gold-per-class", "3"])
+    main(["label", *data, "--out", str(only), "--probe-only", "--gold-per-class", "3"])
+    assert "held-out gold texts (fit on 5): " in capsys.readouterr().err
+    meta = json.loads((only / "meta.json").read_text(encoding="utf-8"))
+    dev = meta["probe"]["dev"]
+    assert dev["in_context"] is None and dev["combined"] is None and 0 <= dev["probe"] <= 1
+    assert meta["fingerprint"] != json.loads((full / "meta.json").read_text(encoding="utf-8"))["fingerprint"]
+    for split in ("train", "test"):
+        for a, b in zip(read(only / f"{split}.jsonl"), read(full / f"{split}.jsonl"), strict=True):
+            assert a["scores"] == pytest.approx(b["teacher_scores"][-1], abs=1e-3)
 
 
 @pytest.mark.parametrize(

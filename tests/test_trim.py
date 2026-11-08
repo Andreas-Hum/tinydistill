@@ -9,7 +9,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from tinydistill.cli import main
 from tinydistill.export import Predictor
-from tinydistill.student import student_logits, trim_vocab
+from tinydistill.student import language_hint, student_logits, trim_vocab
 
 TEXTS = [
     "Hvad er vejret i morgen?",
@@ -139,3 +139,22 @@ def test_static_student_trims(tmp_path):
     new, rows = trim_vocab(model, tok, TEXTS, tmp_path, keep_top=0)
     assert model.embed.num_embeddings == model.config.vocab_size == len(new) < rows
     torch.testing.assert_close(student_logits(model, new, TEXTS), want, rtol=0, atol=1e-6)
+
+
+class Pieces:
+    """A tokenizer that cuts every word into pieces of ``n`` characters."""
+
+    def __init__(self, n):
+        self.n = n
+
+    def tokenize(self, word):
+        return [word[i : i + self.n] for i in range(0, len(word), self.n)]
+
+
+def test_the_language_hint():
+    english = ["the card is not working, what can I do?", "how do I top up my account"] * 20
+    danish = ["jeg vil gerne bestille en pizza til aften", "sluk lyset i stuen nu"] * 20
+    assert language_hint(Pieces(3), english) is None  # English words
+    assert language_hint(Pieces(20), danish) is None  # a tokenizer that reads the words whole
+    assert "multilingual student" in language_hint(Pieces(3), danish)
+    assert language_hint(Pieces(3), danish[:4]) is None  # too few words to tell

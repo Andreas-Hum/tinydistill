@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import re
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -17,6 +18,32 @@ from .static import encoder_of, new_static  # also registers the static student 
 
 DEFAULT_STUDENT = "sentence-transformers/all-MiniLM-L6-v2"
 TRIM_KEEP = 1000  # `train --trim-keep`: the default safety margin of trim_vocab
+# common English words, for language_hint
+ENGLISH_WORDS = frozenset(
+    "the a an to of and is in i you my for it on what how can this that with be me do are".split()
+    + "was have not your".split()
+)
+
+
+def language_hint(tok, texts: Sequence[str], n: int = 500) -> str | None:
+    """A note when the texts look like another language than the student's tokenizer was made for: under 8%
+    of their words are common English ones and the tokenizer needs over 1.5 tokens per word. On the example
+    tasks' first 500 training texts with all-MiniLM-L6-v2, the English ones have 11% to 47% and 1.01 to 1.34,
+    Danish MASSIVE 6% and 1.89; a multilingual tokenizer needs fewer tokens per word there, so its student
+    gets no note."""
+    words = [w for t in texts[:n] for w in re.findall(r"[^\W\d_]+", t.lower())]
+    if len(words) < 50:
+        return None
+    english = sum(w in ENGLISH_WORDS for w in words) / len(words)
+    pieces = sum(len(tok.tokenize(w)) for w in words) / len(words)
+    if english >= 0.08 or pieces <= 1.5:
+        return None
+    return (
+        f"the texts do not look English ({english:.0%} common English words, {pieces:.1f} of this student's "
+        "tokens per word): a multilingual student, such as "
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 with --trim-vocab, is likely more "
+        "accurate"
+    )
 
 
 def distillation_loss(
@@ -240,6 +267,8 @@ def train_student(
         finally:
             hf_logging.set_verbosity(level)
         log(f"{model_name}: a new classification head for {len(labels)} labels on the pretrained encoder")
+        if hint := language_hint(tok, texts):
+            log(hint)
     if trim_texts is not None:
         out_dir.mkdir(parents=True, exist_ok=True)
         tok, before = trim_vocab(model, tok, trim_texts, out_dir, trim_keep)

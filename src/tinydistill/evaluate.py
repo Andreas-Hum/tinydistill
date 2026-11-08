@@ -242,8 +242,12 @@ def markdown_table(results: dict) -> str:
             + f" a linear probe on its hidden states, fit on {probe['n_gold']} gold training texts"
             + (
                 f"; fit on {dev['n_fit']} of them, teacher accuracy on the other {dev['n_dev']} is "
-                f"{dev['in_context']:.1%} in context, {dev['probe']:.1%} for the probe and "
-                f"{dev['combined']:.1%} combined. "
+                + (
+                    f"{dev['probe']:.1%}. "
+                    if dev.get("in_context") is None
+                    else f"{dev['in_context']:.1%} in context, {dev['probe']:.1%} for the probe and "
+                    f"{dev['combined']:.1%} combined. "
+                )
                 if dev
                 else ". "
             )

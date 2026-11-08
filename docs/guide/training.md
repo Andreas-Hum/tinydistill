@@ -42,6 +42,12 @@ Danish texts well enough to teach a student. For the student, pick a multilingua
 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, mmBERT or the multilingual potion static model.
 On Danish MASSIVE (60 intents), the multilingual MiniLM reached 0.761 against 0.724 for the English MiniLM-L6,
 from the same 8-shot 7B teacher (0.736; [Benchmarks](../results.md#danish-massive-an-english-prompt-over-danish-texts)).
+With a better teacher the gap grows: on the labels of Gemma 4 12B shown each text's 16 most similar gold
+examples and averaged with a probe on its hidden states (0.808), the trimmed multilingual MiniLM reaches 0.815
+against 0.768 for the English one
+([Benchmarks](../results.md#the-newer-teachers-with-similar-examples-and-both-together)).
+When the training texts do not look English to the student's tokenizer (under 8% common English words and
+over 1.5 of its tokens per word), `train` says so and suggests a multilingual student.
 
 #### Trimming the vocabulary
 

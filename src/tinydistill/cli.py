@@ -100,6 +100,8 @@ def _run_members(run: Path, meta: dict, task: Task, name: str, device: str, exam
         from .teacher import LabelScorer, ProbeScorer
 
         fit = torch.load(run / "probe.pt", weights_only=True)
+        if probe.get("only"):  # as it labelled: the states alone
+            cast(LabelScorer, members[0]).states_only = True
         member = ProbeScorer(cast(LabelScorer, members[0]), fit["weight"], fit["bias"])
         members = [member] if probe.get("only") else [*members, member]
     return members
@@ -147,8 +149,11 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
             raise SystemExit(
                 "--probe needs gold labels to fit on: --gold-per-class K or --gold-file FILE (as for train)"
             )
-        if a.probe_only and (variants or len(_teachers(a.teacher)) > 1):
-            raise SystemExit("--probe-only uses one teacher with the task's own prompt: drop --prompts")
+        if a.probe_only and (variants or len(_teachers(a.teacher)) > 1 or a.few_shot_sets > 1):
+            raise SystemExit(
+                "--probe-only uses one teacher with the task's own prompt and one set of examples: drop "
+                "--prompts and --few-shot-sets"
+            )
         if not 0 <= a.probe_dev < 1:
             raise SystemExit("--probe-dev must be at least 0 and below 1")
     if a.few_shot_similar and a.chunk_tokens:
@@ -246,6 +251,7 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
                     reason,
                     sets,
                     k,
+                    a.probe_only,
                 )
                 for t in (task, *variants)
                 for k in range(sets)
@@ -303,6 +309,8 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
                 + (f", prompt {pi}" if variants else "")
                 + (f", set {k}" if sets > 1 else "")
             )
+            if a.probe_only:  # the probe alone is the teacher: only the states are computed
+                cast(Any, member).states_only = True
             fingerprints.append(member.fingerprint())
             if q:
                 keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
@@ -502,20 +510,21 @@ def _probe(
     if dev and rest:
         w, b = fit(rest)
         alone = probe_scores(w, b, states([t for t, _ in dev]), multi)
-        context = [[c.get(t) for c in caches] for t, _ in dev]
-        d = entry["dev"] = {
-            "n_fit": len(rest),
-            "n_dev": len(dev),
-            "in_context": accuracy([combine_scores(p, multi) for p in context], dev),
-            "probe": accuracy(alone, dev),
-            "combined": accuracy(
+        d = entry["dev"] = {"n_fit": len(rest), "n_dev": len(dev), "probe": accuracy(alone, dev)}
+        held = f"probe: teacher accuracy on {len(dev)} held-out gold texts (fit on {len(rest)}): "
+        if a.probe_only:  # no label was scored in context
+            d["in_context"] = d["combined"] = None
+            log(f"{held}{d['probe']:.3f}")
+        else:
+            context = [[c.get(t) for c in caches] for t, _ in dev]
+            d["in_context"] = accuracy([combine_scores(p, multi) for p in context], dev)
+            d["combined"] = accuracy(
                 [combine_scores([*p, s], multi) for p, s in zip(context, alone, strict=True)], dev
-            ),
-        }
-        log(
-            f"probe: teacher accuracy on {len(dev)} held-out gold texts (fit on {len(rest)}): in context "
-            f"{d['in_context']:.3f}, probe {d['probe']:.3f}, combined {d['combined']:.3f}"
-        )
+            )
+            log(
+                f"{held}in context {d['in_context']:.3f}, probe {d['probe']:.3f}, "
+                f"combined {d['combined']:.3f}"
+            )
     w, b = fit(gold)
     log(f"probe: fit on all {len(gold)} gold texts for labelling")
     torch.save({"weight": w, "bias": b}, run / "probe.pt")
@@ -1863,7 +1872,8 @@ def build_parser() -> argparse.ArgumentParser:
     label.add_argument(
         "--probe-only",
         action="store_true",
-        help="like --probe, but the probe alone is the teacher (a baseline); one teacher, no --prompts",
+        help="like --probe, but the probe alone is the teacher: no label is scored, only each text's state, "
+        "so labelling is much faster; one teacher, no --prompts or --few-shot-sets",
     )
     label.add_argument(
         "--probe-dev",
