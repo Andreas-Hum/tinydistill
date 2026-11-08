@@ -75,25 +75,60 @@ td.n, th.n { text-align: right; }
 details { margin-top: 10px; font-size: 13px; }
 summary { cursor: pointer; color: var(--text-secondary); }
 .note { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
+.stale-banner {
+  display: none; border: 1px solid var(--border); border-left: 4px solid var(--warning); background: var(--surface-1);
+  border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 14px;
+}
+body.stale .stale-banner { display: block; }
+body.stale section { opacity: .45; filter: grayscale(1); }
+.bars { display: grid; grid-template-columns: minmax(80px, 34%) 1fr auto; gap: 6px 10px; align-items: center;
+  font-size: 13px; }
+.bars .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.bars .track { height: 10px; background: var(--track); border-radius: 0 4px 4px 0; }
+.bars .fill { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; }
+.bars .val { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.bars .rest { color: var(--text-muted); }
+.sub { font-size: 13px; color: var(--text-secondary); margin: 14px 0 4px; }
 </style>
 </head>
 <body>
 <main>
   <h1>tinydistill live</h1>
   <div class="run" id="run">connecting...</div>
+  <div class="stale-banner" role="alert" id="stale">
+    <b>Not updating.</b> The page's server stopped, so what follows is how the run looked
+    <span id="staleage"></span> ago. The server ends with the run that started it (<code>run --live</code>) or when
+    it is closed; <code>tinydistill status RUN --live</code> starts it again. This page reconnects by itself.
+  </div>
 
   <section class="card" aria-live="polite">
     <div class="pill" id="pill"><span class="dot"></span><span>waiting</span></div>
     <div class="stage" id="stage">no status yet</div>
     <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="meter"><div style="width:0"></div></div>
     <div class="facts" id="facts"></div>
+    <div class="sub" id="speedtitle" hidden>Speed over this stage</div>
+    <div class="chart" id="speed"></div>
+  </section>
+
+  <section class="card" id="labelcard" hidden>
+    <h2 id="labeltitle">The teacher's labels so far</h2>
+    <div class="bars" id="labels"></div>
+    <div class="note" id="labelnote"></div>
   </section>
 
   <section class="card">
-    <h2>Training loss per epoch</h2>
-    <div id="legend" class="legend"></div>
-    <div class="chart" id="chart"><div class="empty">no epoch finished yet</div></div>
-    <details><summary>As a table</summary><div class="scroll" id="losstable"></div></details>
+    <h2>Training the student</h2>
+    <div class="facts" id="trainfacts"><span class="empty">starts after labelling</span></div>
+    <div id="legend" class="legend" style="margin-top:10px"></div>
+    <div class="sub" id="losstitle" hidden>Loss (distillation loss: lower is closer to the teacher)</div>
+    <div class="chart" id="losschart"></div>
+    <div class="sub" id="agreetitle" hidden>Agreement with the teacher's top label</div>
+    <div class="chart" id="agreechart"></div>
+    <div class="sub" id="lrtitle" hidden>Learning rate</div>
+    <div class="chart" id="lrchart"></div>
+    <div class="note" id="trainnote" hidden>Solid: on the training batches, every few batches. Dashed with dots: on the
+      held-out texts, after each epoch (with --val-share). Epochs on the x axis.</div>
+    <details><summary>Per epoch, as a table</summary><div class="scroll" id="losstable"></div></details>
   </section>
 
   <section class="card">
@@ -103,6 +138,7 @@ summary { cursor: pointer; color: var(--text-secondary); }
 
   <section class="card">
     <h2>Results</h2>
+    <div class="bars" id="accbars"></div>
     <div class="scroll" id="results"><div class="empty">written when the run is evaluated</div></div>
   </section>
 </main>
@@ -118,8 +154,7 @@ function dur(s) {
 const num = (x, d = 3) => x == null ? "" : Number(x).toFixed(d);
 
 function pill(kind, text) {
-  const color = {running: "var(--good)", finished: "var(--text-muted)", stopped: "var(--critical)",
-                 lost: "var(--warning)"}[kind];
+  const color = {running: "var(--good)", finished: "var(--text-muted)", stopped: "var(--critical)"}[kind];
   $("pill").innerHTML = `<span class="dot" style="background:${color}"></span><span>${esc(text)}</span>`;
 }
 
@@ -143,6 +178,97 @@ function showStatus(s) {
   $("facts").innerHTML = facts.map(([v, l]) => `<span><b>${esc(v)}</b> ${esc(l)}</span>`).join("");
 }
 
+// speed over the current stage: units per second between trace points, smoothed over a few of them. A run that
+// writes no trace (started with an older tinydistill) gets one from what this page reads while it is open.
+let seen = {key: null, points: []};
+function traceOf(s) {
+  if (!s) return [];
+  if (s.trace) return s.trace;
+  const key = s.stage + "|" + s.pid, t = Date.parse(s.updated) / 1000;
+  if (seen.key !== key) seen = {key, points: []};
+  const last = seen.points[seen.points.length - 1];
+  if (!last || last[2] !== t) seen.points.push([0, s.done, t]);
+  const t0 = seen.points[0][2];
+  return seen.points.map(p => [p[2] - t0, p[1], p[2]]);
+}
+function showSpeed(s) {
+  const tr = traceOf(s);
+  const pts = [];
+  for (let i = 1; i < tr.length; i++) {
+    const j = Math.max(0, i - 4), dt = tr[i][0] - tr[j][0];
+    if (dt > 0) pts.push([tr[i][0], (tr[i][1] - tr[j][1]) / dt]);
+  }
+  $("speedtitle").hidden = pts.length < 2;
+  $("speedtitle").textContent = s && s.trace ? "Speed over this stage" : "Speed since this page opened";
+  if (pts.length < 2) { $("speed").innerHTML = ""; return; }
+  const W = widthOf("speed"), H = 150, L = 40, R = 12, T = 8, B = 24;
+  const t1 = pts[pts.length - 1][0], t0 = pts[0][0], top = Math.max(...pts.map(p => p[1])) * 1.1 || 1;
+  const raw = top / 3, mag = 10 ** Math.floor(Math.log10(raw));
+  const tick = [1, 2, 2.5, 5, 10].map(m => m * mag).find(t => t >= raw), hi = Math.ceil(top / tick) * tick;
+  const x = t => L + (t - t0) / Math.max(t1 - t0, 1e-9) * (W - L - R), y = v => T + (hi - v) / hi * (H - T - B);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(s.unit)} per second over the stage">`;
+  for (let v = 0; v <= hi + tick / 2; v += tick)
+    svg += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>` +
+      `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${+v.toFixed(6)}</text>`;
+  const nx = W < 500 ? 2 : 4;  // time labels: fewer on a phone
+  for (let k = 0; k <= nx; k++) {
+    const t = t0 + (t1 - t0) * k / nx;
+    svg += `<text x="${x(t)}" y="${H - 6}" text-anchor="${k ? (k === nx ? "end" : "middle") : "start"}">${dur(t)}</text>`;
+  }
+  svg += `<polyline points="${pts.map(p => `${x(p[0])},${y(p[1])}`).join(" ")}" fill="none" stroke="var(--series-1)"` +
+    ` stroke-width="2" stroke-linejoin="round"/>`;
+  const last = pts[pts.length - 1];
+  svg += `<circle cx="${x(last[0])}" cy="${y(last[1])}" r="4" fill="var(--series-1)" stroke="var(--surface-1)" stroke-width="2"/>`;
+  svg += `<line id="scross" y1="${T}" y2="${H - B}" stroke="var(--text-muted)" visibility="hidden"/>` +
+    `<rect id="shit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/></svg>`;
+  $("speed").innerHTML = svg + '<div class="tip" id="stip"></div>';
+  const el = $("speed").querySelector("svg"), tip = $("stip"), cross = $("scross");
+  $("shit").addEventListener("mousemove", ev => {
+    const box = el.getBoundingClientRect(), sx = (ev.clientX - box.left) / box.width * W;
+    const p = pts.reduce((a, b) => Math.abs(x(b[0]) - sx) < Math.abs(x(a[0]) - sx) ? b : a);
+    cross.setAttribute("x1", x(p[0])); cross.setAttribute("x2", x(p[0])); cross.setAttribute("visibility", "visible");
+    tip.innerHTML = `<b>${dur(p[0])}</b> ${s.trace ? "into the stage" : "after the page opened"}<br>` +
+      `${p[1].toFixed(1)} ${esc(s.unit)} per second`;
+    tip.style.display = "block";
+    place(tip, x(p[0]) / W * box.width, box.width);
+    tip.style.top = "4px";
+  });
+  $("shit").addEventListener("mouseleave", () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+}
+
+// horizontal bars, from zero: rows of [name, value, text shown], the longest bar the largest value; ``rest``
+// (the labels not shown, together) is a row of text only, so that it does not set the scale
+function bars(rows, rest) {
+  const max = Math.max(...rows.map(r => r[1]), 1e-9);
+  return rows.map(r => `<div class="name" title="${esc(r[0])}">${esc(r[0])}</div>` +
+    `<div class="track"><div class="fill" style="width:${100 * r[1] / max}%"></div></div>` +
+    `<div class="val">${esc(r[2])}</div>`).join("") +
+    (rest ? `<div class="name rest">${esc(rest[0])}</div><div></div><div class="val rest">${esc(rest[2])}</div>` : "");
+}
+// a chart's width: its card's, so that text keeps its size on a phone
+const widthOf = id => Math.max(300, Math.min(880, $(id).clientWidth || 880));
+const place = (tip, px, width) => {
+  tip.style.left = Math.max(0, Math.min(width - tip.offsetWidth, px + 12 + tip.offsetWidth > width ? px - tip.offsetWidth - 12 : px + 12)) + "px";
+};
+
+function showLabels(lab) {
+  $("labelcard").hidden = !lab;
+  if (!lab) return;
+  const order = lab.labels.map((name, i) => [name, lab.counts[i]]).sort((a, b) => b[1] - a[1]);
+  const shown = order.slice(0, 15), others = order.slice(15), n = Math.max(lab.texts, 1);
+  const pct = c => (100 * c / n).toFixed(1) + "%";
+  const restSum = others.reduce((a, r) => a + r[1], 0);
+  $("labels").innerHTML = bars(shown.map(([name, c]) => [name, c, `${c.toLocaleString()}  ${pct(c)}`]),
+    others.length ? [`${others.length} other labels`, restSum, `${restSum.toLocaleString()}  ${pct(restSum)}`] : null);
+  const who = lab.teacher === "probe" ? "the probe" : esc(lab.teacher);
+  $("labeltitle").textContent = (lab.teacher === "probe" ? "The probe's" : "The teacher's") + " labels on the training texts";
+  const top2 = order.slice(0, 2).reduce((a, r) => a + r[1], 0) / n;
+  $("labelnote").innerHTML = `${lab.texts.toLocaleString()} texts so far, each counted under ${who}'s top label` +
+    (lab.multi_label ? " (multi-label: every label it says yes to)" : "") + "." +
+    (!lab.multi_label && lab.labels.length > 3 && top2 > 0.6 ?
+      ` <b>Two labels take ${(100 * top2).toFixed(0)}% of the texts:</b> the teacher may be collapsing onto` +
+      " them; check the task file with tinydistill tune." : "");
+}
 function showStages(stages) {
   if (!stages.length) { $("stages").innerHTML = '<div class="empty">none yet</div>'; return; }
   $("stages").innerHTML = "<table><tr><th>Stage</th><th class=n>Amount</th><th class=n>Time</th></tr>" +
@@ -152,6 +278,9 @@ function showStages(stages) {
 
 function showResults(models) {
   if (!models) return;
+  const acc = models.filter(m => m.accuracy != null);
+  $("accbars").innerHTML = acc.length ? bars(acc.map(m => [m.name, m.accuracy, num(m.accuracy)])) : "";
+  $("accbars").style.marginBottom = acc.length ? "14px" : "0";
   $("results").innerHTML = "<table><tr><th>Model</th><th class=n>Accuracy</th><th class=n>Macro-F1</th>" +
     "<th class=n>Latency, batch 1</th><th class=n>Size</th></tr>" +
     models.map(m => `<tr><td>${esc(m.name)} <span class=empty>(${esc(m.device || "")})</span></td>` +
@@ -160,78 +289,108 @@ function showResults(models) {
       `<td class=n>${m.size_mb == null ? "" : Math.round(m.size_mb) + " MB"}</td></tr>`).join("") + "</table>";
 }
 
-// the loss chart: one line per training (series slots in a fixed order), held-out loss dashed in its colour
-let series = [];
+// a line chart: series of {name, color, points: [[x, y]], dashed, dots}, one y axis, x in epochs
+function lineChart(id, series, fmt, from0) {
+  const host = $(id), all = series.flatMap(s => s.points.map(p => p[1]));
+  if (!all.length) { host.innerHTML = ""; return false; }
+  const W = widthOf(id), H = 190, L = 52, R = 12, T = 8, B = 24;
+  const xs = series.flatMap(s => s.points.map(p => p[0]));
+  const x0 = 0, x1 = Math.max(1, Math.ceil(Math.max(...xs)));
+  let lo = from0 ? 0 : Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 1e-12) { hi = lo + (Math.abs(lo) || 1) * 0.1; }
+  const raw = (hi - lo) / 4, mag = 10 ** Math.floor(Math.log10(raw));
+  const tick = [1, 2, 2.5, 5, 10].map(m => m * mag).find(t => t >= raw);
+  lo = Math.floor(lo / tick) * tick; hi = Math.ceil(hi / tick) * tick;
+  const x = v => L + (v - x0) / (x1 - x0) * (W - L - R), y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(id)}">`;
+  for (let v = lo; v <= hi + tick / 2; v += tick)
+    svg += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/>` +
+      `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${fmt(v)}</text>`;
+  const step = Math.max(1, Math.ceil(x1 / (W < 500 ? 5 : 10)));
+  for (let e = 0; e <= x1; e += step) svg += `<text x="${x(e)}" y="${H - 6}" text-anchor="middle">${e}</text>`;
+  for (const s of series) {
+    if (!s.points.length) continue;
+    const pts = s.points.map(p => `${x(p[0])},${y(p[1])}`).join(" ");
+    svg += `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"` +
+      ` stroke-linecap="round"${s.dashed ? ' stroke-dasharray="5 4"' : ""}/>`;
+    const dots = s.dots ? s.points : [s.points[s.points.length - 1]];
+    for (const p of dots)
+      svg += `<circle cx="${x(p[0])}" cy="${y(p[1])}" r="${s.dots ? 3.5 : 4}" fill="${s.color}" stroke="var(--surface-1)" stroke-width="2"/>`;
+  }
+  svg += `<line class="cross" y1="${T}" y2="${H - B}" stroke="var(--text-muted)" visibility="hidden"/>` +
+    `<rect class="hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/></svg>`;
+  host.innerHTML = svg + '<div class="tip"></div>';
+  const el = host.querySelector("svg"), tip = host.querySelector(".tip"), cross = host.querySelector(".cross");
+  host.querySelector(".hit").addEventListener("mousemove", ev => {
+    const box = el.getBoundingClientRect(), at = x0 + ((ev.clientX - box.left) / box.width * W - L) / (W - L - R) * (x1 - x0);
+    const rows = series.map(s => {
+      if (!s.points.length) return null;
+      const p = s.points.reduce((a, b) => Math.abs(b[0] - at) < Math.abs(a[0] - at) ? b : a);
+      return Math.abs(p[0] - at) <= Math.max(0.6, (x1 - x0) / 40) ? [s, p] : null;
+    }).filter(Boolean);
+    if (!rows.length) { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); return; }
+    const px = x(rows[0][1][0]);
+    cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
+    tip.innerHTML = `<b>epoch ${(+rows[0][1][0].toFixed(2))}</b><br>` + rows.map(([s, p]) =>
+      `<i class="swatch" style="background:${s.color}"></i> ${esc(s.name)}: ${fmt(p[1], true)}`).join("<br>");
+    tip.style.display = "block"; tip.style.top = "4px";
+    place(tip, px / W * box.width, box.width);
+  });
+  host.querySelector(".hit").addEventListener("mouseleave", () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+  return true;
+}
+
+// the student's training: per training (seed, and gold only or upper bound), points every few batches and
+// held-out values per epoch; colours in a fixed order, the same training the same colour in every chart
 function showHistory(history) {
   const keys = Object.keys(history);
   if (!keys.length) return;
-  series = keys.slice(0, 8).map((k, i) => ({key: k, color: `var(--series-${i + 1})`, epochs: history[k]}));
-  const folded = keys.length - series.length;
-  $("legend").innerHTML = series.length > 1 ? series.map(s =>
-    `<span><i class="swatch" style="background:${s.color}"></i>${esc(s.key)}</span>`).join("") : "";
-  const W = 880, H = 260, L = 48, R = 12, T = 10, B = 28;
-  const all = series.flatMap(s => s.epochs.flatMap(e => [e.loss, e.held_out_loss].filter(v => v != null)));
-  const maxE = Math.max(...series.map(s => s.epochs.length), 2);
-  let lo = Math.min(...all), hi = Math.max(...all);
-  if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
-  // round ticks: about four steps of 1, 2, 2.5 or 5 times a power of ten
-  const raw = (hi - lo) / 4, mag = 10 ** Math.floor(Math.log10(raw));
-  const tick = [1, 2, 2.5, 5, 10].map(m => m * mag).find(t => t >= raw);
-  lo = Math.max(0, Math.floor(lo / tick) * tick); hi = Math.ceil(hi / tick) * tick;
-  const x = e => L + (e - 1) / (maxE - 1) * (W - L - R), y = v => T + (hi - v) / (hi - lo) * (H - T - B);
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="training loss per epoch">`;
-  for (let v = lo; v <= hi + tick / 2; v += tick) {
-    const yy = y(v);
-    svg += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="var(--grid)" stroke-width="1"/>` +
-      `<text x="${L - 6}" y="${yy + 4}" text-anchor="end">${+v.toFixed(6)}</text>`;
+  const shown = keys.slice(0, 8), colorOf = k => `var(--series-${shown.indexOf(k) + 1})`;
+  $("legend").innerHTML = shown.length > 1 ? shown.map(k =>
+    `<span><i class="swatch" style="background:${colorOf(k)}"></i>${esc(k)}</span>`).join("") : "";
+  const steps = k => history[k].steps || [], epochs = k => history[k].epochs || [];
+  const line = (field, held) => shown.flatMap(k => [
+    {name: k, color: colorOf(k), points: steps(k).filter(p => p[field] != null).map(p => [p.epoch, p[field]])},
+    {name: k + ", held out", color: colorOf(k), dashed: true, dots: true,
+     points: epochs(k).filter(e => e[held] != null).map(e => [e.epoch, e[held]])},
+  ]);
+  const num4 = v => (+v).toFixed(v < 0.1 ? 4 : 3), pctf = (v, tip) => (100 * v).toFixed(tip ? 1 : 0) + "%";
+  const lrf = v => v === 0 ? "0" : (+v).toExponential(1);
+  $("losstitle").hidden = !lineChart("losschart", line("loss", "held_out_loss"), num4, false);
+  $("agreetitle").hidden = !lineChart("agreechart", line("agreement", "held_out_agreement"), pctf, false);
+  $("lrtitle").hidden = !lineChart("lrchart", shown.slice(-1).map(k => ({name: k, color: colorOf(k),
+    points: steps(k).map(p => [p.epoch, p.lr])})), lrf, true);
+  $("trainnote").hidden = false;
+  const k = keys[keys.length - 1], last = steps(k)[steps(k).length - 1], ep = epochs(k)[epochs(k).length - 1];
+  const facts = [[k, "training now"]];
+  if (last) {
+    facts.push([`${last.epoch.toFixed(2)}`, "epochs"], [num4(last.loss), "loss"]);
+    if (last.agreement != null) facts.push([pctf(last.agreement, true), "agree with the teacher"]);
+    facts.push([lrf(last.lr), "learning rate"]);
   }
-  const step = Math.max(1, Math.ceil(maxE / 10));
-  for (let e = 1; e <= maxE; e += step) svg += `<text x="${x(e)}" y="${H - 8}" text-anchor="middle">${e}</text>`;
-  for (const s of series) {
-    for (const [field, dash] of [["loss", ""], ["held_out_loss", ' stroke-dasharray="5 4"']]) {
-      const pts = s.epochs.filter(e => e[field] != null).map(e => `${x(e.epoch)},${y(e[field])}`);
-      if (!pts.length) continue;
-      svg += `<polyline points="${pts.join(" ")}" fill="none" stroke="${s.color}" stroke-width="2"` +
-        ` stroke-linejoin="round" stroke-linecap="round"${dash}/>`;
-      const last = pts[pts.length - 1].split(",");
-      svg += `<circle cx="${last[0]}" cy="${last[1]}" r="4" fill="${s.color}" stroke="var(--surface-1)" stroke-width="2"/>`;
-    }
-  }
-  svg += `<line id="cross" y1="${T}" y2="${H - B}" stroke="var(--text-muted)" stroke-width="1" visibility="hidden"/>`;
-  svg += `<rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" id="hit"/></svg>`;
-  $("chart").innerHTML = svg + '<div class="tip" id="tip"></div>' +
-    (folded ? `<div class="note">${folded} more trainings in the table below</div>` : "") +
-    '<div class="note">Solid: training loss; dashed: held-out loss (with --val-share). Epoch on the x axis.</div>';
-  const svgEl = $("chart").querySelector("svg"), tip = $("tip"), cross = $("cross");
-  $("hit").addEventListener("mousemove", ev => {
-    const box = svgEl.getBoundingClientRect(), sx = (ev.clientX - box.left) / box.width * W;
-    const e = Math.min(maxE, Math.max(1, Math.round(1 + (sx - L) / (W - L - R) * (maxE - 1))));
-    cross.setAttribute("x1", x(e)); cross.setAttribute("x2", x(e)); cross.setAttribute("visibility", "visible");
-    const rows = series.map(s => [s, s.epochs.find(r => r.epoch === e)]).filter(([, r]) => r);
-    if (!rows.length) { tip.style.display = "none"; return; }
-    tip.innerHTML = `<b>epoch ${e}</b><br>` + rows.map(([s, r]) =>
-      `<i class="swatch" style="background:${s.color}"></i> ${esc(s.key)}: ${num(r.loss, 4)}` +
-      (r.held_out_loss != null ? `, held out ${num(r.held_out_loss, 4)}` : "")).join("<br>");
-    tip.style.display = "block";
-    const px = (x(e) / W) * box.width, left = px + 12 + tip.offsetWidth > box.width ? px - tip.offsetWidth - 12 : px + 12;
-    tip.style.left = left + "px"; tip.style.top = "8px";
-  });
-  $("hit").addEventListener("mouseleave", () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+  if (ep && ep.held_out_loss != null) facts.push([num4(ep.held_out_loss), "held-out loss"]);
+  $("trainfacts").innerHTML = facts.map(([v, l]) => `<span><b>${esc(v)}</b> ${esc(l)}</span>`).join("");
   $("losstable").innerHTML = "<table><tr><th>Training</th><th class=n>Epoch</th><th class=n>Loss</th>" +
-    "<th class=n>Held-out loss</th></tr>" + keys.flatMap(k => history[k].map(e =>
+    "<th class=n>Held-out loss</th><th class=n>Held-out agreement</th></tr>" + keys.flatMap(k => epochs(k).map(e =>
       `<tr><td>${esc(k)}</td><td class=n>${e.epoch}</td><td class=n>${num(e.loss, 4)}</td>` +
-      `<td class=n>${num(e.held_out_loss, 4)}</td></tr>`)).join("") + "</table>";
+      `<td class=n>${num(e.held_out_loss, 4)}</td><td class=n>${e.held_out_agreement == null ? "" : pctf(e.held_out_agreement, true)}</td></tr>`)).join("") + "</table>";
 }
 
+let lastOk = Date.now();
 async function poll() {
   try {
     const r = await fetch("/state", {cache: "no-store"});
     const st = await r.json();
+    lastOk = Date.now();
+    document.body.classList.remove("stale");
     $("run").textContent = st.run;
     document.title = (st.status ? st.status.stage + " - " : "") + "tinydistill live";
-    showStatus(st.status); showStages(st.stages); showHistory(st.history); showResults(st.results);
+    showStatus(st.status); showSpeed(st.status); showLabels(st.labels); showStages(st.stages);
+    showHistory(st.history); showResults(st.results);
   } catch (e) {
-    pill("lost", "the page's server stopped (it ends with the run that started it)");
+    document.body.classList.add("stale");
+    $("staleage").textContent = dur((Date.now() - lastOk) / 1000);
+    document.title = "not updating - tinydistill live";
   }
   setTimeout(poll, 2000);
 }

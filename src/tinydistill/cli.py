@@ -11,12 +11,16 @@ from typing import Any, cast
 
 import yaml
 
+from .progress import duration
 from .task import Task, load_task
 
 DEFAULT_TEACHER = "Qwen/Qwen2.5-1.5B-Instruct"
 
 
 def log(msg: str) -> None:
+    from .progress import clear_bar
+
+    clear_bar()  # a progress bar on the line: the message goes on a line of its own
     print(msg, file=sys.stderr, flush=True)
 
 
@@ -128,8 +132,6 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     )
 
     task = load_task(a.task)
-    if a.dry_run and not a.api_url:
-        raise SystemExit("--dry-run estimates the cost of labelling with --api-url")
     sources = [p.strip() for p in (a.prompts or "").split(",") if p.strip()]
     variants = _variants(task, sources)
     if variants and (a.vllm_url or a.api_url):
@@ -170,6 +172,8 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
         )
     run = Path(a.out)
     run.mkdir(parents=True, exist_ok=True)
+    if not a.dry_run:  # a dry run leaves the run as it was
+        (run / "labels-live.json").unlink(missing_ok=True)
     prompt_files = [f"prompt-{i}.yaml" for i in range(1, len(variants) + 1)]
     examples = None
     flag = "--few-shot" if a.few_shot else "--few-shot-similar"
@@ -230,6 +234,7 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
 
     caches: list[ScoreCache] = []
     fingerprints, device, costs = [], "cpu", []
+    times: list[tuple[float, float, int]] = []  # dry run, local teachers: per member, its time left
     seconds, scored = 0.0, 0
     keys_file = cache_dir / "teacher-keys.json"  # quick key (tokenizer only) -> full fingerprint
     keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
@@ -316,7 +321,7 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
             if states and pi == 0:
                 cast(Any, member).state_layer = a.probe_layer
             fingerprints.append(member.fingerprint())
-            if q:
+            if q and not a.dry_run:  # a dry run writes nothing
                 keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
                 keys[q] = fingerprints[-1]
                 tmp = keys_file.with_suffix(".tmp")
@@ -329,11 +334,15 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
             if cache.scores:
                 log(f"resuming: {len(cache.scores)} texts already scored")
             if a.dry_run:
-                todo = iter_unique(
-                    t for s in splits for t in texts_of(*s) if text_hash(t) not in cache.scores
+                todo = list(
+                    iter_unique(t for s in splits for t in texts_of(*s) if text_hash(t) not in cache.scores)
                 )
-                costs.append(_api_cost(member, list(todo), a.api_samples))
-                print(_cost_line(who, *costs[-1], a))
+                if a.api_url:
+                    costs.append(_api_cost(member, todo, a.api_samples))
+                    print(_cost_line(who, *costs[-1], a))
+                else:
+                    times.append(_time_left(member, todo, a.seed))
+                    print(_time_line(who, len(todo), *times[-1]))
                 continue
             for split, spec, limit in splits:
                 t0 = time.perf_counter()
@@ -341,7 +350,12 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
                 total = None if chunk or only is not None else count_rows(spec, limit)
                 bar = Progress(f"label {split} ({who})", total, log, run / "status.json")
                 texts = iter_unique(texts_of(split, spec, limit))
-                n = cache.fill(member, texts, on_read=bar.update)
+                # the first member's top labels on the training texts so far, for the live page (none for
+                # --probe-only: its labels come from the probe, once it is fit)
+                tally = None if a.probe_only or caches or mi or split != "train" else _Tally(task, run, who)
+                n = cache.fill(member, texts, on_read=bar.update, on_scores=tally)
+                if tally:
+                    tally.write()
                 bar.finish()
                 seconds += time.perf_counter() - t0
                 scored += n
@@ -355,11 +369,19 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
         if len(costs) > 1:
             n, requests, tokens_in, tokens_out = (sum(c) for c in zip(*costs, strict=True))
             print(_cost_line("total", n, requests, tokens_in, tokens_out, a))
-        print(
-            "Input tokens are estimated as the prompt's characters / 4. With --api-samples N each text takes "
-            "N requests at most; an API that accepts several answers per request takes one and bills the "
-            "prompt once. Nothing was sent or scored."
-        )
+        if costs:
+            print(
+                "Input tokens are estimated as the prompt's characters / 4. With --api-samples N each "
+                "text takes N requests at most; an API that accepts several answers per request takes one "
+                "and bills the prompt once. Nothing was sent or scored."
+            )
+        if len(times) > 1:
+            print(f"total: about {duration(sum(t[0] for t in times))} of labelling")
+        if times:
+            print(
+                "Timed on a sample of the texts still to label, after a few to warm up; the teacher's "
+                "loading time and a run's training and evaluation come on top. Nothing was cached or written."
+            )
         return
 
     probe_of: dict[str, list[float]] = {}  # text hash -> the probe's scores
@@ -368,6 +390,10 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     if probe:
         every = [t for s in splits for t in texts_of(*s)]
         probe_of, probe_meta = _probe(a, task, caches, probe_gold, every, run)
+        if a.probe_only:  # the probe's top labels on the training texts, for the live page
+            tally = _Tally(task, run, "probe")
+            tally([probe_of[text_hash(t)] for s in splits[:1] for t in iter_unique(texts_of(*s))])
+            tally.write()
 
     # the run's files, written only now so that a dry run leaves the run as it was; none left from earlier
     _write_task(run / "task.yaml", task)
@@ -445,6 +471,32 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
             **({"chunk_tokens": None, "chunk_stride": None, "chunk_tokenizer": None} | chunk),
         },
     )
+
+
+class _Tally:
+    """Counts a teacher's top labels as it scores (per label: the texts whose highest score it is, or for
+    multi-label tasks whose score is above 0) and writes them to RUN/labels-live.json every 2 seconds, for the
+    live page."""
+
+    def __init__(self, task: Task, run: Path, teacher: str):
+        self.task, self.path, self.teacher = task, run / "labels-live.json", teacher
+        self.counts, self.n, self.last = [0] * len(task.labels), 0, 0.0
+
+    def __call__(self, scores: list[list[float]]) -> None:
+        for s in scores:
+            for i in [i for i, x in enumerate(s) if x > 0] if self.task.multi_label else [_argmax(s)]:
+                self.counts[i] += 1
+        self.n += len(scores)
+        if time.monotonic() - self.last >= 2:
+            self.write()
+
+    def write(self) -> None:
+        self.last = time.monotonic()
+        record = {"teacher": self.teacher, "labels": self.task.labels, "counts": self.counts, "texts": self.n}
+        record["multi_label"] = self.task.multi_label
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(record), encoding="utf-8")
+        tmp.replace(self.path)
 
 
 def _probe_gold(a: argparse.Namespace, task: Task, rows: list, tests: set[str]) -> list[tuple[str, Any]]:
@@ -553,6 +605,30 @@ def _api_cost(member, texts: list[str], samples: int | None) -> tuple[int, int, 
         round(chars / 4) * k,
         len(texts) * k * (API_SAMPLE_TOKENS if samples else 1),
     )
+
+
+def _time_left(member, todo: list[str], seed: int) -> tuple[float, float, int]:
+    """label --dry-run with a local or vLLM teacher: (seconds, texts per second, texts timed) that labelling
+    ``todo`` would take, from timing ``member`` on up to 64 of them after 8 to warm up (its prompt cache, the
+    GPU's kernels). Their scores are not kept."""
+    import random
+
+    if not todo:
+        return 0.0, 0.0, 0
+    sample = random.Random(seed).sample(todo, min(len(todo), 72))
+    warm, timed = sample[:8], sample[8:] or sample[:8]
+    member.score_many(warm)
+    t0 = time.perf_counter()
+    member.score_many(timed)
+    rate = len(timed) / max(time.perf_counter() - t0, 1e-9)
+    return len(todo) / rate, rate, len(timed)
+
+
+def _time_line(who: str, n: int, seconds: float, rate: float, timed: int) -> str:
+    if not n:
+        return f"{who}: every text is in the cache, nothing to label"
+    pace = f"{rate:.1f} texts/s (timed on {timed} of them)"
+    return f"{who}: {n} texts to label, about {duration(seconds)} at {pace}"
 
 
 def _cost_line(
@@ -695,18 +771,34 @@ def cmd_train(a: argparse.Namespace) -> None:
             f"{a.student}; label again with --chunk-tokenizer {a.student} if they count tokens differently"
         )
     kept: dict[str, list[int]] = {}
-    live: dict[str, list[dict]] = {}  # per training, its loss per epoch so far (for status --live)
+    # per training, for status --live: its epochs so far, and points every few batches (loss, agreement, lr)
+    live: dict[str, dict[str, list[dict]]] = {}
     live_file = run / "history-live.json"
     live_file.unlink(missing_ok=True)
+    written = [0.0]
+
+    def save(now: bool) -> None:
+        if not now and time.monotonic() - written[0] < 1:  # batch points: at most once a second
+            return
+        written[0] = time.monotonic()
+        tmp = live_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(live), encoding="utf-8")
+        tmp.replace(live_file)
 
     def epochs_of(name: str):
-        def write(history: list[dict]) -> None:
-            live[name] = list(history)
-            tmp = live_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(live), encoding="utf-8")
-            tmp.replace(live_file)
+        def epochs(history: list[dict]) -> None:
+            bar.note = f"loss {history[-1]['loss']:.4f}"
+            live.setdefault(name, {"epochs": [], "steps": []})["epochs"] = list(history)
+            save(True)
 
-        return write
+        return epochs
+
+    def batches_of(name: str):
+        def batches(point: dict) -> None:
+            live.setdefault(name, {"epochs": [], "steps": []})["steps"].append(point)
+            save(False)
+
+        return batches
 
     for i in range(a.seeds):
         seed = a.seed + i
@@ -725,6 +817,7 @@ def cmd_train(a: argparse.Namespace) -> None:
                 *hp,
                 on_step=bar.update,
                 on_epoch=epochs_of(f"student, seed {seed}"),
+                on_batch=batches_of(f"student, seed {seed}"),
                 warmup_pairs=a.warmup_pairs,
                 warmup_epochs=a.warmup_epochs,
                 warmup_confidence=a.warmup_confidence,
@@ -745,6 +838,7 @@ def cmd_train(a: argparse.Namespace) -> None:
                     *hp,
                     on_step=bar.update,
                     on_epoch=epochs_of(f"gold only, seed {seed}"),
+                    on_batch=batches_of(f"gold only, seed {seed}"),
                     **sel,
                 )
             )
@@ -762,6 +856,7 @@ def cmd_train(a: argparse.Namespace) -> None:
                     *hp,
                     on_step=bar.update,
                     on_epoch=epochs_of(f"upper bound, seed {seed}"),
+                    on_batch=batches_of(f"upper bound, seed {seed}"),
                     **sel,
                 )
             )
@@ -1665,8 +1760,9 @@ def cmd_run(a: argparse.Namespace) -> None:
     import torch
 
     a.run = a.out
-    Path(a.out).mkdir(parents=True, exist_ok=True)
-    (Path(a.out) / "status-log.jsonl").unlink(missing_ok=True)  # a new run: no stages done yet
+    if not a.dry_run:  # a new run: no stages done yet (a dry run leaves the run as it was)
+        Path(a.out).mkdir(parents=True, exist_ok=True)
+        (Path(a.out) / "status-log.jsonl").unlink(missing_ok=True)
     if a.live:
         from .live import serve
 
@@ -1888,8 +1984,9 @@ def build_parser() -> argparse.ArgumentParser:
     label.add_argument(
         "--dry-run",
         action="store_true",
-        help="with --api-url: print the requests and (approximate) tokens labelling would take, and with "
-        "--price-in/--price-out its cost, for the texts not in the cache yet; scores nothing",
+        help="how long labelling the texts not in the cache yet would take, timed on a sample of them (a "
+        "local or vLLM teacher), or with --api-url the requests and (approximate) tokens it would take, and "
+        "with --price-in/--price-out its cost; caches and writes nothing",
     )
     label.add_argument(
         "--price-in", type=float, metavar="P", help="with --dry-run: the API's price per million input tokens"

@@ -9,9 +9,21 @@
 - `label --probe-layer L`: the probe reads the output of the teacher's layer L instead of the input of its LM
   head; that layer's states are cached in a file of their own. `examples/teachers-2026/probe-layers.sh` sweeps
   the layers with `--probe-only`.
-- `status RUN --live` and `run --live`: a page on `http://127.0.0.1` that follows a run as it goes (the stage
-  and time left, the stages done, the training loss per epoch, the results). Runs now also write
-  `status-log.jsonl` (the stages done) and `history-live.json` (the loss per epoch so far).
+- `status RUN --live` and `run --live`: a page on `http://127.0.0.1` that follows a run every two seconds: the
+  stage, time left and speed over time; the teacher's labels on the training texts so far (a teacher collapsing
+  onto a few labels shows within minutes); the stages done; the training loss per epoch; the results. Runs now
+  write `status.json` every 2 seconds (the terminal line stays at every 10) with a trace of the stage's
+  progress, and also `status-log.jsonl` (the stages done), `history-live.json` (the loss per epoch so far) and
+  `labels-live.json` (the teacher's top labels so far).
+- `label --dry-run` (and `run --dry-run`) with a local or vLLM teacher: how long labelling the texts not in the
+  cache yet would take, timed on a sample of them after a few to warm up; it caches and writes nothing. Before,
+  `--dry-run` was for API teachers only.
+- `run` shows a progress bar on a terminal (`stage  done/total [=====>....]  pct  rate  ETA`, during training
+  also the last epoch's loss); written to a file or a pipe, it is a line every 10 seconds as before.
+  `TINYDISTILL_PROGRESS=bar` or `lines` chooses.
+- `train` reports, every few batches, the loss, the student's agreement with its target's top label and the
+  learning rate, and per epoch the held-out agreement (with `--val-share`); the live page charts them as the
+  student trains. A live page whose server stopped says so and greys out what it shows.
 - `train` notes when the training texts do not look English to the student's tokenizer (under 8% common English
   words and over 1.5 of its tokens per word) and suggests a multilingual student.
 - Docs: the training guide's Danish numbers include the newer teachers.

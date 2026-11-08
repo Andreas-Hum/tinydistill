@@ -389,8 +389,6 @@ def test_dry_run_estimates_the_cost_and_scores_nothing(api, tmp_path, capsys):
     main([*base, "--teacher", "m,m2", "--dry-run"])  # without sampling nothing is cached: 10 texts each
     assert "\ntotal: 20 texts to label, 20 requests, " in capsys.readouterr().out
     assert state["requests"] == []
-    with pytest.raises(SystemExit, match="--api-url"):
-        main(["label", str(tmp_path / "task.yaml"), "--data", "x.jsonl", "--out", str(run), "--dry-run"])
 
 
 def test_dry_run_leaves_the_run_as_it_was(api, tmp_path):

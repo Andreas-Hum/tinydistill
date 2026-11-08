@@ -1423,9 +1423,18 @@ class ScoreCache:
                     if "r" in row:
                         self.reasoning[row["h"]] = row["r"]
 
-    def fill(self, scorer: Scorer, texts: Iterable[str], progress=None, batch: int = 64, on_read=None) -> int:
+    def fill(
+        self,
+        scorer: Scorer,
+        texts: Iterable[str],
+        progress=None,
+        batch: int = 64,
+        on_read=None,
+        on_scores=None,
+    ) -> int:
         """Score every text not in the cache yet, ``batch`` texts at a time (the scorer packs them into
-        forward passes). Returns how many were scored now."""
+        forward passes). ``on_scores``: called with the label scores of the texts read, cached or scored now,
+        as they come. Returns how many were scored now."""
         n = 0
         pending: list[str] = []
         with self.path.open("a", encoding="utf-8") as f:
@@ -1451,6 +1460,8 @@ class ScoreCache:
                     n += 1
                     if progress:
                         progress(n)
+                if on_scores:
+                    on_scores(scores)
                 f.flush()
                 if self.states is not None and n % STATES_SAVE_EVERY < len(pending):
                     self.save_states()
@@ -1460,7 +1471,10 @@ class ScoreCache:
                 for text in texts:
                     if on_read:
                         on_read()  # every text read, cached or not (for progress and time left)
-                    if not self.has(text) and text not in pending:
+                    if self.has(text):
+                        if on_scores:
+                            on_scores([self.get(text)])
+                    elif text not in pending:
                         pending.append(text)
                         if len(pending) == batch:
                             flush()

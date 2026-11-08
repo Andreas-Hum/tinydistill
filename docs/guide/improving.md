@@ -193,8 +193,10 @@ Long steps print their progress, speed and time left, and write them to `RUN/sta
 terminal, `tinydistill status RUN` shows the same and whether the process is still running.
 
 `--live` (on `status` and on `run`) serves a page on `http://127.0.0.1:8765` (or the next free port) and opens
-it in the browser. It follows the run every two seconds: the current stage with its progress and time left, the
-stages done and how long they took, the training loss per epoch of every seed (and of `--gold-only` and
-`--upper-bound`, with the held-out loss dashed under `--val-share`) and the results table once `eval` writes
-it. It only reads the run's files, so `status RUN --live` can follow a run started anywhere, and closing it never
+it in the browser. It follows the run every two seconds (runs write their progress that often): the current
+stage with its progress, time left and speed over time; while the teacher labels, how many training texts it
+has put under each label so far, which shows a teacher that collapses onto one or two labels within minutes;
+the stages done and how long they took; the training loss per epoch of every seed (and of `--gold-only` and
+`--upper-bound`, with the held-out loss dashed under `--val-share`); and the results, as bars and a table, once
+`eval` writes them. It only reads the run's files, so `status RUN --live` can follow a run started anywhere, and closing it never
 stops the run; the page that `run --live` serves ends with the run. `--no-browser` serves without opening it.

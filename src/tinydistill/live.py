@@ -54,6 +54,7 @@ def state(run: Path) -> dict:
         "status": status,
         "stages": stages,
         "history": _json(run / "history-live.json") or {},
+        "labels": _json(run / "labels-live.json"),
         "results": results,
     }
 

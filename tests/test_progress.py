@@ -11,7 +11,7 @@ def test_duration():
 def test_progress_lines_and_status_file(tmp_path):
     lines = []
     status = tmp_path / "status.json"
-    p = Progress("label train", 10, lines.append, status, every=0)
+    p = Progress("label train", 10, lines.append, status, every=0, write_every=0, bar=False)
     for _ in range(4):
         p.update()
     assert lines[-1].startswith("label train: 4/10 (40%) texts,") and "left" in lines[-1]

@@ -229,6 +229,7 @@ def train_student(
     warmup_epochs: int = 1,
     warmup_confidence: float = 0.9,
     on_epoch: Callable[[list[dict]], None] | None = None,
+    on_batch: Callable[[dict], None] | None = None,
 ) -> int:
     """Train and save the student; returns the epoch whose model is saved. With ``val_share`` > 0 that share
     of the texts is held out (texts without gold labels when there is a teacher), the loss on them is measured
@@ -244,7 +245,10 @@ def train_student(
     :func:`contrastive_warmup` for ``warmup_epochs`` on that many :func:`contrastive_pairs` of the training
     texts (not the held-out ones) with a class: the gold label where there is one, else the teacher's top
     label where its probability is at least ``warmup_confidence``. Single-label tasks only. ``on_epoch``:
-    called after every epoch with the history so far (one dict per epoch: its loss, and held-out loss)."""
+    called after every epoch with the history so far (one dict per epoch: its loss, and held-out loss and
+    agreement). ``on_batch``: called about 50 times an epoch with the training so far: epoch (fractional),
+    loss and agreement with the target's top label (single-label) over the batches since the last call, and
+    the learning rate."""
     if warmup_pairs < 0 or (warmup_pairs and multi_label):
         raise ValueError(f"warmup_pairs must be 0 or more, and 0 for a multi-label task: {warmup_pairs}")
     torch.manual_seed(seed)
@@ -318,11 +322,18 @@ def train_student(
         init_head_from_names(model, tok, init_head, max_length=max_length)
         log("classifier initialised from the label names")
 
+    agree: list[float] = []  # per loss_of call: the share of texts whose top label is the target's top label
+
     def loss_of(idx: list[int]) -> torch.Tensor:
         enc = tok(
             [texts[i] for i in idx], padding=True, truncation=True, max_length=max_length, return_tensors="pt"
         )
         logits = model(**{k: v.to(device) for k, v in enc.items()}).logits
+        if on_batch and not multi_label:  # a training metric for the live page: no gradient, no extra pass
+            target = (
+                teacher_probs[idx] if teacher_probs is not None else F.one_hot(gold_t[idx], logits.shape[-1])
+            )
+            agree.append((logits.detach().argmax(-1).cpu() == target.argmax(-1)).float().mean().item())
         if multi_label:
             g = gold_t[idx].to(device)
             if teacher_probs is None:  # supervised only: every text has gold labels
@@ -344,21 +355,33 @@ def train_student(
         model.train()
         rng.shuffle(order)
         t0, total = time.perf_counter(), 0.0
-        for b in range(0, len(order), batch_size):
+        n_batches = math.ceil(len(order) / batch_size)
+        report, window = max(1, n_batches // 50), []
+        for bi, b in enumerate(range(0, len(order), batch_size)):
             idx = order[b : b + batch_size]
             loss = loss_of(idx)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
+            lr_now = float(sched.get_last_lr()[0])
             sched.step()
             opt.zero_grad(set_to_none=True)
             total += loss.item() * len(idx)
+            window.append(loss.item())
+            if on_batch and ((bi + 1) % report == 0 or bi + 1 == n_batches):
+                point: dict[str, float] = {"epoch": round(epoch + (bi + 1) / n_batches, 4)}
+                point["loss"], point["lr"] = sum(window) / len(window), lr_now
+                if agree:
+                    point["agreement"] = sum(agree[-len(window) :]) / len(window)
+                on_batch(point)
+                window, agree[:] = [], []
             if on_step:
                 on_step()
         line = f"epoch {epoch + 1}/{epochs}: loss {total / len(order):.4f}"
         history.append({"epoch": epoch + 1, "loss": total / len(order)})
         if val:
             model.eval()
+            agree.clear()
             with torch.no_grad():
                 v = sum(
                     loss_of(val[b : b + 64]).item() * len(val[b : b + 64]) for b in range(0, len(val), 64)
@@ -366,6 +389,12 @@ def train_student(
             v /= len(val)
             line += f", held-out loss {v:.4f}"
             history[-1]["held_out_loss"] = v
+            if agree:  # weighted by chunk size: every chunk but the last has 64 texts
+                sizes = [len(val[b : b + 64]) for b in range(0, len(val), 64)]
+                history[-1]["held_out_agreement"] = sum(
+                    a * n for a, n in zip(agree, sizes, strict=True)
+                ) / len(val)
+                agree.clear()
             if v < best_loss:
                 best_loss, best_epoch = v, epoch + 1
                 best_state = {k: t.detach().clone() for k, t in model.state_dict().items()}

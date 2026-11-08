@@ -227,6 +227,20 @@ whose texts are all cached does not load the teacher at all.
 With very many labels, see [Many labels](many-labels.md). For documents longer than the student reads,
 `--chunk-tokens` has the teacher score windows of each one; see [Long texts](training.md#long-texts).
 
+### How long will it take: --dry-run
+
+With a local or vLLM teacher, `--dry-run` loads it, scores 8 texts to warm up (the prompt's cache, the GPU's
+kernels), times up to 64 more of the texts not in the cache yet and prints how long labelling all of them would
+take; with an ensemble, a line per member and a total. Nothing is cached or written. Labelling times vary a lot
+with the setup: on Banking77, 74 seconds for the 7B teacher's hidden states alone with a fixed prompt
+(`--probe-only`), and 35 minutes for the same teacher scoring every label with each text's 16 most similar
+examples ([Benchmarks](../results.md)).
+
+```sh
+tinydistill label task.yaml --data train.csv --test test.csv --teacher Qwen/Qwen2.5-7B-Instruct --load-4bit \
+  --few-shot-similar 16 --gold-per-class 8 --dry-run --out run
+```
+
 ## Few-shot examples
 
 `label --few-shot K` shows the teacher K gold examples per class, the same for every text;
