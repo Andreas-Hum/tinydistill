@@ -17,8 +17,9 @@
   line.
 - `label` and `run` with `--gold-per-class K` and neither `--few-shot` nor `--few-shot-similar` show each text's
   16 most similar of those K gold examples per class in the teacher's prompt, the setting of the best runs,
-  when the prompt has `{examples}` before `{text}` and the task is single-label; `--few-shot-similar 0` shows
-  none. The example scripts that run without examples now say `--few-shot-similar 0`.
+  when the prompt (and every `--prompts` file) has `{examples}` before `{text}` and the task is single-label;
+  `--few-shot-similar 0` shows none. The example scripts that run without examples now say
+  `--few-shot-similar 0`.
 - The Python API's `Distiller` fits the probe on the teacher's hidden states when `fit` gets gold labels, as
   `tinydistill label` does by default (`probe=False` turns it off), and `probe_only=True` makes the probe the
   whole teacher, so the teacher scores no label. The states are cached with the scores, in the files the

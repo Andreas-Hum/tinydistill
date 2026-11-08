@@ -459,3 +459,24 @@ def test_similar_examples_are_the_default_with_gold_labels(tmp_path, data):
         ["label", *data, "--out", str(tmp_path / "d"), "--gold-per-class", "3"]
     )  # no {examples} in the prompt
     assert meta(tmp_path / "d")["few_shot_similar"] == 0
+
+
+def test_the_default_shows_no_examples_when_a_prompts_file_has_no_room_for_them(tmp_path, data):
+    (tmp_path / "shots.yaml").write_text(TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n"))
+    (tmp_path / "plain.yaml").write_text(TASK)
+    shots = [str(tmp_path / "shots.yaml"), *data[1:]]
+    run = tmp_path / "r"
+    main(
+        [
+            "label",
+            *shots,
+            "--out",
+            str(run),
+            "--gold-per-class",
+            "3",
+            "--no-probe",
+            "--prompts",
+            str(tmp_path / "plain.yaml"),
+        ]
+    )
+    assert json.loads((run / "meta.json").read_text(encoding="utf-8"))["few_shot_similar"] == 0

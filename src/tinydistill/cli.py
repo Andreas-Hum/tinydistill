@@ -125,15 +125,18 @@ def _live(a: argparse.Namespace, run: Path) -> None:
 SIMILAR_DEFAULT = 16  # the similar examples a prompt shows by default with --gold-per-class
 
 
-def _default_examples(a: argparse.Namespace, task: Task) -> None:
+def _default_examples(a: argparse.Namespace, task: Task, variants: list[Task]) -> None:
     """Neither --few-shot nor --few-shot-similar given: with --gold-per-class K (and a prompt with {examples}
-    before {text}, single-label, no --chunk-tokens or --reason), each text's prompt shows its 16 most similar
-    of those K gold examples per class, the setting of the best runs; otherwise no examples."""
+    before {text} in the task's prompt and in each --prompts file, single-label, no --chunk-tokens or
+    --reason), each text's prompt shows its 16 most similar of those K gold examples per class, the setting
+    of the best runs; otherwise no examples."""
     if a.few_shot is not None or a.few_shot_similar is not None:
         a.few_shot, a.few_shot_similar = a.few_shot or 0, a.few_shot_similar or 0
         return
-    prompt = task.prompt
-    fits = "{examples}" in prompt and prompt.index("{examples}") < prompt.index("{text}")
+    fits = all(
+        "{examples}" in t.prompt and t.prompt.index("{examples}") < t.prompt.index("{text}")
+        for t in (task, *variants)
+    )
     if a.gold_per_class and fits and not (task.multi_label or a.chunk_tokens or a.reason):
         a.few_shot, a.few_shot_similar = a.gold_per_class, SIMILAR_DEFAULT
         log(
@@ -164,9 +167,9 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     )
 
     task = load_task(a.task)
-    _default_examples(a, task)
     sources = [p.strip() for p in (a.prompts or "").split(",") if p.strip()]
     variants = _variants(task, sources)
+    _default_examples(a, task, variants)
     if variants and (a.vllm_url or a.api_url):
         raise SystemExit("--prompts needs a local teacher, not --vllm-url or --api-url")
     reason = a.reason_tokens if a.reason else 0
