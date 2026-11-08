@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The Python API's `Distiller` takes `few_shot` and `few_shot_similar`, as `label` does, and with gold labels
+  in `fit` shows each text its 16 most similar gold-labelled texts by default (when the prompt has
+  `{examples}`); `few_shot_similar=0` turns that off. The examples are part of the cache key, as on the command
+  line.
 - `label` and `run` with `--gold-per-class K` and neither `--few-shot` nor `--few-shot-similar` show each text's
   16 most similar of those K gold examples per class in the teacher's prompt, the setting of the best runs,
   when the prompt has `{examples}` before `{text}` and the task is single-label; `--few-shot-similar 0` shows

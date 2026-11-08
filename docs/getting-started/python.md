@@ -26,7 +26,10 @@ clf = Distiller.load("model")  # no teacher needed
 `fit` on the same texts (or a command-line run) does not load the teacher again. `get_params` and `set_params`
 return and set the constructor's arguments, so scikit-learn tools such as `clone` work with it.
 
-With gold labels, `fit(texts, gold)` also fits a linear probe on the teacher's hidden states with them and
+With gold labels and a task prompt with an `{examples}` line, `fit(texts, gold)` shows the teacher each text's 16
+most similar gold-labelled texts as examples, as `tinydistill label` does with `--gold-per-class`;
+`few_shot_similar=0` turns that off, and `few_shot=K` picks K per class to show (or to pick the similar ones
+from). With gold labels, `fit(texts, gold)` also fits a linear probe on the teacher's hidden states with them and
 averages its probabilities with the teacher's, as `tinydistill label` does by default
 ([Choosing the teacher](../guide/teacher.md#a-probe-on-the-teachers-hidden-states)); `probe=False` turns it off.
 `probe_only=True` makes the probe the whole teacher: the teacher scores no label, it only gives the probe its

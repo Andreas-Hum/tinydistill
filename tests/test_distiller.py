@@ -123,3 +123,26 @@ def test_the_probe(tmp_path, task):
     assert len(list((tmp_path / "cache").glob("teacher-*.states.npz"))) == 1
     with pytest.raises(ValueError, match="probe_only needs gold labels"):
         Distiller(task, probe_only=True, log=quiet, **SMALL).fit(TEXTS)
+
+
+def test_examples_in_the_prompt(task):
+    shots = Task(
+        name="toy",
+        labels=task.labels,
+        verbalisations=task.verbalisations,
+        prompt=task.prompt.replace("{labels}\n", "{labels}\n{examples}\n"),
+    )
+    gold = ["pos", "neg", "pos", "neg"] + [None] * (len(TEXTS) - 4)
+    logs: list[str] = []
+    similar = Distiller(shots, probe=False, log=logs.append, **SMALL).fit(TEXTS, gold)  # the default
+    assert any("its 16 most similar of 4 gold examples" in m for m in logs)
+    logs.clear()
+    none = Distiller(shots, probe=False, few_shot_similar=0, log=logs.append, **SMALL).fit(TEXTS, gold)
+    assert not any("gold examples" in m for m in logs)
+    assert not np.allclose(similar.teacher_scores_, none.teacher_scores_)
+    Distiller(shots, probe=False, few_shot=1, few_shot_similar=0, log=logs.append, **SMALL).fit(TEXTS, gold)
+    assert any("few-shot prompt with 2 gold examples" in m for m in logs)  # 1 per class, 2 classes labelled
+    with pytest.raises(ValueError, match="need gold labels"):
+        Distiller(shots, few_shot=1, log=quiet, **SMALL).fit(TEXTS)
+    with pytest.raises(ValueError, match="need {examples}"):
+        Distiller(task, few_shot=1, log=quiet, **SMALL).fit(TEXTS, gold)
