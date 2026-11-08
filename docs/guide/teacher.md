@@ -105,9 +105,9 @@ tinydistill run task.yaml --data train.csv --test test.csv --gold-per-class 8 --
   per label), fit full batch with LBFGS from zero weights, with an L2 penalty `--probe-l2` (default 0.001) on
   standardised states. There are no class weights.
 - Its log-probabilities are combined with the in-context scores by the same mean of probabilities as any
-  ensemble, and stored as the last entry of `teacher_scores`. `--probe-only` makes the probe the whole teacher,
-  as a baseline; it needs one teacher and no `--prompts`. With several teachers, the probe reads the first
-  teacher's states for the task's own prompt.
+  ensemble, and stored as the last entry of `teacher_scores`. `--probe-only` makes the probe the whole teacher
+  (below); it needs one teacher, no `--prompts` and no `--few-shot-sets`. With several teachers, the probe reads
+  the first teacher's states for the task's own prompt.
 - `--probe-dev` (default 0.2) first holds out that share of the gold texts, fits on the rest and logs teacher
   accuracy on the held-out ones: in context, probe alone and combined. The report goes to `meta.json` (`probe`)
   and the results notes. Then the probe is fit again on all the gold texts for labelling.
@@ -126,6 +126,24 @@ deployed students from 0.855 to 0.872 and from 0.760 to 0.813; see
 
 The probe needs a local teacher: hosted APIs and vLLM return no hidden states, so `--api-url` and `--vllm-url`
 refuse it. It does not work with `--chunk-tokens`.
+
+### Fast labelling: --probe-only
+
+With `--probe-only` the teacher scores no label at all: it runs the prompt and each text once, for the state the
+probe reads, and the probe's probabilities are the soft labels. Scoring the labels is most of the work, above
+all with many labels and for models that cannot pack texts, so this labels many times faster, for a slightly
+weaker student:
+
+```sh
+tinydistill run task.yaml --data train.csv --test test.csv --teacher google/gemma-4-12B-it --load-4bit \
+  --gold-per-class 8 --few-shot 8 --few-shot-similar 16 --probe-only --out run
+```
+
+On CLINC150 with Gemma 4 12B and each text's 16 most similar examples, the deployed student reached 0.851 after
+37 minutes of labelling, against 0.859 after 7.2 hours when the labels are scored too. With a fixed zero-shot
+prompt (no `--few-shot`), encoded once for every text, labelling Banking77 took 74 seconds for a student of
+0.824 ([Benchmarks](../results.md#the-probe-alone-minutes-of-labelling-instead-of-hours)). Its caches have a
+fingerprint of their own, and `--probe-dev` reports the probe's accuracy alone.
 
 ## A vLLM server
 

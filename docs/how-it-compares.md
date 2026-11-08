@@ -21,7 +21,7 @@ reruns everything.
 ## What the tables show
 
 - **tinydistill is the most accurate method that runs on a CPU** on Banking77 (0.875 against SetFit's 0.796;
-  0.872 as the deployed int8 model) and CLINC150 (0.860 against 0.712; 0.860 deployed); on Danish MASSIVE it
+  0.872 as the deployed int8 model) and CLINC150 (0.860 against 0.712; 0.859 deployed); on Danish MASSIVE it
   reaches 0.815 against 0.586 for gold only. Its int8 student is the fastest and smallest model in every table,
   level with the gold-only model of the same encoder on three tasks: 0.8 to 2.1 ms per text and 23 to 24 MB,
   against 4.6 to 6.9 ms and 92 MB for SetFit and 113 to 577 ms and 746 MB for GLiClass.

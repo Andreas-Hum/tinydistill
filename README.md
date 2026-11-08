@@ -168,8 +168,12 @@ gold labels. Latency is per text, one at a time:
 - **Many labels.** On CLINC150 (151 intents), `--shortlist 20 --shortlist-keep oos` labelled six times
   faster than scoring every label and was more accurate. With each text's 16 most similar gold examples in
   the prompt of Gemma 4 12B, averaged with a linear probe on its hidden states, the deployed student reaches
-  0.860, against 0.574 zero-shot
+  0.859, against 0.574 zero-shot
   ([RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#the-newer-teachers-with-similar-examples-and-both-together)).
+- **Fast labelling.** With `--probe-only` the teacher scores no labels, it only gives the probe its hidden
+  states: on CLINC150 the deployed student reached 0.851 after 37 minutes of labelling instead of 0.859 after
+  7.2 hours, and on Banking77 0.869 after 11.5 minutes instead of 0.872 after 35
+  ([RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#the-probe-alone-minutes-of-labelling-instead-of-hours)).
 - **Compared with SetFit**, a strong few-shot method that needs no LLM, on the same 616 gold labels: 0.813
   against 0.797 with the same encoder. Distillation needs a GPU for the teacher; SetFit trains in a minute
   ([comparison](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#compared-with-setfit)).

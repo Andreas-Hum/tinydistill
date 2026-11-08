@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- RESULTS.md: the probe alone as the teacher (`examples/teachers-2026/probe-only.sh`) on Banking77, CLINC150
+  and Danish MASSIVE, with a zero-shot prompt and with 16 similar examples. With the similar examples the
+  deployed students are 0.3 to 1.3 points below the runs that also score the labels, after a third to a
+  twentieth of their labelling time (CLINC150: 0.851 after 37 minutes, against 0.859 after 7.2 hours); with the
+  zero-shot prompt labelling takes minutes (Banking77: 74 seconds, 0.824).
 - `label --probe-only` no longer scores the labels: it computes only each text's hidden state, which is all
   the probe reads, so labelling is much faster (on Banking77 with Qwen2.5-7B and a zero-shot prompt, 74 s
   against 35 minutes for `--probe` with 16 similar examples). Its caches have a fingerprint of their own, and
@@ -34,7 +39,7 @@
   model, and "How it compares" uses it.
 - RESULTS.md: the probe on Gemma 4 12B with 16 similar examples on CLINC150
   (`examples/teachers-2026/probe-gemma.sh`): the teacher goes from 0.914 to 0.941 and its student from 0.850 to
-  0.860, 0.860 deployed (from 0.849). It is the new CLINC150 Hub and live demo model. On Danish MASSIVE it lifts
+  0.860, 0.859 deployed (from 0.849). It is the new CLINC150 Hub and live demo model. On Danish MASSIVE it lifts
   Gemma 4 12B from 0.798 to 0.808 and the English student from 0.760 to 0.768.
 - RESULTS.md: Qwen3.5-9B, Gemma 4 12B and their ensemble with 16 similar examples on financial tweets; the
   ensemble's student (0.827, 0.829 deployed) ties the zero-shot three-family ensemble's (0.828, 0.829 deployed).

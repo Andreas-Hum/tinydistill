@@ -759,7 +759,7 @@ against the same teacher without it:
 All latencies on the CPU with 2 threads.
 <!-- /results -->
 
-It lifts the teacher from 0.914 to 0.941 and the student from 0.850 to 0.860, 0.860 deployed in int8 (from
+It lifts the teacher from 0.914 to 0.941 and the student from 0.850 to 0.860, 0.859 deployed in int8 (from
 0.849), for about the same labelling time (7.2 hours). It is the new
 [CLINC150 model on the Hub](https://huggingface.co/Shroomy/tinydistill-clinc150-minilm) and in the
 [live demo](https://andreas-hum.github.io/tinydistill/demo/).
@@ -834,6 +834,61 @@ The teachers rank as on the other tasks, the ensemble first (0.859), but Gemma 4
 Qwen3.5-9B's (0.803 against 0.805) for a teacher 2.5 points more accurate. The ensemble's student, 0.827 and 0.829
 deployed in int8, ties the student of the zero-shot three-family ensemble of the financial-tweets section (0.828,
 0.829 deployed), which needs no gold labels and took 6 minutes of labelling against an hour and a half.
+
+## The probe alone: minutes of labelling instead of hours
+
+With `label --probe-only` the probe is the whole teacher, and the teacher scores no label: it only runs the
+prompt and each text to read the hidden state the probe needs.
+[`examples/teachers-2026/probe-only.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe-only.sh)
+runs it with each task's best probe teacher, fit on the same 8 gold examples per class, once with a fixed
+zero-shot prompt (encoded once for every text) and once with each text's 16 most similar gold examples. On
+Banking77, with `Qwen/Qwen2.5-7B-Instruct`:
+
+<!-- results: teachers-2026/probe-only/banking77.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| banking77-7b-probe-only-zeroshot | zero-shot, 4-bit, probe only `Qwen/Qwen2.5-7B-Instruct` | 0.795 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.824 ± 0.002 | 0.822 ± 0.002 | 0.857 ± 0.004 | ONNX int8 | 1.2 | 38.4 | 23 |
+| banking77-7b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `Qwen/Qwen2.5-7B-Instruct` | 0.854 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.870 ± 0.004 | 0.870 ± 0.004 | 0.892 ± 0.001 | ONNX int8 | 1.7 | 42.9 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+On CLINC150, with `google/gemma-4-12B-it`:
+
+<!-- results: teachers-2026/probe-only/clinc150.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| clinc150-gemma4-12b-probe-only-zeroshot | zero-shot, 4-bit, probe only `google/gemma-4-12B-it` | 0.891 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.842 ± 0.004 | 0.889 ± 0.002 | 0.842 ± 0.005 | ONNX int8 | 1.0 | 26.8 | 23 |
+| clinc150-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.925 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.852 ± 0.002 | 0.896 ± 0.004 | 0.859 ± 0.002 | ONNX int8 | 1.6 | 34.1 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+On Danish MASSIVE, with `google/gemma-4-12B-it` and the trimmed multilingual student:
+
+<!-- results: teachers-2026/probe-only/massive-da.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| massive-da-gemma4-12b-probe-only-zeroshot | zero-shot, 4-bit, probe only `google/gemma-4-12B-it` | 0.760 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 24 | 0.779 ± 0.002 | 0.744 ± 0.003 | 0.820 ± 0.003 | ONNX int8 | 2.4 | 45.3 | 24 |
+| massive-da-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.792 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 24 | 0.804 ± 0.002 | 0.777 ± 0.004 | 0.826 ± 0.003 | ONNX int8 | 1.6 | 40.6 | 24 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+Against the best run with the same teacher and examples, which also scores every label in context and
+averages it with the probe (the probe sections above), the deployed students and the labelling times are:
+
+- Banking77: 0.869 after 11.5 minutes with the similar examples and 0.824 after 74 seconds with the zero-shot
+  prompt, against 0.872 after 35 minutes;
+- CLINC150: 0.851 after 37 minutes and 0.837 after 10 minutes, against 0.859 after 7.2 hours;
+- Danish MASSIVE: 0.802 after 27 minutes and 0.778 after 8 minutes, against 0.815 after 8.9 hours.
+
+The probe alone with the 16 similar examples costs 0.3 to 1.3 points of the deployed student and a third to a
+twentieth of the labelling time; scoring the labels is what takes long, most of all for teachers that cannot
+pack texts (Gemma 4) and with many labels. With the fixed prompt, labelling takes minutes and the student loses
+1.4 to 4.5 points more. Both need gold labels to fit on (here 8 per class) and a local teacher. The times are
+the GPU time `label` measured (RTX 4090, 4 bit); for Danish MASSIVE, the labelling of the Gemma 4 12B probe run
+whose cache the multilingual student read (the same in context and probe labels).
 
 ## A vLLM teacher agrees with the local one
 
