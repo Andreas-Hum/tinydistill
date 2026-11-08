@@ -63,3 +63,24 @@ default whenever there are gold labels, and `--no-probe` turns it off. See
 
 Both appear as extra rows in the results. For a stronger few-label baseline, the benchmarks compare with
 [SetFit](../results.md#compared-with-setfit) on the same labels.
+
+## Adding a label later
+
+A new label needs a new teacher pass: the prompt lists the labels, so the teacher's cached scores and states
+belong to the old label set. With the probe that pass can be short:
+
+1. Add the label to the task file, after the existing ones.
+2. Find a few training texts that belong to it and give them the new label in a `--gold-file` (the same format
+   as the training data; its labels apply to those training texts). Along with `--gold-per-class` for the
+   other labels, the probe learns the new label from these examples.
+3. Run again with `--probe-only`. The teacher then scores no label, it only gives the probe its hidden states:
+   on Banking77 that took 74 seconds with a zero-shot prompt, and about 10 minutes on CLINC150
+   ([Benchmarks](../results.md#the-probe-alone-minutes-of-labelling-instead-of-hours)).
+
+```sh
+tinydistill run task.yaml --data train.csv --test test.csv --gold-per-class 8 --gold-file new-label.csv \
+  --probe-only --out run-with-new-label
+```
+
+Without `--probe-only` the teacher scores every label again, as in the first run, which takes longer and is a
+little more accurate.

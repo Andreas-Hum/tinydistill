@@ -57,6 +57,8 @@ Upgrade notes:
 - Docs: the training guide's Danish numbers include the newer teachers; "When to use it" has a table of which
   settings to use in which situation, with what they gave on the benchmarks; "Improving a run" describes the
   progress bar and the live page.
+- Docs: "A few gold labels" describes adding a label later: a new label in the task file, a few gold examples of
+  it, and labelling again with `--probe-only`, in minutes.
 - RESULTS.md: the trimmed multilingual Danish student on the labels of the Qwen3.5-9B and Gemma 4 12B ensemble
   (`examples/massive-da/ensemble-multilingual.sh`, from the score cache): 0.811, 0.810 deployed, against 0.761
   on the 8-shot 7B teacher's labels and above the ensemble itself (0.806); on the labels of Gemma 4 12B with
