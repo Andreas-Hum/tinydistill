@@ -6,6 +6,9 @@
   the probe reads, so labelling is much faster (on Banking77 with Qwen2.5-7B and a zero-shot prompt, 74 s
   against 35 minutes for `--probe` with 16 similar examples). Its caches have a fingerprint of their own, and
   `--probe-dev` reports the probe's accuracy alone. `--probe-only` now also refuses `--few-shot-sets`.
+- `label --probe-layer L`: the probe reads the output of the teacher's layer L instead of the input of its LM
+  head; that layer's states are cached in a file of their own. `examples/teachers-2026/probe-layers.sh` sweeps
+  the layers with `--probe-only`.
 - `train` notes when the training texts do not look English to the student's tokenizer (under 8% common English
   words and over 1.5 of its tokens per word) and suggests a multilingual student.
 - Docs: the training guide's Danish numbers include the newer teachers.

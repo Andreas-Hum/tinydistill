@@ -302,6 +302,9 @@ class LabelScorer(_Prompt):
         # with states_only (label --probe-only), only the states: no continuation is scored, every score is
         # NOT_SCORED and the fingerprint differs, so such a cache is never read as scores
         self.states_only = False
+        # the layer whose output is the state (label --probe-layer; negative: from the end), or None: the
+        # input of the LM head (the last layer's output, normed)
+        self.state_layer: int | None = None
         self.states: dict[str, torch.Tensor] = {}
         self._new_states: list[torch.Tensor] = []
 
@@ -390,6 +393,8 @@ class LabelScorer(_Prompt):
             key["similar"] = [self.similar.fingerprint(), self.middle]
         if self.states_only:
             key["states_only"] = True
+            if self.state_layer is not None:
+                key["state_layer"] = self.state_layer
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
     @torch.no_grad()
@@ -425,22 +430,45 @@ class LabelScorer(_Prompt):
             out.append(self._score_pack(pack))
         return torch.cat(out) if out else torch.empty((0, len(self.forms)), device=self.device)
 
-    def _forward(self, keep: bool, **kwargs) -> tuple[Any, torch.Tensor | None]:
-        """The model's output and, with ``keep``, the input of its LM head in that same pass: the last
-        layer's normed hidden states of the rows the logits are computed for (``logits_to_keep``). A hook
-        records it, so there is no second pass and no hidden states of other layers or rows."""
+    def _forward(
+        self, keep: bool, rows: torch.Tensor | None = None, **kwargs
+    ) -> tuple[Any, torch.Tensor | None]:
+        """The model's output and, with ``keep``, the states of that same pass: the input of its LM head
+        (the last layer's normed hidden states of the rows the logits are computed for, ``logits_to_keep``),
+        or with ``state_layer`` that layer's output at the positions ``rows`` (None: every position), so
+        that both come in the same rows. A hook records them, so there is no second pass."""
         if not keep:
             return self.model(**kwargs), None
-        head = self.model.get_output_embeddings()
-        if head is None:
-            raise ValueError("--probe needs a teacher with an LM head to read its hidden states")
         seen: list[torch.Tensor] = []
-        hook = head.register_forward_pre_hook(lambda _, args: seen.append(args[0]))
+        if self.state_layer is None:
+            head = self.model.get_output_embeddings()
+            if head is None:
+                raise ValueError("--probe needs a teacher with an LM head to read its hidden states")
+            hook = head.register_forward_pre_hook(lambda _, args: seen.append(args[0]))
+        else:
+            layer = self._layers()[self.state_layer]
+            hook = layer.register_forward_hook(
+                lambda _, args, out: seen.append(out[0] if isinstance(out, tuple) else out)
+            )
         try:
             out = self.model(**kwargs)
         finally:
             hook.remove()
-        return out, seen[-1]
+        state = seen[-1]
+        if self.state_layer is not None and rows is not None:
+            state = state[:, rows]
+        return out, state
+
+    def _layers(self) -> torch.nn.ModuleList:
+        """The model's decoder layers: its decoder's ``layers``, or else its longest list of modules."""
+        decoder = self.model.get_decoder() if hasattr(self.model, "get_decoder") else None
+        layers = getattr(decoder, "layers", None)
+        if isinstance(layers, torch.nn.ModuleList):
+            return layers
+        lists = [m for m in self.model.modules() if isinstance(m, torch.nn.ModuleList)]
+        if not lists:
+            raise ValueError("--probe-layer needs a model with a list of layers")
+        return max(lists, key=len)
 
     @torch.no_grad()
     def _encode_prefix(self, chunk: int = 1024) -> None:
@@ -608,6 +636,7 @@ class LabelScorer(_Prompt):
         try:
             res, head = self._forward(
                 self.keep_states,
+                torch.tensor(keep, device=dev),
                 input_ids=tokens[None],
                 attention_mask=self._additive(allow)[None, None],
                 position_ids=positions[None],
@@ -1323,6 +1352,7 @@ def quick_key(
     similar_sets: int = 1,
     bucket: int = 0,
     states_only: bool = False,
+    state_layer: int | None = None,
 ) -> str:
     """What decides a local teacher's cache fingerprint, from the tokenizer alone (no model weights): the
     rendered prompt and continuations, and how the model would be loaded. `label` maps it to the full
@@ -1352,6 +1382,8 @@ def quick_key(
         key["reason"] = ["reason-v1", reason_tokens]
     if states_only:
         key["states_only"] = True
+        if state_layer is not None:
+            key["state_layer"] = state_layer
     return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
 
@@ -1365,12 +1397,14 @@ class ScoreCache:
     the states ``x`` (float16), rewritten every STATES_SAVE_EVERY texts and when filling ends; a text counts
     as cached only with both."""
 
-    def __init__(self, path: Path, states: bool = False):
+    def __init__(self, path: Path, states: bool = False, layer: int | None = None):
         self.path = path
         self.scores: dict[str, list[float]] = {}
         self.reasoning: dict[str, str] = {}
         self.states: dict[str, np.ndarray] | None = None
-        self.states_path = path.with_name(path.stem + ".states.npz")
+        # the states of another layer than the LM head's input (label --probe-layer) go to a file of their own
+        name = ".states.npz" if layer is None else f".states-layer{layer}.npz"
+        self.states_path = path.with_name(path.stem + name)
         if states:
             self.states = {}
             if self.states_path.exists():

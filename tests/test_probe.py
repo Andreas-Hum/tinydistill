@@ -97,6 +97,36 @@ def test_batched_states_only(teacher, task, request):
     check_states_only(scorer, TEXTS)
 
 
+@torch.no_grad()
+def check_layer_states(scorer: LabelScorer, texts: list[str], layer: int) -> None:
+    """state_layer: the layer's output at each text's last token, as a plain forward pass gives it; in
+    states-only mode the layer is in the fingerprint."""
+    scorer.keep_states, scorer.states_only = True, True
+    last = scorer.fingerprint()
+    scorer.state_layer = layer
+    assert scorer.fingerprint() != last
+    scorer.form_scores_many(texts)
+    for t in texts:
+        ids = torch.tensor([scorer.prefix_ids + scorer.text_ids(t)])
+        want = scorer.model(input_ids=ids, output_hidden_states=True).hidden_states[layer + 1][0, -1]
+        assert scorer.states[t].tolist() == pytest.approx(want.tolist(), abs=1e-4)
+
+
+@pytest.mark.parametrize("max_tokens", [12, 10_000])
+def test_packed_layer_states(lm, task, max_tokens):  # noqa: F811
+    check_layer_states(LabelScorer(*lm, task, max_tokens=max_tokens), TEXTS, 0)
+
+
+@pytest.mark.parametrize("teacher", [unpackable("hybrid"), unpackable("sliding")])
+def test_batched_layer_states(teacher, task, request):
+    model, tok = request.getfixturevalue(teacher)
+    shots = type(task)(**{**task.__dict__, "prompt": SHOTS})
+    scorer = LabelScorer(model, tok, shots, examples=POOL, max_tokens=12)
+    scorer._encode_prefix()
+    assert not scorer._packable
+    check_layer_states(scorer, TEXTS, 0)
+
+
 def test_states_only_has_its_own_quick_key(task):
     assert quick_key(TINY_LM, task, "cpu", False) != quick_key(TINY_LM, task, "cpu", False, states_only=True)
 
@@ -194,7 +224,13 @@ def test_the_dev_report_holds_out_gold_texts(tmp_path):
     states = {t: (rng.normal(size=8) + 4 * y).astype(np.float16) for t, y in gold}
     always_0 = {t: [0.0, -2.0] for t, _ in gold}  # the in-context teacher says 0 every time
     a = argparse.Namespace(
-        probe_only=False, probe_l2=1e-3, probe_dev=0.25, gold_per_class=10, gold_file=None, seed=0
+        probe_only=False,
+        probe_layer=None,
+        probe_l2=1e-3,
+        probe_dev=0.25,
+        gold_per_class=10,
+        gold_file=None,
+        seed=0,
     )
     task = type("T", (), {"multi_label": False, "labels": ["a", "b"]})()
     scores, entry = _probe(a, task, [FakeCache(always_0, states)], gold, [t for t, _ in gold], tmp_path)
@@ -303,6 +339,19 @@ def test_probe_only(tmp_path, data):
     main(["label", *fresh, "--out", str(tmp_path / "plain")])
     for split in ("train", "test"):
         assert read(run / f"{split}.jsonl") == read(tmp_path / "plain" / f"{split}.jsonl")
+
+
+def test_probe_layer_round_trip(tmp_path, data):
+    """--probe-layer: the states of that layer go to a file of their own, and eval rebuilds the teacher."""
+    run = tmp_path / "layer"
+    main(["label", *data, "--out", str(run), "--probe-only", "--probe-layer", "0", "--gold-per-class", "3"])
+    meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
+    assert meta["probe"]["layer"] == 0
+    assert list((tmp_path / "cache").glob("*.states-layer0.npz"))
+    test = read(run / "test.jsonl")
+    teacher = _run_teacher(run, "cpu")
+    for r, g in zip(test, teacher.score_many([r["text"] for r in test]), strict=True):
+        assert g == pytest.approx(r["scores"], abs=1e-4)
 
 
 def test_probe_only_labels_as_the_probe_of_a_full_run(tmp_path, data, capsys):

@@ -239,7 +239,9 @@ def markdown_table(results: dict) -> str:
                 if probe.get("only")
                 else "The teacher's probabilities are averaged with those of"
             )
-            + f" a linear probe on its hidden states, fit on {probe['n_gold']} gold training texts"
+            + " a linear probe on its hidden states"
+            + (f" (layer {probe['layer']})" if probe.get("layer") is not None else "")
+            + f", fit on {probe['n_gold']} gold training texts"
             + (
                 f"; fit on {dev['n_fit']} of them, teacher accuracy on the other {dev['n_dev']} is "
                 + (
