@@ -1,78 +1,92 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (2026-11-08)
+
+Highlights:
+
+- Labelling in minutes: `label --probe-only` now computes only the teacher's hidden states, which is all the
+  probe reads, and scores no label. On CLINC150 the deployed student reached 0.851 after 37 minutes of
+  labelling, against 0.859 after 7.2 hours when the labels are scored too; with a zero-shot prompt, Banking77
+  took 74 seconds.
+- The probe on the teacher's hidden states is on by default whenever a run has gold labels.
+- A live page that follows a run (`--live`): progress, the teacher's labels as they come in, the student's loss
+  and agreement with the teacher as it trains, and the results. On a terminal, a progress bar.
+- `--dry-run` says how long labelling and training will take with a local teacher.
+- New Hub and live demo models: Danish MASSIVE 0.815 (from 0.759), CLINC150 0.859 (from 0.849).
 
 Upgrade notes:
 
-- The probe on the teacher's hidden states (`--probe`) is now on by default whenever a run has gold labels
-  (`--gold-per-class`, `--gold-file`) and a local teacher; it lifted the deployed student on every task and
-  teacher measured. `--no-probe` turns it off. It stays off with `--vllm-url`, `--api-url`, `--chunk-tokens`
-  and `--reason`, and when there is no gold-labelled training text to fit on. Texts already in a cache filled
-  without it are scored once more, to record their states.
+- The probe (`--probe`) is now on by default whenever a run has gold labels (`--gold-per-class`,
+  `--gold-file`) and a local teacher; it lifted the deployed student on every task and teacher measured.
+  `--no-probe` turns it off. It stays off with `--vllm-url`, `--api-url`, `--chunk-tokens` and `--reason`, and
+  when there is no gold-labelled training text to fit on. Texts already in a cache filled without it are scored
+  once more, to record their states.
+- `--probe-only` refuses `--few-shot-sets`.
+- Runs write `status.json` every 2 seconds (it was every 10), and also `status-log.jsonl`, `history-live.json`,
+  `labels-live.json` and `command.json` for the live page.
 
-- RESULTS.md: which layer the probe reads (`examples/teachers-2026/probe-layers.sh`). A layer about a quarter of
-  the way back was 1.5 to 1.6 points better on Banking77 and Danish MASSIVE and slightly worse on CLINC150;
-  layers nearer the middle were far worse. The default stays the LM head's input.
-- RESULTS.md: the probe alone as the teacher (`examples/teachers-2026/probe-only.sh`) on Banking77, CLINC150
-  and Danish MASSIVE, with a zero-shot prompt and with 16 similar examples. With the similar examples the
-  deployed students are 0.3 to 1.3 points below the runs that also score the labels, after a third to a
-  twentieth of their labelling time (CLINC150: 0.851 after 37 minutes, against 0.859 after 7.2 hours); with the
-  zero-shot prompt labelling takes minutes (Banking77: 74 seconds, 0.824).
-- `label --probe-only` no longer scores the labels: it computes only each text's hidden state, which is all
-  the probe reads, so labelling is much faster (on Banking77 with Qwen2.5-7B and a zero-shot prompt, 74 s
-  against 35 minutes for `--probe` with 16 similar examples). Its caches have a fingerprint of their own, and
-  `--probe-dev` reports the probe's accuracy alone. `--probe-only` now also refuses `--few-shot-sets`.
+### Teachers and labelling
+
+- `label --probe-only` computes only each text's hidden state and scores no label. Its caches have a
+  fingerprint of their own, and `--probe-dev` reports the probe's accuracy alone.
 - `label --probe-layer L`: the probe reads the output of the teacher's layer L instead of the input of its LM
-  head; that layer's states are cached in a file of their own. `examples/teachers-2026/probe-layers.sh` sweeps
-  the layers with `--probe-only`.
-- `status RUN --live` and `run --live`: a page on `http://127.0.0.1` that follows a run every two seconds: the
-  stage, time left and speed over time; the teacher's labels on the training texts so far (a teacher collapsing
-  onto a few labels shows within minutes); the stages done; the training loss per epoch; the results. Runs now
-  write `status.json` every 2 seconds (the terminal line stays at every 10) with a trace of the stage's
-  progress, and also `status-log.jsonl` (the stages done), `history-live.json` (the loss per epoch so far) and
-  `labels-live.json` (the teacher's top labels so far).
-- `label --dry-run` (and `run --dry-run`) with a local or vLLM teacher: how long labelling the texts not in the
-  cache yet would take, timed on a sample of them after a few to warm up; it caches and writes nothing. Before,
-  `--dry-run` was for API teachers only.
-- `run` shows a progress bar on a terminal (`stage  done/total [=====>....]  pct  rate  ETA`, during training
-  also the last epoch's loss); written to a file or a pipe, it is a line every 10 seconds as before.
-  `TINYDISTILL_PROGRESS=bar` or `lines` chooses.
-- `train` reports, every few batches, the loss, the student's agreement with its target's top label and the
-  learning rate, and per epoch the held-out agreement (with `--val-share`); the live page charts them as the
-  student trains. A live page whose server stopped says so and greys out what it shows.
-- `tinydistill status DIR` for a directory of runs prints a table of them all: stage, progress, running,
-  finished or stopped, last update and the deployed student's accuracy. `--live` also works on `label` and
-  `train`.
-- `tinydistill cache DIR` lists the score caches in DIR, largest first, with their texts, size, last write,
-  teacher and the runs that use them; `--prune` deletes the ones no run uses (not those written in the last
+  head; that layer's states are cached in a file of their own.
+- `label --dry-run` and `run --dry-run` with a local or vLLM teacher: how long labelling the texts not in the
+  cache yet would take, timed on a sample of them after a few to warm up, and with `run` also how long training
+  would take, from a few timed batches of the student. Nothing is cached or written. Before, `--dry-run` was
+  for API teachers only.
+- `tinydistill cache DIR` lists the score caches, largest first, with their texts, size, last write, teacher
+  and the runs that use them; `--prune` deletes the ones no run uses (not those written in the last
   `--keep-recent` hours, 24 by default).
-- The live page shows the command that started the run and links to the whole `results.md`.
-- `run --dry-run` also estimates the training time, from a few timed batches of the student.
-- `status --watch` shows the status, or the table of runs, again every 2 seconds.
-- The live page shows the current stage's progress in the tab's title, and can notify you (with the browser's
-  permission) when the run's process ends.
+
+### Following a run
+
+- `--live` (on `run`, `label`, `train` and `status RUN`) serves a page on `http://127.0.0.1` that follows the
+  run every 2 seconds: the stage, time left and speed over time; the teacher's labels on the training texts so
+  far, so a teacher collapsing onto a few labels shows within minutes; every few batches of training, the
+  loss, the student's agreement with its target's top label and the learning rate, with held-out loss and
+  agreement per epoch; the stages done; the results, with a link to `results.md`; and the command that started
+  the run. The tab's title shows the progress, the page can notify you when the run's process ends, and a page
+  whose server stopped says so.
+- A progress bar on a terminal (`stage  done/total [=====>....]  pct  rate  ETA`, during training also the last
+  epoch's loss); written to a file or a pipe, a line every 10 seconds as before. `TINYDISTILL_PROGRESS=bar` or
+  `lines` chooses.
+- `tinydistill status DIR` for a directory of runs prints a table of them all: stage, progress, running,
+  finished or stopped, last update and the deployed student's accuracy. `status --watch` shows it again every
+  2 seconds.
 - `tinydistill env` shows each GPU's free and total memory.
+
+### Students
+
 - `train` notes when the training texts do not look English to the student's tokenizer (under 8% common English
   words and over 1.5 of its tokens per word) and suggests a multilingual student.
-- Docs: the training guide's Danish numbers include the newer teachers; "When to use it" has a table of which
-  settings to use in which situation, with what they gave on the benchmarks; "Improving a run" describes the
-  progress bar and the live page.
-- Docs: "A few gold labels" describes adding a label later: a new label in the task file, a few gold examples of
-  it, and labelling again with `--probe-only`, in minutes.
-- RESULTS.md: the trimmed multilingual Danish student on the labels of the Qwen3.5-9B and Gemma 4 12B ensemble
-  (`examples/massive-da/ensemble-multilingual.sh`, from the score cache): 0.811, 0.810 deployed, against 0.761
-  on the 8-shot 7B teacher's labels and above the ensemble itself (0.806); on the labels of Gemma 4 12B with
-  the probe, 0.815, 0.815 deployed, above that teacher (0.808). The latter is the new Danish Hub and live demo
-  model, and "How it compares" uses it.
-- RESULTS.md: the probe on Gemma 4 12B with 16 similar examples on CLINC150
-  (`examples/teachers-2026/probe-gemma.sh`): the teacher goes from 0.914 to 0.941 and its student from 0.850 to
-  0.860, 0.859 deployed (from 0.849). It is the new CLINC150 Hub and live demo model. On Danish MASSIVE it lifts
-  Gemma 4 12B from 0.798 to 0.808 and the English student from 0.760 to 0.768.
-- RESULTS.md: Qwen3.5-9B, Gemma 4 12B and their ensemble with 16 similar examples on financial tweets; the
-  ensemble's student (0.827, 0.829 deployed) ties the zero-shot three-family ensemble's (0.828, 0.829 deployed).
-- `examples/teachers-2026/similar.sh` also runs financial tweets and takes task names to run only those;
-  `examples/teachers-2026/probe-gemma.sh` runs the probe on Gemma 4 12B with similar examples (CLINC150, Danish
-  MASSIVE).
+
+### Results
+
+- The probe alone as the teacher on Banking77, CLINC150 and Danish MASSIVE
+  (`examples/teachers-2026/probe-only.sh`): with 16 similar examples the deployed students are 0.3 to 1.3
+  points below the runs that also score the labels, after a third to a twentieth of their labelling time.
+- Which layer the probe reads (`examples/teachers-2026/probe-layers.sh`): a layer about a quarter of the way
+  back was 1.5 to 1.6 points better on Banking77 and Danish MASSIVE and slightly worse on CLINC150; layers
+  nearer the middle were far worse. The default stays the LM head's input.
+- Danish MASSIVE: the trimmed multilingual student on the labels of Gemma 4 12B with the probe reaches 0.815
+  deployed, above that teacher (0.808); on the Qwen3.5-9B and Gemma 4 12B ensemble's labels, 0.810. It is the
+  new Danish Hub and live demo model, and "How it compares" uses it.
+- CLINC150: the probe on Gemma 4 12B with 16 similar examples lifts the teacher from 0.914 to 0.941 and the
+  deployed student from 0.849 to 0.859. It is the new CLINC150 Hub and live demo model.
+- Financial tweets: Qwen3.5-9B, Gemma 4 12B and their ensemble with 16 similar examples; the ensemble's student
+  (0.829 deployed) ties the zero-shot three-family ensemble's.
+- New example scripts: `examples/teachers-2026/probe-only.sh`, `probe-layers.sh`, `probe-gemma.sh`,
+  `examples/massive-da/ensemble-multilingual.sh`; `similar.sh` also runs financial tweets and takes task names.
+
+### Docs
+
+- "When to use it" has a table of which settings to use in which situation, with what they gave on the
+  benchmarks.
+- "Improving a run" describes the progress bar, `status` and the live page; "Choosing the teacher" fast
+  labelling with `--probe-only`, the dry-run estimates and the cache command; "A few gold labels" adding a
+  label later.
+- Fixed: the deployed CLINC150 student was quoted as 0.860 in places; it is 0.859.
 
 ## 0.5.1 (2026-11-07)
 
