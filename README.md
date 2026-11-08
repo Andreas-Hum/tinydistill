@@ -175,6 +175,10 @@ gold labels. Latency is per text, one at a time:
   states: on CLINC150 the deployed student reached 0.851 after 37 minutes of labelling instead of 0.859 after
   7.2 hours, and on Banking77 0.869 after 11.5 minutes instead of 0.872 after 35
   ([RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#the-probe-alone-minutes-of-labelling-instead-of-hours)).
+- **A new task.** On HWU64 (64 intents), which none of the settings were tuned on, the settings the docs
+  recommend gave a deployed student of 0.888 after 16 minutes of labelling with `--probe-only`, against 0.639
+  for the same student on its 512 gold labels alone
+  ([RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#hwu64-a-task-the-settings-were-not-tuned-on)).
 - **Compared with SetFit**, a strong few-shot method that needs no LLM, on the same 616 gold labels: 0.813
   against 0.797 with the same encoder. Distillation needs a GPU for the teacher; SetFit trains in a minute
   ([comparison](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#compared-with-setfit)).

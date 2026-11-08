@@ -7,7 +7,9 @@
   whole teacher, so the teacher scores no label. The states are cached with the scores, in the files the
   command line uses.
 - `run --dry-run` says "1 seed", not "1 seeds".
-- `examples/hwu64/`: HWU64 (64 intents), a task none of the settings were tuned on.
+- RESULTS.md: HWU64 (64 intents), a task none of the settings were tuned on (`examples/hwu64/run.sh`). With
+  the recommended settings and `--probe-only`, the deployed student reaches 0.888 after 16 minutes of
+  labelling, above its teacher (0.879), against 0.639 for the student on the 512 gold labels alone.
 
 ## 0.6.0 (2026-11-08)
 

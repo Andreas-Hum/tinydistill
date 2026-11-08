@@ -568,6 +568,30 @@ accurate on windows (0.875) than on whole reviews (0.934), because one window of
 whole review; the truncated student learns from the whole-review teacher yet still sees only the first 128
 tokens.
 
+## HWU64: a task the settings were not tuned on
+
+Every setting on this page was chosen on the tasks above. HWU64 (64 intents; 8,954 training and 1,076 test
+texts) is new to them: [`examples/hwu64/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/hwu64/run.sh)
+takes the settings of [Which settings to use](https://andreas-hum.github.io/tinydistill/when-to-use/#which-settings-to-use)
+for about 8 gold labels per class, with Gemma 4 12B as the teacher, and changes nothing else. Its task file
+gives the intents' readable names and nothing more. With the probe alone (`--probe-only`), once with a zero-shot
+prompt and once with each text's 16 most similar of the 512 gold examples:
+
+<!-- results: hwu64/summary.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| hwu64-gemma4-12b-probe-only-zeroshot | zero-shot, 4-bit, probe only `google/gemma-4-12B-it` | 0.842 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.865 ± 0.001 | 0.865 ± 0.004 | 0.880 ± 0.003 | ONNX int8 | 1.1 | 30.9 | 23 |
+| hwu64-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.879 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.891 ± 0.004 | 0.889 ± 0.004 | 0.897 ± 0.004 | ONNX int8 | 1.5 | 30.3 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+The student is more accurate than its teacher in both: 0.865 against 0.842 with the zero-shot prompt, after
+5.5 minutes of labelling, and 0.891 against 0.879 with the similar examples, after 16 minutes (0.888 deployed
+in int8). The same student trained on the 512 gold labels alone reaches 0.639
+([`hwu64-gemma4-12b-probe-only-zeroshot.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/hwu64/hwu64-gemma4-12b-probe-only-zeroshot.json),
+`--gold-only`).
+
 ## Newer teachers: Qwen3.5 and Gemma 4
 
 [`examples/teachers-2026/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/run.sh)
