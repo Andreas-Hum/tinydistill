@@ -65,6 +65,8 @@ def test_an_empty_directory(tmp_path):
         "stages": [],
         "history": {},
         "labels": None,
+        "command": None,
+        "results_md": False,
         "results": None,
     }
 
@@ -79,6 +81,11 @@ def test_the_server(tmp_path):
             assert json.loads(r.read())["status"] is None
         with pytest.raises(urllib.error.HTTPError):
             urllib.request.urlopen(url + "/other")
+        with pytest.raises(urllib.error.HTTPError):  # no results yet
+            urllib.request.urlopen(url + "/results.md")
+        (tmp_path / "results.md").write_text("# Results\n", encoding="utf-8")
+        with urllib.request.urlopen(url + "/results.md") as r:
+            assert r.read() == b"# Results\n"
         second = serve(tmp_path, server.server_address[1], open_browser=False)  # in use: the next port
         assert second.server_address[1] != server.server_address[1]
         second.shutdown()
@@ -124,6 +131,7 @@ def test_a_run_writes_what_the_page_reads(tmp_path, data):  # noqa: F811
     assert all(0 <= p["agreement"] <= 1 for p in steps)
     assert [x["stage"].split(" (")[0] for x in s["stages"]][:3] == ["label train", "label test", "train"]
     assert s["results"] and s["status"]["finished"]
+    assert s["command"]["argv"][:2] == ["tinydistill", "run"] and s["results_md"]
     labels = s["labels"]  # the teacher's top labels on the 24 training texts
     assert labels["texts"] == 24 and sum(labels["counts"]) == 24 and labels["labels"] == ["pos", "neg"]
 
@@ -170,3 +178,60 @@ def test_the_status_stays_current_while_a_batch_takes_long(tmp_path):
     assert status.stat().st_mtime_ns != first  # rewritten with no progress
     assert len(json.loads(status.read_text())["trace"]) == 1  # but no speed point without progress
     bar.finish()
+
+
+def test_status_of_a_directory_of_runs(tmp_path, capsys):
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    for name, finished in (("a", True), ("group/b", False)):
+        (tmp_path / name).mkdir(parents=True)
+        write(
+            tmp_path / name / "status.json",
+            {
+                "stage": "train",
+                "done": 3,
+                "total": 4,
+                "unit": "batches",
+                "rate_per_s": 1.0,
+                "eta_s": 1,
+                "finished": finished,
+                "updated": now,
+                "pid": os.getpid(),
+            },
+        )
+    write(tmp_path / "a" / "results.json", {"models": [{"name": "student, ONNX int8", "accuracy": 0.8771}]})
+    main(["status", str(tmp_path)])
+    out = capsys.readouterr().out
+    rows = {line.split()[0]: line for line in out.splitlines()[1:]}
+    assert "finished" in rows["a"] and "0.877" in rows["a"] and "3/4 batches" in rows["a"]
+    assert "running" in rows["group/b"]
+    with pytest.raises(SystemExit, match="follows one run"):
+        main(["status", str(tmp_path), "--live"])
+    (tmp_path / "empty").mkdir()
+    main(["status", str(tmp_path / "empty")])
+    assert "no runs below" in capsys.readouterr().out
+
+
+def test_label_serves_the_live_page_once(tmp_path, data, monkeypatch):  # noqa: F811
+    served = []
+    monkeypatch.setattr(
+        "tinydistill.live.serve", lambda run, port, browser: served.append((run, port, browser))
+    )
+    run = tmp_path / "run"
+    main(
+        [
+            "run",
+            *data,
+            "--out",
+            str(run),
+            "--student",
+            TINY_ENCODER,
+            "--epochs",
+            "1",
+            "--live",
+            "--no-browser",
+        ]
+        + ["--batch-size", "4", "--reps", "2", "--teacher-reps", "2"]
+    )
+    assert served == [(run, 8765, False)]  # run, then its label and train: one page
+    main(["label", *data, "--out", str(tmp_path / "other"), "--live", "--live-port", "9000"])
+    assert served[-1] == (tmp_path / "other", 9000, True)

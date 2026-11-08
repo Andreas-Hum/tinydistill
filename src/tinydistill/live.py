@@ -56,6 +56,8 @@ def state(run: Path) -> dict:
         "stages": stages,
         "history": _json(run / "history-live.json") or {},
         "labels": _json(run / "labels-live.json"),
+        "command": _json(run / "command.json"),
+        "results_md": (run / "results.md").exists() and results is not None,
         "results": results,
     }
 
@@ -74,6 +76,8 @@ def serve(run: Path, port: int = 8765, open_browser: bool = True) -> ThreadingHT
         def do_GET(self) -> None:  # noqa: N802 (the http.server name)
             if self.path.split("?")[0] == "/state":
                 body, kind = json.dumps(state(run)).encode(), "application/json"
+            elif self.path == "/results.md" and (run / "results.md").exists():
+                body, kind = (run / "results.md").read_bytes(), "text/plain; charset=utf-8"
             elif self.path in ("/", "/index.html"):
                 body, kind = page, "text/html; charset=utf-8"
             else:

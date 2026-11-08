@@ -29,6 +29,13 @@
 - `train` reports, every few batches, the loss, the student's agreement with its target's top label and the
   learning rate, and per epoch the held-out agreement (with `--val-share`); the live page charts them as the
   student trains. A live page whose server stopped says so and greys out what it shows.
+- `tinydistill status DIR` for a directory of runs prints a table of them all: stage, progress, running,
+  finished or stopped, last update and the deployed student's accuracy. `--live` also works on `label` and
+  `train`.
+- `tinydistill cache DIR` lists the score caches in DIR, largest first, with their texts, size, last write,
+  teacher and the runs that use them; `--prune` deletes the ones no run uses (not those written in the last
+  `--keep-recent` hours, 24 by default).
+- The live page shows the command that started the run and links to the whole `results.md`.
 - `train` notes when the training texts do not look English to the student's tokenizer (under 8% common English
   words and over 1.5 of its tokens per word) and suggests a multilingual student.
 - Docs: the training guide's Danish numbers include the newer teachers; "When to use it" has a table of which

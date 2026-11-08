@@ -124,7 +124,8 @@ Banking77 splits are sorted by intent, so a limited run only sees a few intents.
 | `tinydistill web RUN/onnx --out site` | a static page that runs the model in the browser |
 | `tinydistill push RUN/onnx --repo user/name` | uploads the model to the Hugging Face Hub with a model card |
 | `tinydistill synth TASK.yaml --per-label N --out texts.jsonl` | has the teacher write unlabelled example texts |
-| `tinydistill status RUN` | how far a running step is, and whether it is still running (`--live`: a page in the browser that follows it) |
+| `tinydistill status RUN` | how far a running step is, and whether it is still running (`--live`: a page in the browser that follows it; a directory of runs: a table of them all) |
+| `tinydistill cache runs/cache` | what the score caches hold and which runs use them (`--prune`: delete the unused ones) |
 | `tinydistill tune TASK.yaml --data D --teacher a,b --few-shot 0,8` | compares teacher setups on a dev split |
 | `tinydistill analyse RUN` | an error-analysis page: weakest labels, common confusions |
 | `tinydistill suggest RUN --n 200 --out to_label.jsonl` | the texts most worth labelling by hand next |

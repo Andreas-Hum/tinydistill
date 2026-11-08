@@ -44,6 +44,12 @@ main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
 h1 { font-size: 20px; margin: 0 0 4px; }
 h2 { font-size: 15px; margin: 0 0 12px; color: var(--text-secondary); font-weight: 600; }
 .run { color: var(--text-muted); font-size: 13px; word-break: break-all; margin-bottom: 20px; }
+.cmd {
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text-secondary);
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+  margin: -8px 0 20px; white-space: pre-wrap; word-break: break-word;
+}
+a { color: var(--series-1); }
 .card {
   background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
   padding: 16px; margin-bottom: 16px;
@@ -95,6 +101,7 @@ body.stale section { opacity: .45; filter: grayscale(1); }
 <main>
   <h1>tinydistill live</h1>
   <div class="run" id="run">connecting...</div>
+  <div class="cmd" id="cmd" hidden></div>
   <div class="stale-banner" role="alert" id="stale">
     <b>Not updating.</b> The page's server stopped, so what follows is how the run looked
     <span id="staleage"></span> ago. The server ends with the run that started it (<code>run --live</code>) or when
@@ -140,6 +147,8 @@ body.stale section { opacity: .45; filter: grayscale(1); }
     <h2>Results</h2>
     <div class="bars" id="accbars"></div>
     <div class="scroll" id="results"><div class="empty">written when the run is evaluated</div></div>
+    <div class="note" id="resultslink" hidden><a href="/results.md" target="_blank">The full results (results.md)</a>:
+      every model, per-label scores, speed and the cascade.</div>
   </section>
 </main>
 <script>
@@ -385,6 +394,11 @@ async function poll() {
     document.body.classList.remove("stale");
     $("run").textContent = st.run;
     document.title = (st.status ? st.status.stage + " - " : "") + "tinydistill live";
+    if (st.command) {
+      $("cmd").hidden = false;
+      $("cmd").textContent = "$ " + st.command.argv.map(x => /[\s"']/.test(x) ? JSON.stringify(x) : x).join(" ");
+    }
+    $("resultslink").hidden = !st.results_md;
     showStatus(st.status); showSpeed(st.status); showLabels(st.labels); showStages(st.stages);
     showHistory(st.history); showResults(st.results);
   } catch (e) {

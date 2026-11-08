@@ -245,6 +245,14 @@ whose texts are all cached does not load the teacher at all.
 With very many labels, see [Many labels](many-labels.md). For documents longer than the student reads,
 `--chunk-tokens` has the teacher score windows of each one; see [Long texts](training.md#long-texts).
 
+### What the cache holds: tinydistill cache
+
+Caches grow: a run with `--probe` also keeps a state per text, and every setup (teacher, prompt, examples,
+shortlist) has a cache of its own. `tinydistill cache runs/cache` lists them, largest first: the texts, the size,
+when each was last written, and which teacher and runs use it (from the `meta.json` of the runs below `--runs`,
+by default the cache directory's parent). `--prune` deletes the caches no run uses, except those written in the
+last 24 hours (`--keep-recent H`), since a run still labelling writes its `meta.json` only when it is done.
+
 ### How long will it take: --dry-run
 
 With a local or vLLM teacher, `--dry-run` loads it, scores 8 texts to warm up (the prompt's cache, the GPU's

@@ -112,6 +112,16 @@ def _run_members(run: Path, meta: dict, task: Task, name: str, device: str, exam
     return members
 
 
+def _live(a: argparse.Namespace, run: Path) -> None:
+    """--live: serve the run's live page, once per process (run calls label and train with the same
+    options)."""
+    if getattr(a, "live", False) and not getattr(a, "_live_served", False):
+        from .live import serve
+
+        serve(run, a.live_port, not a.no_browser)
+        a._live_served = True
+
+
 def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     """``only``: label just these training texts (run --budget); the test set is labelled in full."""
     import gc
@@ -172,6 +182,8 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
         )
     run = Path(a.out)
     run.mkdir(parents=True, exist_ok=True)
+    if not a.dry_run:
+        _live(a, run)
     if not a.dry_run:  # a dry run leaves the run as it was
         (run / "labels-live.json").unlink(missing_ok=True)
     prompt_files = [f"prompt-{i}.yaml" for i in range(1, len(variants) + 1)]
@@ -694,6 +706,7 @@ def cmd_train(a: argparse.Namespace) -> None:
     from .teacher import pick_device
 
     run = Path(a.run)
+    _live(a, run)
     task = load_task(run / "task.yaml")
     rows = _read_jsonl(run / "train.jsonl")
     if not rows:
@@ -1694,10 +1707,18 @@ def cmd_improve(a: argparse.Namespace) -> None:
 
 
 def cmd_status(a: argparse.Namespace) -> None:
-    from .progress import describe_status
+    from .progress import describe_status, overview
 
+    run = Path(a.run)
+    if run.is_dir() and not (run / "status.json").exists():  # a directory of runs: one row each
+        if a.live:
+            raise SystemExit(
+                f"--live follows one run: {run} has no status.json (see `tinydistill status {run}`)"
+            )
+        print(overview(run))
+        return
     if not a.live:
-        print(describe_status(Path(a.run) / "status.json"))
+        print(describe_status(run / "status.json"))
         return
     import threading
 
@@ -1709,6 +1730,81 @@ def cmd_status(a: argparse.Namespace) -> None:
         threading.Event().wait()
     except KeyboardInterrupt:
         pass
+
+
+def cmd_cache(a: argparse.Namespace) -> None:
+    """What a score cache directory holds: per teacher setup (fingerprint), its texts, size (with the probe's
+    states), when it was last written, and the runs below --runs whose meta.json uses it. --prune deletes the
+    ones no run uses, except those written in the last --keep-recent hours (a run still labelling writes its
+    meta.json only when it is done)."""
+    from datetime import datetime
+
+    cache = Path(a.dir)
+    if not cache.is_dir():
+        raise SystemExit(f"{cache} is not a directory")
+    runs_dir = Path(a.runs) if a.runs else cache.parent
+    users: dict[str, list[tuple[str, str]]] = {}  # fingerprint -> (run, teacher)
+    for meta_file in runs_dir.rglob("meta.json"):
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        fps = meta.get("fingerprints") or [meta.get("fingerprint")]
+        teachers = meta.get("teachers") or [meta.get("teacher", "")]
+        per = max(1, len(fps) // max(1, len(teachers)))  # each teacher's members: its prompts x example sets
+        run = str(meta_file.parent.relative_to(runs_dir))
+        for i, fp in enumerate(fps):
+            if fp:
+                users.setdefault(fp, []).append((run, teachers[min(i // per, len(teachers) - 1)] or ""))
+    groups: dict[str, list[Path]] = {}
+    for f in cache.glob("teacher-*"):
+        if f.name != "teacher-keys.json" and f.suffix != ".tmp":
+            groups.setdefault(f.name.removeprefix("teacher-").split(".")[0], []).append(f)
+    if not groups:
+        print(f"no score caches in {cache}")
+        return
+    now = time.time()
+    rows = []
+    for fp, files in groups.items():
+        size = sum(f.stat().st_size for f in files)
+        newest = max(f.stat().st_mtime for f in files)
+        jsonl = cache / f"teacher-{fp}.jsonl"
+        texts = sum(1 for _ in jsonl.open(encoding="utf-8")) if jsonl.exists() else 0
+        rows.append((size, fp, files, newest, texts, users.get(fp, [])))
+    rows.sort(key=lambda r: r[0], reverse=True)
+    mb = lambda n: f"{n / 1e6:,.0f} MB" if n >= 1e6 else f"{n / 1e3:,.0f} kB"  # noqa: E731
+    table = [["cache", "texts", "size", "last written", "teacher", "used by"]]
+    for size, fp, _, newest, texts, used in rows:
+        teacher = used[0][1].split("/")[-1] if used else ""
+        by = (used[0][0] + (f" and {len(used) - 1} more" if len(used) > 1 else "")) if used else "no run"
+        when = datetime.fromtimestamp(newest).strftime("%Y-%m-%d %H:%M")
+        table.append([fp, f"{texts:,}", mb(size), when, teacher, by])
+    widths = [max(len(r[i]) for r in table) for i in range(len(table[0]))]
+    print("\n".join("  ".join(c.ljust(w) for c, w in zip(r, widths, strict=True)).rstrip() for r in table))
+    unused = [r for r in rows if not r[5]]
+    recent = [r for r in unused if now - r[3] < a.keep_recent * 3600]
+    stale = [r for r in unused if r not in recent]
+    print(
+        f"\n{len(rows)} caches, {mb(sum(r[0] for r in rows))}; {len(unused)} used by no run below {runs_dir}"
+        + (f" ({len(recent)} of them written in the last {a.keep_recent:g} hours, kept)" if recent else "")
+    )
+    if not stale:
+        return
+    if not a.prune:
+        freed = mb(sum(r[0] for r in stale))
+        print(f"`tinydistill cache {cache} --prune` deletes the other {len(stale)}, {freed}")
+        return
+    for _, _fp, files, *_ in stale:
+        for f in files:
+            f.unlink()
+    keys_file = cache / "teacher-keys.json"
+    if keys_file.exists():  # quick keys of the deleted caches would point at nothing
+        gone = {r[1] for r in stale}
+        keys = {
+            q: fp for q, fp in json.loads(keys_file.read_text(encoding="utf-8")).items() if fp not in gone
+        }
+        keys_file.write_text(json.dumps(keys, indent=1), encoding="utf-8")
+    print(f"deleted {len(stale)} caches, {mb(sum(r[0] for r in stale))}")
 
 
 def cmd_env(a: argparse.Namespace) -> None:
@@ -1763,10 +1859,7 @@ def cmd_run(a: argparse.Namespace) -> None:
     if not a.dry_run:  # a new run: no stages done yet (a dry run leaves the run as it was)
         Path(a.out).mkdir(parents=True, exist_ok=True)
         (Path(a.out) / "status-log.jsonl").unlink(missing_ok=True)
-    if a.live:
-        from .live import serve
-
-        serve(Path(a.out), a.live_port, not a.no_browser)
+    _live(a, Path(a.out))
     if a.budget:
         _budget_rounds(a)
         if a.dry_run:
@@ -1835,6 +1928,21 @@ def _budget_rounds(a: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    live = argparse.ArgumentParser(add_help=False)
+    live.add_argument(
+        "--live",
+        action="store_true",
+        help="also serve a page on http://127.0.0.1 that shows the run as it goes (stage, time left, loss "
+        "per epoch, results) and open it in the browser",
+    )
+    live.add_argument(
+        "--live-port",
+        type=int,
+        default=8765,
+        metavar="P",
+        help="the live page's port (default 8765, or the next free one)",
+    )
+    live.add_argument("--no-browser", action="store_true", help="with --live: do not open the browser")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--device", default="auto", help="auto, cpu or cuda (teacher labelling and training)")
     common.add_argument("--threads", type=int, help="CPU threads for torch and onnxruntime")
@@ -2149,11 +2257,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser(
-        "label", parents=[label, gold, common], help="score every label with the teacher"
+        "label", parents=[label, gold, common, live], help="score every label with the teacher"
     ).set_defaults(fn=cmd_label)
-    sub.add_parser("train", parents=[run_dir, train, gold, common], help="distil the student").set_defaults(
-        fn=cmd_train
-    )
+    sub.add_parser(
+        "train", parents=[run_dir, train, gold, common, live], help="distil the student"
+    ).set_defaults(fn=cmd_train)
     sub.add_parser(
         "export", parents=[run_dir, export, common], help="export the student to ONNX"
     ).set_defaults(fn=cmd_export)
@@ -2333,26 +2441,30 @@ def build_parser() -> argparse.ArgumentParser:
         "members disagree most. Training is not changed",
     )
     ana.set_defaults(fn=cmd_analyse)
-    live = argparse.ArgumentParser(add_help=False)
-    live.add_argument(
-        "--live",
-        action="store_true",
-        help="also serve a page on http://127.0.0.1 that shows the run as it goes (stage, time left, loss "
-        "per epoch, results) and open it in the browser",
-    )
-    live.add_argument(
-        "--live-port",
-        type=int,
-        default=8765,
-        metavar="P",
-        help="the live page's port (default 8765, or the next free one)",
-    )
-    live.add_argument("--no-browser", action="store_true", help="with --live: do not open the browser")
     sub.add_parser(
         "status",
         parents=[run_dir, live],
-        help="how far a run is, and whether it is still running (--live: a page that follows it)",
+        help="how far a run is, and whether it is still running (--live: a page that follows it); for a "
+        "directory of runs, a table of them all",
     ).set_defaults(fn=cmd_status)
+    cch = sub.add_parser(
+        "cache", help="what a score cache directory holds, and which runs use it (--prune: delete the rest)"
+    )
+    cch.add_argument("dir", help="the score cache directory (a run's --cache-dir)")
+    cch.add_argument(
+        "--runs",
+        help="the directory of runs whose meta.json say which caches they use (default: DIR's parent)",
+    )
+    cch.add_argument("--prune", action="store_true", help="delete the caches no run uses")
+    cch.add_argument(
+        "--keep-recent",
+        type=float,
+        default=24,
+        metavar="H",
+        help="with --prune: keep caches written in the last H hours (default 24): a run still labelling "
+        "writes its meta.json only when it is done",
+    )
+    cch.set_defaults(fn=cmd_cache)
     cmp = sub.add_parser("compare", help="one markdown table comparing several runs (e.g. student sizes)")
     cmp.add_argument("runs", nargs="+", help="run directories or results.json files")
     cmp.set_defaults(fn=cmd_compare)
@@ -2381,6 +2493,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     a = build_parser().parse_args(argv)
+    run = getattr(a, "out", None) if a.fn in (cmd_run, cmd_label) else getattr(a, "run", None)
+    if a.fn in (cmd_run, cmd_label, cmd_train) and run and not getattr(a, "dry_run", False):
+        from datetime import UTC, datetime
+
+        Path(run).mkdir(parents=True, exist_ok=True)  # the command that started it, for the live page
+        started = datetime.now(UTC).isoformat(timespec="seconds")
+        args = sys.argv[1:] if argv is None else argv
+        (Path(run) / "command.json").write_text(
+            json.dumps({"argv": ["tinydistill", *args], "started": started}), encoding="utf-8"
+        )
     if getattr(a, "threads", None):
         import torch
 

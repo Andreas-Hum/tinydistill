@@ -203,6 +203,40 @@ class Progress:
         tmp.replace(status)  # atomic: `status` never reads a half-written file
 
 
+def overview(root: Path) -> str:
+    """`status DIR` for a directory of runs: one row per run below it (each directory with a status.json),
+    newest first: its stage, how far, whether it is running, finished or stopped, when it last wrote, and the
+    deployed student's test accuracy once eval wrote results.json."""
+    rows = []
+    now = datetime.now(UTC)
+    for path in root.rglob("status.json"):
+        try:
+            s = json.loads(path.read_text(encoding="utf-8"))
+            updated = datetime.fromisoformat(s["updated"])
+        except (OSError, ValueError, KeyError):
+            continue
+        state = "finished" if s.get("finished") else ("running" if _alive(s["pid"]) else "stopped")
+        done = f"{s['done']}/{s['total']} {s['unit']}" if s.get("total") else f"{s['done']} {s['unit']}"
+        accuracy = ""
+        try:
+            models = json.loads((path.parent / "results.json").read_text(encoding="utf-8"))["models"]
+            names = {m["name"]: m for m in models}
+            best = names.get("student, ONNX int8") or names.get("student, PyTorch")
+            accuracy = f"{best['accuracy']:.3f}" if best else ""
+        except (OSError, ValueError, KeyError):
+            pass
+        ago = duration((now - updated).total_seconds()) + " ago"
+        rows.append((updated, [str(path.parent.relative_to(root)), s["stage"], done, state, ago, accuracy]))
+    if not rows:
+        return f"no runs below {root}: no status.json in it or its subdirectories"
+    rows.sort(key=lambda r: r[0], reverse=True)
+    table = [["run", "stage", "progress", "state", "last update", "accuracy"]] + [r for _, r in rows]
+    widths = [max(len(row[i]) for row in table) for i in range(len(table[0]))]
+    return "\n".join(
+        "  ".join(c.ljust(w) for c, w in zip(row, widths, strict=True)).rstrip() for row in table
+    )
+
+
 def _alive(pid: int) -> bool:
     """Whether a process is still running, without signalling it."""
     if os.name == "nt":  # os.kill(pid, 0) would send Ctrl+C on Windows
