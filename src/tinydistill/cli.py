@@ -636,6 +636,38 @@ def _time_left(member, todo: list[str], seed: int) -> tuple[float, float, int]:
     return len(todo) / rate, rate, len(timed)
 
 
+def _train_time(a: argparse.Namespace) -> None:
+    """run --dry-run: how long training the student would take, from timing a few of its training batches
+    (after 2 to warm up) on the run's device, times the batches of every seed and model the run trains."""
+    from .data import read_examples
+    from .student import seconds_per_batch
+    from .teacher import pick_device
+
+    task = load_task(a.task)
+    texts = [e.text for e in read_examples(a.data, task, a.limit, with_gold=False)]
+    if not texts:
+        return
+
+    def batches(n: int) -> int:
+        n -= round(a.val_share * n)  # held out from training
+        return a.epochs * -(-n // a.batch_size)
+
+    per_seed = batches(len(texts))
+    if a.gold_only and a.gold_per_class:  # about K per class
+        per_seed += batches(min(len(texts), a.gold_per_class * len(task.labels)))
+    if a.upper_bound:
+        per_seed += batches(len(texts))
+    device = pick_device(a.device)
+    spb = seconds_per_batch(
+        a.student, task.labels, texts, device, a.batch_size, a.max_length, task.multi_label
+    )
+    n = a.seeds * per_seed
+    print(
+        f"training: {n:,} batches of {a.student} on {device} ({a.seeds} seeds), about {duration(n * spb)} at "
+        f"{1 / spb:.1f} batches/s (timed on a few); exporting and evaluating come on top"
+    )
+
+
 def _time_line(who: str, n: int, seconds: float, rate: float, timed: int) -> str:
     if not n:
         return f"{who}: every text is in the cache, nothing to label"
@@ -1710,16 +1742,26 @@ def cmd_status(a: argparse.Namespace) -> None:
     from .progress import describe_status, overview
 
     run = Path(a.run)
-    if run.is_dir() and not (run / "status.json").exists():  # a directory of runs: one row each
-        if a.live:
-            raise SystemExit(
-                f"--live follows one run: {run} has no status.json (see `tinydistill status {run}`)"
-            )
-        print(overview(run))
-        return
+    many = run.is_dir() and not (run / "status.json").exists()  # a directory of runs: one row each
+    if many and a.live:
+        raise SystemExit(f"--live follows one run: {run} has no status.json (see `tinydistill status {run}`)")
     if not a.live:
-        print(describe_status(run / "status.json"))
-        return
+        show = (lambda: overview(run)) if many else (lambda: describe_status(run / "status.json"))
+        if not a.watch:
+            print(show())
+            return
+        clear = (
+            "\033[H\033[2J" if sys.stdout.isatty() else "\n"
+        )  # a terminal: redraw; a file: one after another
+        try:
+            while True:
+                print(
+                    clear + time.strftime("%H:%M:%S") + "  (every 2 seconds; Ctrl+C stops)\n" + show(),
+                    flush=True,
+                )
+                time.sleep(2)
+        except KeyboardInterrupt:
+            return
     import threading
 
     from .live import serve
@@ -1831,7 +1873,13 @@ def cmd_env(a: argparse.Namespace) -> None:
         cuda = torch.cuda.is_available()
         lines["CUDA available"] = f"{cuda} (CUDA {torch.version.cuda})" if cuda else "False"
         if cuda:
-            lines["GPU"] = ", ".join(torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count()))
+            gpus = []
+            for i in range(torch.cuda.device_count()):
+                free, total = torch.cuda.mem_get_info(i)
+                gpus.append(
+                    f"{torch.cuda.get_device_name(i)} ({free / 2**30:.1f} of {total / 2**30:.1f} GB free)"
+                )
+            lines["GPU"] = ", ".join(gpus)
     except ImportError:
         lines["CUDA available"] = "unknown (torch not installed)"
     for pkg in ("transformers", "onnxruntime", "datasets", "huggingface_hub", "matplotlib", "bitsandbytes"):
@@ -1867,6 +1915,7 @@ def cmd_run(a: argparse.Namespace) -> None:
     else:
         cmd_label(a)
         if a.dry_run:
+            _train_time(a)
             return
         gc.collect()  # release the teacher before training
         if torch.cuda.is_available():
@@ -2441,12 +2490,14 @@ def build_parser() -> argparse.ArgumentParser:
         "members disagree most. Training is not changed",
     )
     ana.set_defaults(fn=cmd_analyse)
-    sub.add_parser(
+    sta = sub.add_parser(
         "status",
         parents=[run_dir, live],
         help="how far a run is, and whether it is still running (--live: a page that follows it); for a "
         "directory of runs, a table of them all",
-    ).set_defaults(fn=cmd_status)
+    )
+    sta.add_argument("--watch", action="store_true", help="show it again every 2 seconds, until Ctrl+C")
+    sta.set_defaults(fn=cmd_status)
     cch = sub.add_parser(
         "cache", help="what a score cache directory holds, and which runs use it (--prune: delete the rest)"
     )

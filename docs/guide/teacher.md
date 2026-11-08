@@ -257,7 +257,8 @@ last 24 hours (`--keep-recent H`), since a run still labelling writes its `meta.
 
 With a local or vLLM teacher, `--dry-run` loads it, scores 8 texts to warm up (the prompt's cache, the GPU's
 kernels), times up to 64 more of the texts not in the cache yet and prints how long labelling all of them would
-take; with an ensemble, a line per member and a total. Nothing is cached or written. Labelling times vary a lot
+take; with an ensemble, a line per member and a total. `run --dry-run` also times a few training batches of the
+student and prints how long training every seed would take. Nothing is cached or written. Labelling times vary a lot
 with the setup: on Banking77, 74 seconds for the 7B teacher's hidden states alone with a fixed prompt
 (`--probe-only`), and 35 minutes for the same teacher scoring every label with each text's 16 most similar
 examples ([Benchmarks](../results.md)).

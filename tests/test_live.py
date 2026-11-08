@@ -235,3 +235,18 @@ def test_label_serves_the_live_page_once(tmp_path, data, monkeypatch):  # noqa: 
     assert served == [(run, 8765, False)]  # run, then its label and train: one page
     main(["label", *data, "--out", str(tmp_path / "other"), "--live", "--live-port", "9000"])
     assert served[-1] == (tmp_path / "other", 9000, True)
+
+
+def test_status_watch_shows_it_again_until_ctrl_c(tmp_path, capsys, monkeypatch):
+    Progress("train", 4, lambda _: None, tmp_path / "status.json", write_every=0).finish()
+    calls = []
+
+    def sleep(_):
+        calls.append(1)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr("time.sleep", sleep)
+    main(["status", str(tmp_path), "--watch"])
+    out = capsys.readouterr().out
+    assert out.count("finished") == 2 and "Ctrl+C stops" in out

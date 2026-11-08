@@ -36,6 +36,11 @@
   teacher and the runs that use them; `--prune` deletes the ones no run uses (not those written in the last
   `--keep-recent` hours, 24 by default).
 - The live page shows the command that started the run and links to the whole `results.md`.
+- `run --dry-run` also estimates the training time, from a few timed batches of the student.
+- `status --watch` shows the status, or the table of runs, again every 2 seconds.
+- The live page shows the current stage's progress in the tab's title, and can notify you (with the browser's
+  permission) when the run's process ends.
+- `tinydistill env` shows each GPU's free and total memory.
 - `train` notes when the training texts do not look English to the student's tokenizer (under 8% common English
   words and over 1.5 of its tokens per word) and suggests a multilingual student.
 - Docs: the training guide's Danish numbers include the newer teachers; "When to use it" has a table of which

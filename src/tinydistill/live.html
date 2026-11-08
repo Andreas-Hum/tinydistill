@@ -54,6 +54,11 @@ a { color: var(--series-1); }
   background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
   padding: 16px; margin-bottom: 16px;
 }
+button {
+  font: inherit; font-size: 13px; color: var(--text-primary); background: var(--surface-0);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer;
+}
+button:disabled { cursor: default; color: var(--text-muted); }
 .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .stage { font-size: 17px; font-weight: 600; margin: 8px 0; }
@@ -109,7 +114,10 @@ body.stale section { opacity: .45; filter: grayscale(1); }
   </div>
 
   <section class="card" aria-live="polite">
-    <div class="pill" id="pill"><span class="dot"></span><span>waiting</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div class="pill" id="pill"><span class="dot"></span><span>waiting</span></div>
+      <button id="notify" type="button" hidden>Notify me when it ends</button>
+    </div>
     <div class="stage" id="stage">no status yet</div>
     <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="meter"><div style="width:0"></div></div>
     <div class="facts" id="facts"></div>
@@ -167,8 +175,32 @@ function pill(kind, text) {
   $("pill").innerHTML = `<span class="dot" style="background:${color}"></span><span>${esc(text)}</span>`;
 }
 
+// a notification when the run's process ends (finished or not) or the page's server stops, if the viewer asked
+let wasAlive = false;
+function notifyEnd(text) {
+  if (wasAlive && "Notification" in window && Notification.permission === "granted")
+    new Notification("tinydistill: " + text, {body: $("run").textContent});
+  wasAlive = false;
+}
+function setupNotify() {
+  const b = $("notify");
+  if (!("Notification" in window)) return;
+  b.hidden = false;
+  const show = () => {
+    const p = Notification.permission;
+    b.disabled = p !== "default";
+    b.textContent = p === "granted" ? "You will be notified when it ends" :
+      p === "denied" ? "Notifications are blocked for this page" : "Notify me when it ends";
+  };
+  b.addEventListener("click", () => Notification.requestPermission().then(show));
+  show();
+}
+setupNotify();
+
 function showStatus(s) {
   if (!s) { pill("finished", "waiting"); $("stage").textContent = "no status yet"; return; }
+  if (s.alive) wasAlive = true;
+  else notifyEnd(s.finished ? "the run finished (" + s.stage + ")" : "the run stopped without finishing");
   const pct = s.total ? Math.min(100, 100 * s.done / s.total) : null;
   if (s.finished) pill("finished", "finished");
   else if (s.alive) pill("running", "running, pid " + s.pid);
@@ -393,7 +425,8 @@ async function poll() {
     lastOk = Date.now();
     document.body.classList.remove("stale");
     $("run").textContent = st.run;
-    document.title = (st.status ? st.status.stage + " - " : "") + "tinydistill live";
+    const stt = st.status, pct = stt && stt.total && !stt.finished ? Math.floor(100 * stt.done / stt.total) + "% " : "";
+    document.title = pct + (stt ? stt.stage + " - " : "") + "tinydistill live";
     if (st.command) {
       $("cmd").hidden = false;
       $("cmd").textContent = "$ " + st.command.argv.map(x => /[\s"']/.test(x) ? JSON.stringify(x) : x).join(" ");
@@ -405,6 +438,7 @@ async function poll() {
     document.body.classList.add("stale");
     $("staleage").textContent = dur((Date.now() - lastOk) / 1000);
     document.title = "not updating - tinydistill live";
+    notifyEnd("the run's page stopped: the run that served it has ended");
   }
   setTimeout(poll, 2000);
 }

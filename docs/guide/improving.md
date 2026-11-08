@@ -204,6 +204,7 @@ Every step also writes its progress to `RUN/status.json` every 2 seconds, so fro
 `tinydistill status RUN` shows how far it is and whether the process is still running. Given a directory of
 runs instead, `tinydistill status runs/` prints one row per run below it, newest first: its stage, how far,
 whether it is running, finished or stopped, when it last wrote, and its deployed student's test accuracy.
+`--watch` shows either again every 2 seconds, until Ctrl+C.
 
 ### A live page: --live
 
@@ -219,7 +220,9 @@ files every 2 seconds and shows:
   every seed and for `--gold-only` and `--upper-bound`;
 - the stages done and how long they took, and the results, as bars and a table, once `eval` writes them.
 
-Above them it shows the command that started the run, and once there are results, a link to the whole
+The browser tab's title shows how far the current stage is, so the run can be followed from another tab, and
+"Notify me when it ends" has the browser notify you when the run's process ends, finished or not (or the page
+that `run --live` served stops with it). Above everything it shows the command that started the run, and once there are results, a link to the whole
 `results.md`. It only reads files the run writes as it goes (and `command.json`, the command line): `status.json` (the current stage), `status-log.jsonl` (the
 stages done), `labels-live.json` (the teacher's top labels so far), `history-live.json` (the training) and
 `results.json`. So `status RUN --live` follows a run started anywhere, even without `--live`, and closing it

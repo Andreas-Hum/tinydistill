@@ -200,6 +200,51 @@ def contrastive_warmup(
         log(f"warm-up epoch {epoch + 1}/{epochs}: cosine loss {loss_:.4f} ({time.perf_counter() - t0:.0f}s)")
 
 
+def seconds_per_batch(
+    model_name: str,
+    labels: list[str],
+    texts: Sequence[str],
+    device: str,
+    batch_size: int = 32,
+    max_length: int = 128,
+    multi_label: bool = False,
+    n: int = 6,
+) -> float:
+    """Seconds one training batch of the student takes on ``device`` (forward, backward and an optimizer
+    step), the mean of ``n`` batches of ``texts`` after 2 to warm up; for `run --dry-run`."""
+    if static := encoder_of(model_name):
+        model, tok = new_static(static, labels, multi_label)
+    else:
+        from transformers.utils import logging as hf_logging
+
+        tok = AutoTokenizer.from_pretrained(model_name)
+        level = hf_logging.get_verbosity()
+        hf_logging.set_verbosity_error()
+        try:
+            model = AutoModelForSequenceClassification.from_pretrained(
+                model_name, num_labels=len(labels), ignore_mismatched_sizes=True
+            )
+        finally:
+            hf_logging.set_verbosity(level)
+    model = model.to(device).train()
+    opt = torch.optim.AdamW(model.parameters(), lr=1e-5)
+    rng = random.Random(0)
+    times = []
+    for i in range(n + 2):
+        batch = [texts[rng.randrange(len(texts))] for _ in range(batch_size)]
+        t0 = time.perf_counter()
+        enc = tok(batch, padding=True, truncation=True, max_length=max_length, return_tensors="pt")
+        logits = model(**{k: v.to(device) for k, v in enc.items()}).logits
+        logits.float().logsumexp(-1).mean().backward()
+        opt.step()
+        opt.zero_grad(set_to_none=True)
+        if device.startswith("cuda"):
+            torch.cuda.synchronize()
+        if i >= 2:  # the first ones load kernels and caches
+            times.append(time.perf_counter() - t0)
+    return sum(times) / len(times)
+
+
 def train_student(
     texts: list[str],
     teacher_probs: torch.Tensor | None,
