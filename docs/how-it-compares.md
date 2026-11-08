@@ -22,13 +22,13 @@ reruns everything.
 
 - **tinydistill is the most accurate method that runs on a CPU** on Banking77 (0.875 against SetFit's 0.796;
   0.872 as the deployed int8 model) and CLINC150 (0.860 against 0.712; 0.860 deployed); on Danish MASSIVE it
-  reaches 0.811 against 0.586 for gold only. Its int8 student is the fastest and smallest model in every table,
-  level with the gold-only model of the same encoder on three tasks: 0.8 to 2.0 ms per text and 23 to 24 MB,
+  reaches 0.815 against 0.586 for gold only. Its int8 student is the fastest and smallest model in every table,
+  level with the gold-only model of the same encoder on three tasks: 0.8 to 2.1 ms per text and 23 to 24 MB,
   against 4.6 to 6.9 ms and 92 MB for SetFit and 113 to 577 ms and 746 MB for GLiClass.
 - **The student comes close to its teacher at a fraction of the latency.** It is above the LLM that labelled its
-  data on Banking77 (0.875 against 0.859) and Danish MASSIVE (0.811 against 0.806), and below it on CLINC150
-  (0.860 against 0.941) and financial tweets (0.828 against 0.842), at 0.8 to 2.0 ms on a CPU against 155 ms
-  to 2.9 s on a GPU.
+  data on Banking77 (0.875 against 0.859) and Danish MASSIVE (0.815 against 0.808), and below it on CLINC150
+  (0.860 against 0.941) and financial tweets (0.828 against 0.842), at 0.8 to 2.1 ms on a CPU against 155 ms
+  to 2.6 s on a GPU.
 - **It needs a GPU and a good teacher; SetFit needs neither.** SetFit trained in 7 minutes on the CPU and came
   within 0.079 of the best student on Banking77 and 0.148 on CLINC150. The best students took 35 minutes of
   labelling on Banking77, with the 7B teacher shown each text's 16 most similar gold examples and averaged with
@@ -102,10 +102,10 @@ CLINC150 (plus, with out of scope), 5,500 test texts. Every method that trains g
 | Method | Gold labels | Also uses | Accuracy | Macro-F1 | Latency per text, CPU | Size | Build time | GPU needed |
 |---|---|---|---|---|---|---|---|---|
 | Gold only: `paraphrase-multilingual-MiniLM-L12-v2` fine-tuned on the gold labels, ONNX int8 | 476 |  | 0.586 ± 0.025 | 0.524 ± 0.016 | 2.5 ms | 118 MB | 80 s (CPU) | no |
-| The LLM as the classifier: `Qwen3.5-9B`, `gemma-4-12B-it`, ensemble of 2, 16 similar examples, 4-bit | 476 (in the prompt) | | 0.806 | 0.779 | 2877 ms (RTX 4090) | 15.0 GB | none | yes, to run it |
-| tinydistill: `paraphrase-multilingual-MiniLM-L12-v2` student of that LLM, ONNX int8 | 476 | the LLM's labels on 11,514 unlabelled texts | 0.811 ± 0.002 | 0.783 ± 0.002 | 2.0 ms | 24 MB | 12.2 h labelling + 2 min training (RTX 4090) | yes, to build it |
+| The LLM as the classifier: `gemma-4-12B-it`, 16 similar examples, 4-bit, probe | 476 (in the prompt) | | 0.808 | 0.780 | 2567 ms (RTX 4090) | 7.5 GB | none | yes, to run it |
+| tinydistill: `paraphrase-multilingual-MiniLM-L12-v2` student of that LLM, ONNX int8 | 476 | the LLM's labels on 11,514 unlabelled texts | 0.815 ± 0.002 | 0.782 ± 0.005 | 2.1 ms | 24 MB | 8.9 h labelling + 2 min training (RTX 4090) | yes, to build it |
 
-Danish MASSIVE, 2,974 test texts. Every method that trains gets the same 476 gold-labelled texts (8 per class, tinydistill's own pick with seed 0); mean ± standard deviation over 3 training seeds. Latency: batch 1, 2 threads, median over three passes through the same 100 test texts, each library's own inference (tinydistill's Predictor for the ONNX models); the LLM runs on a GPU. The gold-only and tinydistill accuracies are the PyTorch models'; their latency and size are those of the int8 export ("saved": timed when the run was made, not re-timed with the others). Build time is per model; the CPU runs trained with 16 threads. The last tinydistill row is [`examples/massive-da/paraphrase-multilingual-MiniLM-L12-v2-trimmed-ensemble-similar16.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/massive-da/paraphrase-multilingual-MiniLM-L12-v2-trimmed-ensemble-similar16.json), the most accurate of 8 saved runs on this test set that use at most 8 gold labels per class (picked on the test set, a tie at three decimals going to the better int8 model, then the smaller); the int8 model it times scores 0.810.
+Danish MASSIVE, 2,974 test texts. Every method that trains gets the same 476 gold-labelled texts (8 per class, tinydistill's own pick with seed 0); mean ± standard deviation over 3 training seeds. Latency: batch 1, 2 threads, median over three passes through the same 100 test texts, each library's own inference (tinydistill's Predictor for the ONNX models); the LLM runs on a GPU. The gold-only and tinydistill accuracies are the PyTorch models'; their latency and size are those of the int8 export ("saved": timed when the run was made, not re-timed with the others). Build time is per model; the CPU runs trained with 16 threads. The last tinydistill row is [`examples/massive-da/paraphrase-multilingual-MiniLM-L12-v2-trimmed-gemma4-12b-similar16-probe.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/massive-da/paraphrase-multilingual-MiniLM-L12-v2-trimmed-gemma4-12b-similar16-probe.json), the most accurate of 10 saved runs on this test set that use at most 8 gold labels per class (picked on the test set, a tie at three decimals going to the better int8 model, then the smaller); the int8 model it times scores 0.815.
 <!-- /results -->
 
 ## Financial tweets

@@ -38,6 +38,7 @@ for pair in banking77/banking77-7b-similar16:banking77-7b-similar16 \
             massive-da/${multi##*/}-trimmed:massive-da-students/${multi##*/}-trimmed \
             teachers-2026/similar/massive-da-ensemble:massive-da-ensemble-similar16 \
             massive-da/${multi##*/}-trimmed-ensemble-similar16:massive-da-students/${multi##*/}-trimmed-ensemble-similar16 \
+            massive-da/${multi##*/}-trimmed-gemma4-12b-similar16-probe:massive-da-students/${multi##*/}-trimmed-gemma4-12b-similar16-probe \
             financial-tweets/financial-tweets-ensemble:financial-tweets-ensemble; do
   saved=${pair%%:*} run=${pair#*:}
   if [ -d "runs/$run/onnx" ]; then

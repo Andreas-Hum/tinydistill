@@ -4,11 +4,13 @@
 
 - RESULTS.md: the trimmed multilingual Danish student on the labels of the Qwen3.5-9B and Gemma 4 12B ensemble
   (`examples/massive-da/ensemble-multilingual.sh`, from the score cache): 0.811, 0.810 deployed, against 0.761
-  on the 8-shot 7B teacher's labels and above the ensemble itself (0.806). It is the new Danish Hub and live demo
+  on the 8-shot 7B teacher's labels and above the ensemble itself (0.806); on the labels of Gemma 4 12B with
+  the probe, 0.815, 0.815 deployed, above that teacher (0.808). The latter is the new Danish Hub and live demo
   model, and "How it compares" uses it.
 - RESULTS.md: the probe on Gemma 4 12B with 16 similar examples on CLINC150
   (`examples/teachers-2026/probe-gemma.sh`): the teacher goes from 0.914 to 0.941 and its student from 0.850 to
-  0.860, 0.860 deployed (from 0.849). It is the new CLINC150 Hub and live demo model.
+  0.860, 0.860 deployed (from 0.849). It is the new CLINC150 Hub and live demo model. On Danish MASSIVE it lifts
+  Gemma 4 12B from 0.798 to 0.808 and the English student from 0.760 to 0.768.
 - RESULTS.md: Qwen3.5-9B, Gemma 4 12B and their ensemble with 16 similar examples on financial tweets; the
   ensemble's student (0.827, 0.829 deployed) ties the zero-shot three-family ensemble's (0.828, 0.829 deployed).
 - `examples/teachers-2026/similar.sh` also runs financial tweets and takes task names to run only those;

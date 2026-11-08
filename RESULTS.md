@@ -764,7 +764,22 @@ It lifts the teacher from 0.914 to 0.941 and the student from 0.850 to 0.860, 0.
 [CLINC150 model on the Hub](https://huggingface.co/Shroomy/tinydistill-clinc150-minilm) and in the
 [live demo](https://andreas-hum.github.io/tinydistill/demo/).
 
-On Danish MASSIVE, with the English `all-MiniLM-L6-v2` student:
+The same probe on Gemma 4 12B on Danish MASSIVE, with the English `all-MiniLM-L6-v2` student:
+
+<!-- results: teachers-2026/probe/massive-da-gemma4-12b.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| massive-da-gemma4-12b-similar16 | 16 similar examples, 4-bit `google/gemma-4-12B-it` | 0.798 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.760 ± 0.003 | 0.706 ± 0.009 | 0.796 ± 0.005 | ONNX int8 | 0.9 | 28.8 | 23 |
+| massive-da-gemma4-12b-similar16-probe | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.808 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.768 ± 0.004 | 0.721 ± 0.003 | 0.797 ± 0.003 | ONNX int8 | 1.1 | 31.9 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+The probe lifts the teacher from 0.798 to 0.808, the most accurate Danish teacher so far, and the English student
+from 0.760 to 0.768 (0.763 deployed). The multilingual student does better on the same labels: 0.815 (below).
+
+Without the probe, both teachers and their ensemble on Danish MASSIVE, with the English `all-MiniLM-L6-v2`
+student:
 
 <!-- results: teachers-2026/similar/massive-da.md -->
 | Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
@@ -792,13 +807,15 @@ read from the score cache, so no new labelling):
 | massive-da-ensemble-similar16 | teacher ensemble of 2, 16 similar examples, 4-bit `Qwen/Qwen3.5-9B,google/gemma-4-12B-it` | 0.806 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.771 ± 0.003 | 0.710 ± 0.012 | 0.807 ± 0.003 | ONNX int8 | 0.8 | 29.1 | 23 |
 | paraphrase-multilingual-MiniLM-L12-v2-trimmed | 8-shot, 4-bit `Qwen/Qwen2.5-7B-Instruct` | 0.736 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 24 | 0.761 ± 0.001 | 0.708 ± 0.003 | 0.802 ± 0.006 | ONNX int8 | 1.8 | 40.2 | 24 |
 | paraphrase-multilingual-MiniLM-L12-v2-trimmed-ensemble-similar16 | teacher ensemble of 2, 16 similar examples, 4-bit `Qwen/Qwen3.5-9B,google/gemma-4-12B-it` | 0.806 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 24 | 0.811 ± 0.002 | 0.783 ± 0.002 | 0.867 ± 0.003 | ONNX int8 | 1.9 | 46.2 | 24 |
+| paraphrase-multilingual-MiniLM-L12-v2-trimmed-gemma4-12b-similar16-probe | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.808 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 24 | 0.815 ± 0.002 | 0.782 ± 0.005 | 0.849 ± 0.002 | ONNX int8 | 2.0 | 41.9 | 24 |
 
 All latencies on the CPU with 2 threads.
 <!-- /results -->
 
-Here the better teacher pays off for the multilingual student: 0.811, 0.810 deployed in int8, against 0.761 on
-the 8-shot 7B teacher's labels, and above its own teacher (0.806). It is the Danish model on the Hub and in the
-live demo now.
+Here the better teachers pay off for the multilingual student: on the ensemble's labels 0.811, 0.810 deployed in
+int8, against 0.761 on the 8-shot 7B teacher's labels, and above its own teacher (0.806). On the labels of Gemma
+4 12B with the probe (above), 0.815 and 0.815 deployed, again above its teacher (0.808), with one teacher and
+8.9 hours of labelling against two and 12.2 hours. That one is the Danish model on the Hub and in the live demo.
 
 On financial tweets (3 classes, so the 16 similar examples are 16 of the 24 gold texts), with 5 epochs as in the
 financial-tweets section:

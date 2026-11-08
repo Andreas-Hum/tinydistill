@@ -1,0 +1,11 @@
+{
+  "task": "massive-da",
+  "method": "tinydistill",
+  "results_file": "massive-da/paraphrase-multilingual-MiniLM-L12-v2-trimmed-gemma4-12b-similar16-probe.json",
+  "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+  "n_test": 2974,
+  "accuracy": 0.8150638870208473,
+  "macro_f1": 0.7888692834290563,
+  "latency_ms_b1": 2.067324036033824,
+  "latency_threads": 2
+}
