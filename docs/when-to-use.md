@@ -10,6 +10,24 @@ among labels. With only a few labels and no GPU, [SetFit](https://github.com/hug
 alternative: on Banking77, with the same 616 labels, it reached 0.797 against tinydistill's 0.813, trains in a
 minute and needs no LLM ([Benchmarks](results.md#compared-with-setfit)).
 
+## Which settings to use
+
+Measured on the benchmark tasks ([Benchmarks](results.md)); the accuracies are those of the deployed int8
+student, the times the labelling on an RTX 4090.
+
+| Your situation | Settings | What it gave |
+|---|---|---|
+| About 8 gold labels per class and a GPU | `--gold-per-class 8 --few-shot 8 --few-shot-similar 16 --probe` | Banking77 0.872 (Qwen2.5-7B, 35 min of labelling); CLINC150 0.859 (Gemma 4 12B) |
+| The same, but labelling has to be fast | the same with `--probe-only` | Banking77 0.869 in 11.5 min; CLINC150 0.851 in 37 min, against 7.2 hours |
+| Minutes, not hours | `--gold-per-class 8 --probe-only`, no examples in the prompt | Banking77 0.824 in 74 seconds |
+| Many labels | `--shortlist 20` (and `--shortlist-keep` for an "other" label) | CLINC150, 151 labels: labelling six times faster, and more accurate |
+| Texts not in English | a multilingual student with `--trim-vocab` (`train` suggests it) | Danish MASSIVE 0.815, against 0.763 for the English student on the same labels |
+| No gold labels at all | a zero-shot ensemble of model families | financial tweets 0.829 |
+| No GPU | a hosted API teacher (`--api-url`), or [SetFit](how-it-compares.md) | |
+
+Before a long labelling run, `--dry-run` says how long it will take, and `--live` shows the teacher's labels as
+they come in, so a bad setup shows within minutes.
+
 ## Limitations
 
 - **The teacher caps the student.** The student learns to imitate the teacher, mistakes included. A small LLM

@@ -55,9 +55,11 @@ tinydistill run task.yaml \
 | Export | `tinydistill export` | ONNX (and int8 with `--int8`) in `run/onnx` |
 | Evaluate | `tinydistill eval` | `run/results.md`: accuracy, latency and size of teacher and student |
 
-Long steps print their progress and time left, and `tinydistill status run` shows it from another terminal.
+Long steps show a progress bar with the time left, and `tinydistill status run` shows it from another terminal.
 `tinydistill run ... --live`, or `tinydistill status run --live` for a run already going, opens a page in the
-browser that follows it: the stage and time left, the stages done, the loss per epoch and, at the end, the results.
+browser that follows it: the stage and time left, the teacher's labels as they come in, the student's loss and
+agreement with the teacher as it trains, and at the end the results. `--dry-run` tells you how long labelling
+will take before you start ([Choosing the teacher](../guide/teacher.md#how-long-will-it-take-dry-run)).
 
 !!! tip "No GPU?"
     For a quick look on a CPU, use a smaller teacher and fewer texts:

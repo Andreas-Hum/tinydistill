@@ -31,7 +31,9 @@
   student trains. A live page whose server stopped says so and greys out what it shows.
 - `train` notes when the training texts do not look English to the student's tokenizer (under 8% common English
   words and over 1.5 of its tokens per word) and suggests a multilingual student.
-- Docs: the training guide's Danish numbers include the newer teachers.
+- Docs: the training guide's Danish numbers include the newer teachers; "When to use it" has a table of which
+  settings to use in which situation, with what they gave on the benchmarks; "Improving a run" describes the
+  progress bar and the live page.
 - RESULTS.md: the trimmed multilingual Danish student on the labels of the Qwen3.5-9B and Gemma 4 12B ensemble
   (`examples/massive-da/ensemble-multilingual.sh`, from the score cache): 0.811, 0.810 deployed, against 0.761
   on the 8-shot 7B teacher's labels and above the ensemble itself (0.806); on the labels of Gemma 4 12B with

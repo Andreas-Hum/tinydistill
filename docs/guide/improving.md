@@ -187,16 +187,38 @@ tinydistill synth task.yaml --per-label 500 --vary --dedup 0.95 --data real.csv 
 
 Without the two flags, `synth` writes the same texts as before for a given seed.
 
-## Follow a long run: status
+## Follow a long run: status, a progress bar and a live page
 
-Long steps print their progress, speed and time left, and write them to `RUN/status.json`. From another
-terminal, `tinydistill status RUN` shows the same and whether the process is still running.
+On a terminal, long steps show a progress bar that redraws in place, as Keras and tqdm do:
 
-`--live` (on `status` and on `run`) serves a page on `http://127.0.0.1:8765` (or the next free port) and opens
-it in the browser. It follows the run every two seconds (runs write their progress that often): the current
-stage with its progress, time left and speed over time; while the teacher labels, how many training texts it
-has put under each label so far, which shows a teacher that collapses onto one or two labels within minutes;
-the stages done and how long they took; the training loss per epoch of every seed (and of `--gold-only` and
-`--upper-bound`, with the held-out loss dashed under `--val-share`); and the results, as bars and a table, once
-`eval` writes them. It only reads the run's files, so `status RUN --live` can follow a run started anywhere, and closing it never
-stops the run; the page that `run --live` serves ends with the run. `--no-browser` serves without opening it.
+```
+label train (gemma-4-12B-it)   7041/15250 [=============>................]  46%  9.7 texts/s  ETA 14m05s
+train  100/200 [===============>..............]  50%  326.6 batches/s  ETA 0s  loss 1.2345
+```
+
+During training it also shows the last epoch's loss; log lines, such as each epoch's, print above it. When the
+output goes to a file or a pipe (`nohup`, CI, `> log`), there is a line every 10 seconds instead, so logs stay
+readable. `TINYDISTILL_PROGRESS=bar` or `TINYDISTILL_PROGRESS=lines` chooses either.
+
+Every step also writes its progress to `RUN/status.json` every 2 seconds, so from another terminal
+`tinydistill status RUN` shows how far it is and whether the process is still running.
+
+### A live page: --live
+
+`--live`, on `run` and on `status`, serves a page on `http://127.0.0.1:8765` (or the next free port,
+`--live-port P` for another) and opens it in the browser (`--no-browser` serves it without). It reads the run's
+files every 2 seconds and shows:
+
+- the current stage: its progress, time left, and speed over time;
+- while the teacher labels: how many training texts it has put under each label so far. A teacher that
+  collapses onto one or two labels shows within minutes, not after hours of labelling;
+- while the student trains, every few batches: the loss, how often the student agrees with its target's top
+  label, and the learning rate, with the held-out loss and agreement after each epoch (`--val-share`), for
+  every seed and for `--gold-only` and `--upper-bound`;
+- the stages done and how long they took, and the results, as bars and a table, once `eval` writes them.
+
+It only reads files the run writes as it goes: `status.json` (the current stage), `status-log.jsonl` (the
+stages done), `labels-live.json` (the teacher's top labels so far), `history-live.json` (the training) and
+`results.json`. So `status RUN --live` follows a run started anywhere, even without `--live`, and closing it
+never stops the run; the page that `run --live` serves ends with the run. A page whose server stopped says so,
+greys out what it shows, and reconnects by itself.
