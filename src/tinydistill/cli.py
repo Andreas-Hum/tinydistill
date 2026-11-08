@@ -1794,7 +1794,7 @@ def cmd_cache(a: argparse.Namespace) -> None:
         fps = meta.get("fingerprints") or [meta.get("fingerprint")]
         teachers = meta.get("teachers") or [meta.get("teacher", "")]
         per = max(1, len(fps) // max(1, len(teachers)))  # each teacher's members: its prompts x example sets
-        run = str(meta_file.parent.relative_to(runs_dir))
+        run = meta_file.parent.relative_to(runs_dir).as_posix()
         for i, fp in enumerate(fps):
             if fp:
                 users.setdefault(fp, []).append((run, teachers[min(i // per, len(teachers) - 1)] or ""))

@@ -226,7 +226,8 @@ def overview(root: Path) -> str:
         except (OSError, ValueError, KeyError):
             pass
         ago = duration((now - updated).total_seconds()) + " ago"
-        rows.append((updated, [str(path.parent.relative_to(root)), s["stage"], done, state, ago, accuracy]))
+        name = path.parent.relative_to(root).as_posix()  # the same on every system
+        rows.append((updated, [name, s["stage"], done, state, ago, accuracy]))
     if not rows:
         return f"no runs below {root}: no status.json in it or its subdirectories"
     rows.sort(key=lambda r: r[0], reverse=True)

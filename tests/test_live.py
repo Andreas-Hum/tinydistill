@@ -83,7 +83,7 @@ def test_the_server(tmp_path):
             urllib.request.urlopen(url + "/other")
         with pytest.raises(urllib.error.HTTPError):  # no results yet
             urllib.request.urlopen(url + "/results.md")
-        (tmp_path / "results.md").write_text("# Results\n", encoding="utf-8")
+        (tmp_path / "results.md").write_bytes(b"# Results\n")
         with urllib.request.urlopen(url + "/results.md") as r:
             assert r.read() == b"# Results\n"
         second = serve(tmp_path, server.server_address[1], open_browser=False)  # in use: the next port
