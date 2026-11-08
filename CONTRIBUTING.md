@@ -42,6 +42,28 @@ To run ruff on every commit, install the hooks once with `pip install pre-commit
 - Numbers in the README come only from saved result files (`examples/*/*.json`, written by the example
   scripts); never type a result by hand.
 
+## Coding guidelines
+
+These follow [llama.cpp's](https://github.com/ggml-org/llama.cpp/blob/master/CONTRIBUTING.md), adapted to
+Python:
+
+- Avoid new dependencies and extra files. A feature that needs another library goes in an optional extra, or
+  in an example with its own environment (as the SetFit and GLiClass baselines in `examples/compare/` do).
+- Always consider other systems. CI runs on Linux, macOS and Windows: print paths with forward slashes, compare
+  bytes only when both sides were written as bytes, and do not rely on one platform's behaviour.
+- Keep it simple: plain functions and `for` loops, not metaprogramming, deep class hierarchies or clever
+  one-liners. A little repetition beats an abstraction with one user.
+- New command-line options and public API carry a higher bar than internal changes: say why an existing option
+  or mechanism does not suffice.
+- A bug fix comes with a test that fails before the fix and passes after it.
+- Follow the existing code: `ruff format` decides the layout (line length 110), and names are `snake_case`.
+  New names put the general part first (`probe_layer`, `probe_scores`, not `layer_of_probe`).
+- One feature or fix per commit, titled `<area> : <what changed>`, for example `live : show the progress in
+  the tab title`. The area is a module or folder: `teacher`, `student`, `cli`, `live`, `docs`, `examples`,
+  `results`.
+- Measure before claiming. A change to labelling or training is checked on a benchmark task, for accuracy and
+  time, as llama.cpp checks perplexity and speed; its numbers reach RESULTS.md only through saved result files.
+
 ## Contributing with code agents
 
 Code agents make it cheap to open a pull request and expensive to review one. If you point an agent at an
