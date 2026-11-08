@@ -17,7 +17,7 @@ run_task() {  # name, tag, teacher, then the task's own arguments
   [[ $tasks == *" $name "* ]] || return 0
   local runs=()
   for prompt in zeroshot similar16; do
-    local run=$name-$tag-probe-only-$prompt extra=()
+    local run=$name-$tag-probe-only-$prompt extra=(--few-shot-similar 0)  # zero-shot: no examples
     [[ $prompt == similar16 ]] && extra=(--few-shot 8 --few-shot-similar 16)
     tinydistill run "$@" "${common[@]}" --teacher "$teacher" "${extra[@]}" --out "runs/$run"
     cp "runs/$run/results.json" "$out/$run.json"

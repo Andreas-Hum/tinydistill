@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=examples/teachers-2026/probe-layers
 mkdir -p "$out"
-common=(--cache-dir runs/cache --device cuda --load-4bit --gold-per-class 8 --probe-only)
+common=(--cache-dir runs/cache --device cuda --load-4bit --gold-per-class 8 --probe-only --few-shot-similar 0)
 tasks=" ${*:-banking77 clinc150 massive-da} "
 
 sweep() {  # name, teacher, layers, then the task's own arguments

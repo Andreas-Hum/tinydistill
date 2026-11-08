@@ -281,6 +281,11 @@ tinydistill label task.yaml --data train.csv --test test.csv --teacher Qwen/Qwen
 `label --few-shot-similar M` shows each text the M gold examples most similar to it (Liu et al., 2021). See
 [A few gold labels](gold-labels.md#in-the-teachers-prompt).
 
+With `--gold-per-class K` and neither option given, each text's prompt shows its 16 most similar of those K
+gold examples per class, the setting of the best runs on every benchmark task, when the prompt has an
+`{examples}` line before `{text}` (as the one `tinydistill init` writes) and the task is single-label;
+`--few-shot-similar 0` shows none.
+
 ### Several sets of similar examples
 
 `label --few-shot-similar M --few-shot-sets K` scores each text K times. Set k shows it ranks k·M+1 to (k+1)·M

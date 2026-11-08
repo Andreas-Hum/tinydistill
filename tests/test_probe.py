@@ -442,3 +442,20 @@ def test_the_default_probe_without_gold_texts_labels_without_it(tmp_path, data, 
     main(["label", *data, "--out", str(tmp_path / "r"), "--gold-file", str(tmp_path / "gold.jsonl")])
     assert "labelling without it" in capsys.readouterr().err
     assert json.loads((tmp_path / "r" / "meta.json").read_text(encoding="utf-8"))["probe"] is None
+
+
+def test_similar_examples_are_the_default_with_gold_labels(tmp_path, data):
+    meta = lambda run: json.loads((run / "meta.json").read_text(encoding="utf-8"))  # noqa: E731
+    (tmp_path / "shots.yaml").write_text(TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n"))
+    shots = [str(tmp_path / "shots.yaml"), *data[1:]]
+    main(["label", *shots, "--out", str(tmp_path / "a"), "--gold-per-class", "3", "--no-probe"])
+    m = meta(tmp_path / "a")
+    assert (m["few_shot"], m["few_shot_similar"], m["n_examples"]) == (3, 16, 6)
+    main(["label", *shots, "--out", str(tmp_path / "b"), "--gold-per-class", "3", "--few-shot-similar", "0"])
+    assert (meta(tmp_path / "b")["few_shot"], meta(tmp_path / "b")["few_shot_similar"]) == (0, 0)
+    main(["label", *shots, "--out", str(tmp_path / "c")])  # no gold labels: no examples
+    assert meta(tmp_path / "c")["few_shot_similar"] == 0
+    main(
+        ["label", *data, "--out", str(tmp_path / "d"), "--gold-per-class", "3"]
+    )  # no {examples} in the prompt
+    assert meta(tmp_path / "d")["few_shot_similar"] == 0

@@ -6,7 +6,9 @@ same K examples per class, chosen at random with `--seed`.
 ## In the teacher's prompt
 
 `label --few-shot K` shows K gold examples per class in the teacher's prompt, in place of the `{examples}` line.
-The prompt prefix is computed once, so even hundreds of examples cost little per text.
+The prompt prefix is computed once, so even hundreds of examples cost little per text. With `--gold-per-class K`
+and no example options, each text's prompt shows its 16 most similar of those K per class by default; see
+[Choosing the teacher](teacher.md#few-shot-examples).
 
 ```sh
 tinydistill run task.yaml --data train.csv --test test.csv --teacher Qwen/Qwen2.5-7B-Instruct --load-4bit \
