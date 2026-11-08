@@ -601,13 +601,15 @@ texts) is new to them: [`examples/hwu64/run.sh`](https://github.com/Andreas-Hum/
 takes the settings of [Which settings to use](https://andreas-hum.github.io/tinydistill/when-to-use/#which-settings-to-use)
 for about 8 gold labels per class, with Gemma 4 12B as the teacher, and changes nothing else. Its task file
 gives the intents' readable names and nothing more. With the probe alone (`--probe-only`), once with a zero-shot
-prompt and once with each text's 16 most similar of the 512 gold examples:
+prompt and once with each text's 16 most similar of the 512 gold examples, and then with the teacher scoring
+every label with those examples, averaged with the probe:
 
 <!-- results: hwu64/summary.md -->
 | Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | hwu64-gemma4-12b-probe-only-zeroshot | zero-shot, 4-bit, probe only `google/gemma-4-12B-it` | 0.842 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.865 ± 0.001 | 0.865 ± 0.004 | 0.880 ± 0.003 | ONNX int8 | 1.1 | 30.9 | 23 |
 | hwu64-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.879 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.891 ± 0.004 | 0.889 ± 0.004 | 0.897 ± 0.004 | ONNX int8 | 1.5 | 30.3 | 23 |
+| hwu64-gemma4-12b-similar16 | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.877 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.894 ± 0.005 | 0.893 ± 0.004 | 0.893 ± 0.003 | ONNX int8 | 0.8 | 21.7 | 23 |
 
 All latencies on the CPU with 2 threads.
 <!-- /results -->
@@ -616,7 +618,11 @@ The student is more accurate than its teacher in both: 0.865 against 0.842 with 
 5.5 minutes of labelling, and 0.891 against 0.879 with the similar examples, after 16 minutes (0.888 deployed
 in int8). The same student trained on the 512 gold labels alone reaches 0.639
 ([`hwu64-gemma4-12b-probe-only-zeroshot.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/hwu64/hwu64-gemma4-12b-probe-only-zeroshot.json),
-`--gold-only`).
+`--gold-only`). The teacher scoring every label adds little for its cost: 7.7 hours of labelling for a
+student of 0.894 (0.892 deployed), against 16 minutes for 0.891
+([`hwu64-gemma4-12b-similar16.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/hwu64/hwu64-gemma4-12b-similar16.json)),
+and its teacher is no more accurate (0.877 against 0.879). As on the tuned tasks, the probe alone is the
+better trade.
 
 Published few-shot results on HWU64, reported in the papers and not rerun, use 5 or 10 gold labels per class
 where this run uses 8, and larger models. With 5 and 10: CPFT 0.8203 and 0.8713 (Zhang et al. 2021, Table 2,

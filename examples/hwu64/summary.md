@@ -2,5 +2,6 @@
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | hwu64-gemma4-12b-probe-only-zeroshot | zero-shot, 4-bit, probe only `google/gemma-4-12B-it` | 0.842 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.865 ± 0.001 | 0.865 ± 0.004 | 0.880 ± 0.003 | ONNX int8 | 1.1 | 30.9 | 23 |
 | hwu64-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.879 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.891 ± 0.004 | 0.889 ± 0.004 | 0.897 ± 0.004 | ONNX int8 | 1.5 | 30.3 | 23 |
+| hwu64-gemma4-12b-similar16 | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.877 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.894 ± 0.005 | 0.893 ± 0.004 | 0.893 ± 0.003 | ONNX int8 | 0.8 | 21.7 | 23 |
 
 All latencies on the CPU with 2 threads.

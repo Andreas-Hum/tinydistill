@@ -27,7 +27,8 @@
 - `run --dry-run` says "1 seed", not "1 seeds".
 - RESULTS.md: HWU64 (64 intents), a task none of the settings were tuned on (`examples/hwu64/run.sh`). With
   the recommended settings and `--probe-only`, the deployed student reaches 0.888 after 16 minutes of
-  labelling, above its teacher (0.879), against 0.639 for the student on the 512 gold labels alone.
+  labelling, above its teacher (0.879), against 0.639 for the student on the 512 gold labels alone. The
+  teacher scoring every label as well takes 7.7 hours for a deployed student of 0.892.
 
 ## 0.6.0 (2026-11-08)
 
