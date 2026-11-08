@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `examples/benchmark/check.sh`: before a release, label and train one fixed benchmark from scratch and fail
+  if the deployed student lost more than a point of accuracy, or labelling took 1.5 times as long, against its
+  saved reference.
 - The Python API's `Distiller` takes `few_shot` and `few_shot_similar`, as `label` does, and with gold labels
   in `fit` shows each text its 16 most similar gold-labelled texts by default (when the prompt has
   `{examples}`); `few_shot_similar=0` turns that off. The examples are part of the cache key, as on the command

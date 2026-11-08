@@ -94,4 +94,7 @@ scope for this project; please open an issue to discuss before working on anythi
 ## Releases
 
 Maintainers release by publishing a GitHub release tagged `vX.Y.Z` that matches the version in
-`pyproject.toml`; the release workflow builds the package and uploads it to PyPI.
+`pyproject.toml`; the release workflow builds the package and uploads it to PyPI. Before that, on a GPU,
+`examples/benchmark/check.sh` labels and trains one fixed benchmark from scratch (Banking77, a few minutes) and
+fails if the deployed student lost more than a point of accuracy or labelling took 1.5 times as long as its
+saved reference, as llama.cpp checks perplexity and speed before changes go in.
