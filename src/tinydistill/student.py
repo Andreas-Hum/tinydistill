@@ -228,6 +228,7 @@ def train_student(
     warmup_pairs: int = 0,
     warmup_epochs: int = 1,
     warmup_confidence: float = 0.9,
+    on_epoch: Callable[[list[dict]], None] | None = None,
 ) -> int:
     """Train and save the student; returns the epoch whose model is saved. With ``val_share`` > 0 that share
     of the texts is held out (texts without gold labels when there is a teacher), the loss on them is measured
@@ -242,7 +243,8 @@ def train_student(
     trimmed. ``warmup_pairs`` > 0: before distillation (and before ``init_head``), train the encoder with
     :func:`contrastive_warmup` for ``warmup_epochs`` on that many :func:`contrastive_pairs` of the training
     texts (not the held-out ones) with a class: the gold label where there is one, else the teacher's top
-    label where its probability is at least ``warmup_confidence``. Single-label tasks only."""
+    label where its probability is at least ``warmup_confidence``. Single-label tasks only. ``on_epoch``:
+    called after every epoch with the history so far (one dict per epoch: its loss, and held-out loss)."""
     if warmup_pairs < 0 or (warmup_pairs and multi_label):
         raise ValueError(f"warmup_pairs must be 0 or more, and 0 for a multi-label task: {warmup_pairs}")
     torch.manual_seed(seed)
@@ -368,6 +370,8 @@ def train_student(
                 best_loss, best_epoch = v, epoch + 1
                 best_state = {k: t.detach().clone() for k, t in model.state_dict().items()}
         log(f"{line} ({time.perf_counter() - t0:.0f}s)")
+        if on_epoch:
+            on_epoch(history)
         if val and epoch + 1 - best_epoch >= patience:
             log(f"no improvement on the held-out texts for {patience} epochs: stopping")
             break

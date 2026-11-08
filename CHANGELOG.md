@@ -9,6 +9,9 @@
 - `label --probe-layer L`: the probe reads the output of the teacher's layer L instead of the input of its LM
   head; that layer's states are cached in a file of their own. `examples/teachers-2026/probe-layers.sh` sweeps
   the layers with `--probe-only`.
+- `status RUN --live` and `run --live`: a page on `http://127.0.0.1` that follows a run as it goes (the stage
+  and time left, the stages done, the training loss per epoch, the results). Runs now also write
+  `status-log.jsonl` (the stages done) and `history-live.json` (the loss per epoch so far).
 - `train` notes when the training texts do not look English to the student's tokenizer (under 8% common English
   words and over 1.5 of its tokens per word) and suggests a multilingual student.
 - Docs: the training guide's Danish numbers include the newer teachers.

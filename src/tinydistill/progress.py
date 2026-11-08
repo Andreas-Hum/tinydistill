@@ -55,6 +55,17 @@ class Progress:
     def finish(self) -> None:
         self.log(self.line(final=True))
         self._write(final=True)
+        if self.status is not None:  # the stages done, for the live page (status --live)
+            record = {
+                "stage": self.stage,
+                "done": self.done,
+                "total": self.total,
+                "unit": self.unit,
+                "seconds": round(time.perf_counter() - self.t0, 1),
+                "finished": datetime.now(UTC).isoformat(timespec="seconds"),
+            }
+            with self.status.with_name("status-log.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
 
     def rate(self) -> float:
         elapsed = time.perf_counter() - self.t0

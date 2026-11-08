@@ -124,7 +124,7 @@ Banking77 splits are sorted by intent, so a limited run only sees a few intents.
 | `tinydistill web RUN/onnx --out site` | a static page that runs the model in the browser |
 | `tinydistill push RUN/onnx --repo user/name` | uploads the model to the Hugging Face Hub with a model card |
 | `tinydistill synth TASK.yaml --per-label N --out texts.jsonl` | has the teacher write unlabelled example texts |
-| `tinydistill status RUN` | how far a running step is, and whether it is still running |
+| `tinydistill status RUN` | how far a running step is, and whether it is still running (`--live`: a page in the browser that follows it) |
 | `tinydistill tune TASK.yaml --data D --teacher a,b --few-shot 0,8` | compares teacher setups on a dev split |
 | `tinydistill analyse RUN` | an error-analysis page: weakest labels, common confusions |
 | `tinydistill suggest RUN --n 200 --out to_label.jsonl` | the texts most worth labelling by hand next |
@@ -140,6 +140,8 @@ teacher at all). See `tinydistill <command> --help`.
 
 Long steps print their progress, speed and time left every few seconds and write it to `RUN/status.json`;
 `tinydistill status RUN` reads it from another terminal and tells you whether the process is still alive.
+With `--live` (also on `run`) it serves a page on `http://127.0.0.1` that follows the run: the stage and time
+left, the stages done, the training loss per epoch and the results once they are written.
 
 ## Results
 

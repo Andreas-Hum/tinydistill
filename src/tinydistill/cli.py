@@ -695,6 +695,19 @@ def cmd_train(a: argparse.Namespace) -> None:
             f"{a.student}; label again with --chunk-tokenizer {a.student} if they count tokens differently"
         )
     kept: dict[str, list[int]] = {}
+    live: dict[str, list[dict]] = {}  # per training, its loss per epoch so far (for status --live)
+    live_file = run / "history-live.json"
+    live_file.unlink(missing_ok=True)
+
+    def epochs_of(name: str):
+        def write(history: list[dict]) -> None:
+            live[name] = list(history)
+            tmp = live_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(live), encoding="utf-8")
+            tmp.replace(live_file)
+
+        return write
+
     for i in range(a.seeds):
         seed = a.seed + i
         out = run if i == 0 else run / "seeds" / str(seed)
@@ -711,6 +724,7 @@ def cmd_train(a: argparse.Namespace) -> None:
                 a.ce_weight,
                 *hp,
                 on_step=bar.update,
+                on_epoch=epochs_of(f"student, seed {seed}"),
                 warmup_pairs=a.warmup_pairs,
                 warmup_epochs=a.warmup_epochs,
                 warmup_confidence=a.warmup_confidence,
@@ -730,6 +744,7 @@ def cmd_train(a: argparse.Namespace) -> None:
                     0.0,
                     *hp,
                     on_step=bar.update,
+                    on_epoch=epochs_of(f"gold only, seed {seed}"),
                     **sel,
                 )
             )
@@ -746,6 +761,7 @@ def cmd_train(a: argparse.Namespace) -> None:
                     0.0,
                     *hp,
                     on_step=bar.update,
+                    on_epoch=epochs_of(f"upper bound, seed {seed}"),
                     **sel,
                 )
             )
@@ -1585,7 +1601,19 @@ def cmd_improve(a: argparse.Namespace) -> None:
 def cmd_status(a: argparse.Namespace) -> None:
     from .progress import describe_status
 
-    print(describe_status(Path(a.run) / "status.json"))
+    if not a.live:
+        print(describe_status(Path(a.run) / "status.json"))
+        return
+    import threading
+
+    from .live import serve
+
+    serve(Path(a.run), a.live_port, not a.no_browser)
+    log("watching the run; Ctrl+C stops the page, not the run")
+    try:
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        pass
 
 
 def cmd_env(a: argparse.Namespace) -> None:
@@ -1637,6 +1665,12 @@ def cmd_run(a: argparse.Namespace) -> None:
     import torch
 
     a.run = a.out
+    Path(a.out).mkdir(parents=True, exist_ok=True)
+    (Path(a.out) / "status-log.jsonl").unlink(missing_ok=True)  # a new run: no stages done yet
+    if a.live:
+        from .live import serve
+
+        serve(Path(a.out), a.live_port, not a.no_browser)
     if a.budget:
         _budget_rounds(a)
         if a.dry_run:
@@ -2202,15 +2236,32 @@ def build_parser() -> argparse.ArgumentParser:
         "members disagree most. Training is not changed",
     )
     ana.set_defaults(fn=cmd_analyse)
+    live = argparse.ArgumentParser(add_help=False)
+    live.add_argument(
+        "--live",
+        action="store_true",
+        help="also serve a page on http://127.0.0.1 that shows the run as it goes (stage, time left, loss "
+        "per epoch, results) and open it in the browser",
+    )
+    live.add_argument(
+        "--live-port",
+        type=int,
+        default=8765,
+        metavar="P",
+        help="the live page's port (default 8765, or the next free one)",
+    )
+    live.add_argument("--no-browser", action="store_true", help="with --live: do not open the browser")
     sub.add_parser(
-        "status", parents=[run_dir], help="how far a run is, and whether it is still running"
+        "status",
+        parents=[run_dir, live],
+        help="how far a run is, and whether it is still running (--live: a page that follows it)",
     ).set_defaults(fn=cmd_status)
     cmp = sub.add_parser("compare", help="one markdown table comparing several runs (e.g. student sizes)")
     cmp.add_argument("runs", nargs="+", help="run directories or results.json files")
     cmp.set_defaults(fn=cmd_compare)
     sub.add_parser("env", help="versions and hardware, for bug reports").set_defaults(fn=cmd_env)
     rn = sub.add_parser(
-        "run", parents=[label, train, gold, export, ev, common], help="label, train, export and eval"
+        "run", parents=[label, train, gold, export, ev, common, live], help="label, train, export and eval"
     )
     rn.add_argument(
         "--budget",

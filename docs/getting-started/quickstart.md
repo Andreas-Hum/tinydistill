@@ -56,6 +56,8 @@ tinydistill run task.yaml \
 | Evaluate | `tinydistill eval` | `run/results.md`: accuracy, latency and size of teacher and student |
 
 Long steps print their progress and time left, and `tinydistill status run` shows it from another terminal.
+`tinydistill run ... --live`, or `tinydistill status run --live` for a run already going, opens a page in the
+browser that follows it: the stage and time left, the stages done, the loss per epoch and, at the end, the results.
 
 !!! tip "No GPU?"
     For a quick look on a CPU, use a smaller teacher and fewer texts:

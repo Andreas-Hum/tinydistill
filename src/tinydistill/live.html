@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tinydistill live</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface-0: #f4f3f0;
+  --surface-1: #fcfcfb;
+  --border: #e2e1dc;
+  --grid: #ecebe7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #77766f;
+  --track: #e8e7e2;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
+  --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --border: #2f2f2c; --grid: #262624;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86; --track: #2c2c29;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211; --surface-1: #1a1a19; --border: #2f2f2c; --grid: #262624;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86; --track: #2c2c29;
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+  --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--surface-0); color: var(--text-primary);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 0 0 12px; color: var(--text-secondary); font-weight: 600; }
+.run { color: var(--text-muted); font-size: 13px; word-break: break-all; margin-bottom: 20px; }
+.card {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px; margin-bottom: 16px;
+}
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.stage { font-size: 17px; font-weight: 600; margin: 8px 0; }
+.meter { height: 10px; border-radius: 5px; background: var(--track); overflow: hidden; margin: 8px 0; }
+.meter > div { height: 100%; background: var(--series-1); border-radius: 5px; transition: width .4s; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 20px; color: var(--text-secondary); font-size: 13px; }
+.facts b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+th { color: var(--text-secondary); font-weight: 600; }
+td.n, th.n { text-align: right; }
+.empty { color: var(--text-muted); font-size: 13px; }
+.scroll { overflow-x: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 14px; height: 2px; display: inline-block; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart text { fill: var(--text-muted); font-size: 11px; }
+.tip {
+  position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  display: none; white-space: nowrap;
+}
+details { margin-top: 10px; font-size: 13px; }
+summary { cursor: pointer; color: var(--text-secondary); }
+.note { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>tinydistill live</h1>
+  <div class="run" id="run">connecting...</div>
+
+  <section class="card" aria-live="polite">
+    <div class="pill" id="pill"><span class="dot"></span><span>waiting</span></div>
+    <div class="stage" id="stage">no status yet</div>
+    <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="meter"><div style="width:0"></div></div>
+    <div class="facts" id="facts"></div>
+  </section>
+
+  <section class="card">
+    <h2>Training loss per epoch</h2>
+    <div id="legend" class="legend"></div>
+    <div class="chart" id="chart"><div class="empty">no epoch finished yet</div></div>
+    <details><summary>As a table</summary><div class="scroll" id="losstable"></div></details>
+  </section>
+
+  <section class="card">
+    <h2>Stages done</h2>
+    <div class="scroll" id="stages"><div class="empty">none yet</div></div>
+  </section>
+
+  <section class="card">
+    <h2>Results</h2>
+    <div class="scroll" id="results"><div class="empty">written when the run is evaluated</div></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+function dur(s) {
+  s = Math.round(s);
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m" + String(s % 60).padStart(2, "0") + "s";
+  return Math.floor(s / 3600) + "h" + String(Math.floor(s % 3600 / 60)).padStart(2, "0") + "m";
+}
+const num = (x, d = 3) => x == null ? "" : Number(x).toFixed(d);
+
+function pill(kind, text) {
+  const color = {running: "var(--good)", finished: "var(--text-muted)", stopped: "var(--critical)",
+                 lost: "var(--warning)"}[kind];
+  $("pill").innerHTML = `<span class="dot" style="background:${color}"></span><span>${esc(text)}</span>`;
+}
+
+function showStatus(s) {
+  if (!s) { pill("finished", "waiting"); $("stage").textContent = "no status yet"; return; }
+  const pct = s.total ? Math.min(100, 100 * s.done / s.total) : null;
+  if (s.finished) pill("finished", "finished");
+  else if (s.alive) pill("running", "running, pid " + s.pid);
+  else pill("stopped", "stopped without finishing");
+  $("stage").textContent = s.stage;
+  const bar = $("meter");
+  bar.firstElementChild.style.width = (pct ?? (s.finished ? 100 : 0)) + "%";
+  bar.setAttribute("aria-valuenow", Math.round(pct ?? 0));
+  const facts = [
+    [s.done.toLocaleString() + (s.total ? " / " + s.total.toLocaleString() : ""), s.unit],
+    pct != null ? [pct.toFixed(0) + "%", "done"] : null,
+    [s.rate_per_s, s.unit + " per second"],
+    s.eta_s != null && !s.finished && s.alive ? [dur(s.eta_s), "left"] : null,
+    [dur(s.age_s), "since the last update"],
+  ].filter(Boolean);
+  $("facts").innerHTML = facts.map(([v, l]) => `<span><b>${esc(v)}</b> ${esc(l)}</span>`).join("");
+}
+
+function showStages(stages) {
+  if (!stages.length) { $("stages").innerHTML = '<div class="empty">none yet</div>'; return; }
+  $("stages").innerHTML = "<table><tr><th>Stage</th><th class=n>Amount</th><th class=n>Time</th></tr>" +
+    stages.map(s => `<tr><td>${esc(s.stage)}</td><td class=n>${s.done.toLocaleString()} ${esc(s.unit)}</td>` +
+      `<td class=n>${dur(s.seconds)}</td></tr>`).join("") + "</table>";
+}
+
+function showResults(models) {
+  if (!models) return;
+  $("results").innerHTML = "<table><tr><th>Model</th><th class=n>Accuracy</th><th class=n>Macro-F1</th>" +
+    "<th class=n>Latency, batch 1</th><th class=n>Size</th></tr>" +
+    models.map(m => `<tr><td>${esc(m.name)} <span class=empty>(${esc(m.device || "")})</span></td>` +
+      `<td class=n>${num(m.accuracy)}${m.accuracy_std ? " ± " + num(m.accuracy_std) : ""}</td>` +
+      `<td class=n>${num(m.macro_f1)}</td><td class=n>${m.latency_ms_b1 == null ? "" : num(m.latency_ms_b1, 1) + " ms"}</td>` +
+      `<td class=n>${m.size_mb == null ? "" : Math.round(m.size_mb) + " MB"}</td></tr>`).join("") + "</table>";
+}
+
+// the loss chart: one line per training (series slots in a fixed order), held-out loss dashed in its colour
+let series = [];
+function showHistory(history) {
+  const keys = Object.keys(history);
+  if (!keys.length) return;
+  series = keys.slice(0, 8).map((k, i) => ({key: k, color: `var(--series-${i + 1})`, epochs: history[k]}));
+  const folded = keys.length - series.length;
+  $("legend").innerHTML = series.length > 1 ? series.map(s =>
+    `<span><i class="swatch" style="background:${s.color}"></i>${esc(s.key)}</span>`).join("") : "";
+  const W = 880, H = 260, L = 48, R = 12, T = 10, B = 28;
+  const all = series.flatMap(s => s.epochs.flatMap(e => [e.loss, e.held_out_loss].filter(v => v != null)));
+  const maxE = Math.max(...series.map(s => s.epochs.length), 2);
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
+  // round ticks: about four steps of 1, 2, 2.5 or 5 times a power of ten
+  const raw = (hi - lo) / 4, mag = 10 ** Math.floor(Math.log10(raw));
+  const tick = [1, 2, 2.5, 5, 10].map(m => m * mag).find(t => t >= raw);
+  lo = Math.max(0, Math.floor(lo / tick) * tick); hi = Math.ceil(hi / tick) * tick;
+  const x = e => L + (e - 1) / (maxE - 1) * (W - L - R), y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="training loss per epoch">`;
+  for (let v = lo; v <= hi + tick / 2; v += tick) {
+    const yy = y(v);
+    svg += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="var(--grid)" stroke-width="1"/>` +
+      `<text x="${L - 6}" y="${yy + 4}" text-anchor="end">${+v.toFixed(6)}</text>`;
+  }
+  const step = Math.max(1, Math.ceil(maxE / 10));
+  for (let e = 1; e <= maxE; e += step) svg += `<text x="${x(e)}" y="${H - 8}" text-anchor="middle">${e}</text>`;
+  for (const s of series) {
+    for (const [field, dash] of [["loss", ""], ["held_out_loss", ' stroke-dasharray="5 4"']]) {
+      const pts = s.epochs.filter(e => e[field] != null).map(e => `${x(e.epoch)},${y(e[field])}`);
+      if (!pts.length) continue;
+      svg += `<polyline points="${pts.join(" ")}" fill="none" stroke="${s.color}" stroke-width="2"` +
+        ` stroke-linejoin="round" stroke-linecap="round"${dash}/>`;
+      const last = pts[pts.length - 1].split(",");
+      svg += `<circle cx="${last[0]}" cy="${last[1]}" r="4" fill="${s.color}" stroke="var(--surface-1)" stroke-width="2"/>`;
+    }
+  }
+  svg += `<line id="cross" y1="${T}" y2="${H - B}" stroke="var(--text-muted)" stroke-width="1" visibility="hidden"/>`;
+  svg += `<rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" id="hit"/></svg>`;
+  $("chart").innerHTML = svg + '<div class="tip" id="tip"></div>' +
+    (folded ? `<div class="note">${folded} more trainings in the table below</div>` : "") +
+    '<div class="note">Solid: training loss; dashed: held-out loss (with --val-share). Epoch on the x axis.</div>';
+  const svgEl = $("chart").querySelector("svg"), tip = $("tip"), cross = $("cross");
+  $("hit").addEventListener("mousemove", ev => {
+    const box = svgEl.getBoundingClientRect(), sx = (ev.clientX - box.left) / box.width * W;
+    const e = Math.min(maxE, Math.max(1, Math.round(1 + (sx - L) / (W - L - R) * (maxE - 1))));
+    cross.setAttribute("x1", x(e)); cross.setAttribute("x2", x(e)); cross.setAttribute("visibility", "visible");
+    const rows = series.map(s => [s, s.epochs.find(r => r.epoch === e)]).filter(([, r]) => r);
+    if (!rows.length) { tip.style.display = "none"; return; }
+    tip.innerHTML = `<b>epoch ${e}</b><br>` + rows.map(([s, r]) =>
+      `<i class="swatch" style="background:${s.color}"></i> ${esc(s.key)}: ${num(r.loss, 4)}` +
+      (r.held_out_loss != null ? `, held out ${num(r.held_out_loss, 4)}` : "")).join("<br>");
+    tip.style.display = "block";
+    const px = (x(e) / W) * box.width, left = px + 12 + tip.offsetWidth > box.width ? px - tip.offsetWidth - 12 : px + 12;
+    tip.style.left = left + "px"; tip.style.top = "8px";
+  });
+  $("hit").addEventListener("mouseleave", () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+  $("losstable").innerHTML = "<table><tr><th>Training</th><th class=n>Epoch</th><th class=n>Loss</th>" +
+    "<th class=n>Held-out loss</th></tr>" + keys.flatMap(k => history[k].map(e =>
+      `<tr><td>${esc(k)}</td><td class=n>${e.epoch}</td><td class=n>${num(e.loss, 4)}</td>` +
+      `<td class=n>${num(e.held_out_loss, 4)}</td></tr>`)).join("") + "</table>";
+}
+
+async function poll() {
+  try {
+    const r = await fetch("/state", {cache: "no-store"});
+    const st = await r.json();
+    $("run").textContent = st.run;
+    document.title = (st.status ? st.status.stage + " - " : "") + "tinydistill live";
+    showStatus(st.status); showStages(st.stages); showHistory(st.history); showResults(st.results);
+  } catch (e) {
+    pill("lost", "the page's server stopped (it ends with the run that started it)");
+  }
+  setTimeout(poll, 2000);
+}
+poll();
+</script>
+</body>
+</html>
