@@ -1,5 +1,5 @@
-"""int8 with one scale per weight matrix (tinydistill up to 0.7) against one scale per output channel (from
-0.8): test accuracy and CPU latency (batch 1, 2 threads) of each, and of fp32, for exported runs. Both int8
+"""int8 with one scale per weight matrix (tinydistill up to 0.7.0) against one scale per output channel (from
+0.7.1): test accuracy and CPU latency (batch 1, 2 threads) of each, and of fp32, for exported runs. Both int8
 models are made here from the run's fp32 ONNX model, so the comparison does not depend on the version that
 exported the run.
 

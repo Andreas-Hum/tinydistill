@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.1 (2026-11-09)
 
 - int8 export (`export --int8`, `run --int8`, the explainer and web models) quantises each weight matrix with one
   scale per output channel instead of one per matrix. On five tasks the int8 student stayed within 0.004 of the

@@ -33,4 +33,4 @@ __all__ = [
     "read_examples",
     "train_student",
 ]
-__version__ = "0.7.0"
+__version__ = "0.7.1"
