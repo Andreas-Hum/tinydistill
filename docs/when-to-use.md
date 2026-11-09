@@ -20,6 +20,7 @@ student, the times the labelling on an RTX 4090.
 | About 8 gold labels per class and a GPU | `--gold-per-class 8`: with `{examples}` in the prompt, each text's 16 most similar of them in the prompt, and the probe alone as the teacher, both by default | Banking77 0.869 in 11.5 min (Qwen2.5-7B); CLINC150 0.851 in 37 min (Gemma 4 12B) |
 | The same, and hours of labelling are fine | the same with `--probe`: the teacher also scores every label | Banking77 0.872 in 35 min; CLINC150 0.859 in 7.2 hours |
 | Minutes, not hours | `--gold-per-class 8 --few-shot-similar 0`, no examples in the prompt | Banking77 0.824 in 74 seconds |
+| The teacher far above its student (CLINC150: 0.941 against 0.860) | a larger student, `--student sentence-transformers/all-mpnet-base-v2` (or `train RUN --out NEW` on the same labels); check its fp32 export against int8 | CLINC150 0.902 deployed, against 0.859, at 7 ms per text instead of 0.8 |
 | Many labels | `--shortlist 20` (and `--shortlist-keep` for an "other" label) | CLINC150, 151 labels: labelling six times faster, and more accurate |
 | Texts not in English | a multilingual student with `--trim-vocab` (`train` suggests it) | Danish MASSIVE 0.815, against 0.763 for the English student on the same labels |
 | No gold labels at all | a zero-shot ensemble of model families | financial tweets 0.829 |

@@ -1015,6 +1015,46 @@ layer -12 against 0.891). Nearer the middle the probe falls far behind on every 
 the furthest layer measured). The default stays the LM head's input; with `--probe-only` a few layers can be
 compared in minutes per task.
 
+## A larger student: when the teacher is far ahead
+
+Every run above trains MiniLM-L6 (23M parameters). `train --out` trains another student on a run's labels
+without running the teacher again. On CLINC150, where Gemma 4 12B with the probe is far above its student
+(0.941 against 0.860), [`examples/clinc150/students.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/clinc150/students.sh)
+trains MiniLM-L12 and mpnet-base on the same labels:
+
+<!-- results: clinc150/students/summary.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| clinc150-gemma4-12b-similar16-probe | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.941 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.860 ± 0.005 | 0.898 ± 0.004 | 0.870 ± 0.004 | ONNX int8 | 0.8 | 22.4 | 23 |
+| all-MiniLM-L12-v2 | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.941 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.872 ± 0.006 | 0.907 ± 0.003 | 0.880 ± 0.006 | ONNX int8 | 2.1 | 42.6 | 34 |
+| all-mpnet-base-v2 | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.941 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.894 ± 0.005 | 0.921 ± 0.003 | 0.905 ± 0.003 | ONNX int8 | 7.2 | 131.2 | 110 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+mpnet-base closes 0.034 of the 0.081 gap: 0.894 (0.902 deployed in int8, against 0.859), for 7 ms per text on a CPU
+instead of 0.8. On the other tasks, whose students already match or beat their teachers,
+[`examples/students/mpnet.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/students/mpnet.sh)
+trains mpnet on each task's best labels:
+
+<!-- results: students/mpnet.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| banking77-7b-similar16-probe | 16 similar examples, 4-bit, probe `Qwen/Qwen2.5-7B-Instruct` | 0.859 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.875 ± 0.001 | 0.875 ± 0.001 | 0.890 ± 0.001 | ONNX int8 | 1.0 | 33.7 | 23 |
+| banking77-mpnet | 16 similar examples, 4-bit, probe `Qwen/Qwen2.5-7B-Instruct` | 0.859 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.882 ± 0.001 | 0.882 ± 0.001 | 0.898 ± 0.003 | ONNX int8 | 7.4 | 198.6 | 110 |
+| hwu64-gemma4-12b-similar16 | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.877 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.894 ± 0.005 | 0.893 ± 0.004 | 0.893 ± 0.003 | ONNX int8 | 0.8 | 21.7 | 23 |
+| hwu64-mpnet | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.877 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.891 ± 0.002 | 0.891 ± 0.001 | 0.904 ± 0.002 | ONNX int8 | 5.3 | 113.8 | 110 |
+| paraphrase-multilingual-MiniLM-L12-v2-trimmed-gemma4-12b-similar16-probe | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.808 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 24 | 0.815 ± 0.002 | 0.782 ± 0.005 | 0.849 ± 0.002 | ONNX int8 | 2.0 | 41.9 | 24 |
+| massive-da-multilingual-mpnet | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.808 | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | 90 | 0.818 ± 0.004 | 0.793 ± 0.004 | 0.861 ± 0.003 | ONNX int8 | 5.6 | 119.5 | 91 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+Here mpnet gains less than a point (Banking77 0.882 against 0.875, Danish 0.818 against 0.815) or nothing
+(HWU64 0.891 against 0.894), and its int8 export loses accuracy on two of them (Banking77 0.868 and HWU64 0.864,
+against 0.882 and 0.891 for the fp32 export), so check the fp32 row before deploying it in int8. A larger
+student pays when the teacher is well above the student, and otherwise the teacher is the limit.
+
 ## A vLLM teacher agrees with the local one
 
 [`examples/vllm-smoke.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/vllm-smoke.sh)

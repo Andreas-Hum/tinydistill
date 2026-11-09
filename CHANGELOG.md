@@ -11,6 +11,9 @@
   (`probe_only=None`, the default; `probe_only=False` for the earlier behaviour).
 - `train RUN --out NEW` trains in a new run directory with a copy of RUN's labels and settings, so RUN keeps
   its student: to compare students on the same labels without running the teacher again.
+- RESULTS.md: a larger student (mpnet-base) on each task's best labels. On CLINC150, where the teacher is far
+  above its student, it reaches 0.902 deployed against 0.859; elsewhere it gains less than a point, and its int8
+  export can lose accuracy (`examples/clinc150/students.sh`, `examples/students/mpnet.sh`).
 - The example scripts that ran without the probe now say `--no-probe`, and the HWU64 run that scores every
   label says `--probe`, so they reproduce their saved results.
 - The HWU64 student is on the Hub (`Shroomy/tinydistill-hwu64-minilm`) and in the demo's model picker.
