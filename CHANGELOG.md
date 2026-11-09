@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `export RUN --labels FILE` (`.csv` or `.jsonl`) writes the run's training texts with their gold labels and
+  the teacher's labels and probabilities, as a dataset to use elsewhere.
 - `predict --out FILE.csv` writes the predictions as a CSV file: every column of the `--data` file, then the
   predicted label and its confidence (multi-label: the labels and one score column per label). A missing
   text column now says to name it with `--text-field`, and CSV files with a byte order mark (as spreadsheet

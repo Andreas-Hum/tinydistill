@@ -1027,8 +1027,54 @@ def cmd_export(a: argparse.Namespace) -> None:
     from .export import export_onnx
 
     run = Path(a.run)
+    if getattr(a, "labels", None):  # run, refresh and improve export without the option
+        _write_labels(run, Path(a.labels))
+        return
     for p in export_onnx(run / "student", run / "onnx", int8=a.int8):
         log(f"wrote {p} ({p.stat().st_size / 1e6:.1f} MB)")
+
+
+def _write_labels(run: Path, path: Path) -> None:
+    """The run's training texts as a dataset (CSV or JSONL, by the extension of ``path``): the text, its gold
+    label (empty if it has none) and the teacher's label, as the `teacher_*` columns of `predict --out`, with
+    every label's probability as training computes it (softmax of the scores; multi-label: sigmoid)."""
+    import torch
+
+    if path.suffix not in (".csv", ".jsonl"):
+        raise SystemExit("--labels writes a .csv or .jsonl file: give a path ending in one of them")
+    task = load_task(run / "task.yaml")
+    train = _read_jsonl(run / "train.jsonl")
+    if not train:
+        raise SystemExit(f"{run}/train.jsonl is missing or empty: run `tinydistill label` first")
+    scores = torch.tensor([r["scores"] for r in train], dtype=torch.float64)
+    probs = (scores.sigmoid() if task.multi_label else scores.softmax(-1)).float().tolist()
+    rows, results = [], []
+    for r, p in zip(train, probs, strict=True):
+        row: dict[str, Any] = {task.text_field: r["text"]}
+        if task.label_field:
+            g = r["gold"]
+            if task.multi_label and g is not None:  # "|" as gold labels are read, a list in JSONL
+                names = [task.labels[i] for i in g]
+                g = "|".join(names) if path.suffix == ".csv" else names
+            elif g is not None:
+                g = task.labels[g]
+            row[task.label_field] = g
+        rows.append(row)
+        result: dict[str, Any] = {"scores": {lab: round(x, 4) for lab, x in zip(task.labels, p, strict=True)}}
+        if task.multi_label:
+            result = {"labels": [lab for lab, x in zip(task.labels, p, strict=True) if x >= 0.5]} | result
+        else:
+            best = max(range(len(p)), key=p.__getitem__)
+            result = {"label": task.labels[best], "confidence": round(p[best], 4)} | result
+        results.append(result)
+    if path.suffix == ".csv":
+        _write_predictions(path, rows, results, prefix="teacher_")
+    else:
+        with path.open("w", encoding="utf-8") as f:
+            for row, result in zip(rows, results, strict=True):
+                cells = row | {f"teacher_{k}": v for k, v in result.items()}
+                f.write(json.dumps(cells, ensure_ascii=False) + "\n")
+    log(f"wrote {len(rows)} texts with the teacher's labels to {path.as_posix()}")
 
 
 def cmd_eval(a: argparse.Namespace) -> None:
@@ -1381,9 +1427,10 @@ def cmd_predict(a: argparse.Namespace) -> None:
         print(json.dumps({"text": t, **r}, ensure_ascii=False))
 
 
-def _write_predictions(path: Path, rows: list[dict], results: list[dict]) -> None:
-    """Each input row with its prediction added as `predicted_*` columns (so a gold `label` column stays): the
-    label and confidence, or (multi-label) the labels joined by "|" and one column per label's score."""
+def _write_predictions(path: Path, rows: list[dict], results: list[dict], prefix: str = "predicted_") -> None:
+    """Each input row with its prediction added as `predicted_*` columns (``prefix``; a gold `label` column
+    stays): the label and confidence, or (multi-label) the labels joined by "|", and one column per label's
+    score if the prediction has them."""
     import csv
 
     out = []
@@ -1391,11 +1438,11 @@ def _write_predictions(path: Path, rows: list[dict], results: list[dict]) -> Non
         cells = dict(row)
         for k, v in r.items():
             if isinstance(v, dict):
-                cells |= {f"predicted_{k}_{label}": x for label, x in v.items()}
+                cells |= {f"{prefix}{k}_{label}": x for label, x in v.items()}
             elif isinstance(v, list):
-                cells[f"predicted_{k}"] = "|".join(v)
+                cells[f"{prefix}{k}"] = "|".join(v)
             else:
-                cells[f"predicted_{k}"] = v
+                cells[f"{prefix}{k}"] = v
         out.append(cells)
     with path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, list(dict.fromkeys(k for cells in out for k in cells)))
@@ -2483,9 +2530,15 @@ def build_parser() -> argparse.ArgumentParser:
         "compare students on the same labels); then export and eval DIR",
     )
     train_cmd.set_defaults(fn=cmd_train)
-    sub.add_parser(
-        "export", parents=[run_dir, export, common], help="export the student to ONNX"
-    ).set_defaults(fn=cmd_export)
+    exp = sub.add_parser("export", parents=[run_dir, export, common], help="export the student to ONNX")
+    exp.add_argument(
+        "--labels",
+        metavar="FILE",
+        help="instead of the student, write the teacher's labels of the training texts as a dataset (.csv or "
+        ".jsonl): each text, its gold label if it has one, the teacher's label, confidence and every label's "
+        "probability",
+    )
+    exp.set_defaults(fn=cmd_export)
     sub.add_parser("eval", parents=[run_dir, ev, common], help="quality and speed table").set_defaults(
         fn=cmd_eval
     )

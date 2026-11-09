@@ -28,6 +28,17 @@ from tinydistill import Predictor
 Predictor("RUN/onnx").describe(["some text"])
 ```
 
+### The teacher's labels as a dataset
+
+`tinydistill export RUN --labels labels.csv` (or `labels.jsonl`) writes the training texts with the teacher's
+labels instead of the student, to open in a spreadsheet, train another model or publish as a dataset. Each row
+has the text and its gold label (empty if it has none) under the task's `text_field` and `label_field`, so the
+file reads back as `--data`; then `teacher_label`, `teacher_confidence` and one `teacher_scores_<label>` column
+per label. The probabilities are the soft targets `train` uses: the softmax of the teacher's scores in
+`RUN/train.jsonl`, or for a multi-label task each label's sigmoid, with `teacher_labels` the labels above 0.5.
+In JSONL the scores are one object and multi-label labels are lists. Check the teacher's and the data's
+licences before you publish it.
+
 ## HTTP server
 
 `tinydistill serve RUN/onnx` answers `POST /predict` with `{"texts": [...]}` and `GET /health`, using only the

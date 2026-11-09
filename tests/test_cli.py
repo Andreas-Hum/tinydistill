@@ -1320,6 +1320,66 @@ def test_analyse_review_lists_gold_contradictions_then_divided_ensembles(tmp_pat
     assert not (run / "analysis.html").exists()
 
 
+def test_export_labels_writes_the_teachers_labels_as_a_dataset(tmp_path):
+    import csv
+    import math
+
+    from tinydistill.data import read_examples
+    from tinydistill.task import load_task
+
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "task.yaml").write_text(TASK)
+    rows = [
+        {"text": "so good", "gold": 0, "scores": [math.log(0.8), math.log(0.2)]},
+        {"text": "café, bad", "gold": None, "scores": [-3.0, -1e9]},  # outside the shortlist: probability 0
+    ]
+    write_jsonl(run / "train.jsonl", rows)
+    main(["export", str(run), "--labels", str(tmp_path / "labels.csv")])
+    with (tmp_path / "labels.csv").open(encoding="utf-8", newline="") as f:
+        got = list(csv.DictReader(f))
+    assert got == [
+        {
+            "review": "so good",
+            "sentiment": "pos",
+            "teacher_label": "pos",
+            "teacher_confidence": "0.8",
+            "teacher_scores_pos": "0.8",
+            "teacher_scores_neg": "0.2",
+        },
+        {
+            "review": "café, bad",
+            "sentiment": "",
+            "teacher_label": "pos",
+            "teacher_confidence": "1.0",
+            "teacher_scores_pos": "1.0",
+            "teacher_scores_neg": "0.0",
+        },
+    ]
+    assert not (run / "onnx").exists()
+    main(["export", str(run), "--labels", str(tmp_path / "labels.jsonl")])  # usable as --data again
+    examples = read_examples(str(tmp_path / "labels.jsonl"), load_task(run / "task.yaml"))
+    assert [(e.text, e.gold) for e in examples] == [("so good", 0), ("café, bad", None)]
+    with pytest.raises(SystemExit, match=r"\.csv or \.jsonl"):
+        main(["export", str(run), "--labels", str(tmp_path / "labels.txt")])
+
+    (run / "task.yaml").write_text(MULTI_TASK)  # multi-label: the labels above 0.5, every probability
+    write_jsonl(run / "train.jsonl", [{"text": "late and dear", "gold": [0, 1], "scores": [2.0, 0.5, -2.0]}])
+    main(["export", str(run), "--labels", str(tmp_path / "multi.jsonl")])
+    got = json.loads((tmp_path / "multi.jsonl").read_text(encoding="utf-8"))
+    assert got == {
+        "review": "late and dear",
+        "topics": ["price", "delivery"],
+        "teacher_labels": ["price", "delivery"],
+        "teacher_scores": {"price": 0.8808, "delivery": 0.6225, "quality": 0.1192},
+    }
+    main(["export", str(run), "--labels", str(tmp_path / "multi.csv")])
+    with (tmp_path / "multi.csv").open(encoding="utf-8", newline="") as f:
+        got = next(csv.DictReader(f))
+    assert got["topics"] == "price|delivery" and got["teacher_labels"] == "price|delivery"
+    assert got["teacher_scores_quality"] == "0.1192"
+
+
 def _label_twice(tmp_path, first: list[str]):
     """Label a run with the extra flags ``first``, then again into it without them; returns the run."""
     (tmp_path / "task.yaml").write_text(TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n"))

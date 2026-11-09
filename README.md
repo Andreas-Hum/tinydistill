@@ -116,7 +116,7 @@ Banking77 splits are sorted by intent, so a limited run only sees a few intents.
 | `tinydistill init DATA [--out task.yaml]` | writes a starter task file from a dataset's label names |
 | `tinydistill label TASK.yaml --data D [--test T] --out RUN` | teacher scores every label of every text; cached, resumable |
 | `tinydistill train RUN` | distils the student from the teacher's soft targets |
-| `tinydistill export RUN [--int8]` | writes `RUN/onnx` (ONNX, tokenizer, labels) |
+| `tinydistill export RUN [--int8]` | writes `RUN/onnx` (ONNX, tokenizer, labels); `--labels FILE.csv` writes the teacher's labels instead |
 | `tinydistill eval RUN` | writes `RUN/results.md` and `RUN/results.json` |
 | `tinydistill predict RUN/onnx TEXT... [--data FILE] [--out FILE.csv]` | classifies texts, prints JSON lines or writes a CSV |
 | `tinydistill compare RUN...` | one table comparing runs, e.g. teachers or student sizes |
