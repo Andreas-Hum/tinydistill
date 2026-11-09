@@ -622,7 +622,9 @@ in int8). The same student trained on the 512 gold labels alone reaches 0.639
 student of 0.894 (0.892 deployed), against 16 minutes for 0.891
 ([`hwu64-gemma4-12b-similar16.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/hwu64/hwu64-gemma4-12b-similar16.json)),
 and its teacher is no more accurate (0.877 against 0.879). As on the tuned tasks, the probe alone is the
-better trade.
+better trade. The 7.7-hour student is the
+[HWU64 model on the Hub](https://huggingface.co/Shroomy/tinydistill-hwu64-minilm) and in the
+[live demo](https://andreas-hum.github.io/tinydistill/demo/).
 
 Published few-shot results on HWU64, reported in the papers and not rerun, use 5 or 10 gold labels per class
 where this run uses 8, and larger models. With 5 and 10: CPFT 0.8203 and 0.8713 (Zhang et al. 2021, Table 2,

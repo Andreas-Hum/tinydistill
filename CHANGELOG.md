@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The HWU64 student is on the Hub (`Shroomy/tinydistill-hwu64-minilm`) and in the demo's model picker.
+
 ## 0.6.1 (2026-11-09)
 
 - Published few-shot results, read in the papers and not rerun: on Banking77, CPFT, SetFit and LLaMA-2 7B with
