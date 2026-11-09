@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-11-09)
 
 - With gold labels and a local teacher, the probe alone is now the teacher by default (`--probe-only`): the
   teacher scores no label and only gives the probe its hidden states, so labelling takes minutes instead of
