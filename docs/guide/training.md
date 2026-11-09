@@ -180,6 +180,16 @@ A window that starts inside a word can come to a token or two more than T when i
 at `--max-length`, the same way in training and prediction. `--gold-file` matches whole texts, so it does not
 reach the windows of a long document.
 
+## Another student on the same labels
+
+`train RUN --out NEW` trains in a new run directory with a copy of RUN's task, labels and settings, so RUN
+keeps its student, and the teacher is not run again. Export and evaluate the new run as usual:
+
+```sh
+tinydistill train run --student sentence-transformers/all-MiniLM-L12-v2 --out run-l12
+tinydistill export run-l12 --int8 && tinydistill eval run-l12
+```
+
 ## How long to train
 
 `--epochs` is the number of passes over the training texts (default 10). Training longer mattered more than a

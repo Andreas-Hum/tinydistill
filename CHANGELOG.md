@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `train RUN --out NEW` trains in a new run directory with a copy of RUN's labels and settings, so RUN keeps
+  its student: to compare students on the same labels without running the teacher again.
 - The HWU64 student is on the Hub (`Shroomy/tinydistill-hwu64-minilm`) and in the demo's model picker.
 
 ## 0.6.1 (2026-11-09)

@@ -1298,3 +1298,37 @@ def test_train_warmup_is_recorded_and_carried_over(tmp_path):
     (run / "task.yaml").write_text(multi)
     with pytest.raises(SystemExit, match="single-label"):
         main(["train", str(run), *common, "--warmup-pairs", "6"])
+
+
+def test_train_out_trains_a_new_run_and_leaves_the_old_one(tmp_path):
+    (tmp_path / "task.yaml").write_text(TASK)
+    rows = [
+        {"review": f"it was {w} {i}", "sentiment": s}
+        for i in range(3)
+        for w, s in [("good", "pos"), ("bad", "neg")]
+    ]
+    write_jsonl(tmp_path / "d.jsonl", rows)
+    run, new = tmp_path / "run", tmp_path / "new"
+    data = ["--data", str(tmp_path / "d.jsonl"), "--test", str(tmp_path / "d.jsonl")]
+    main(
+        [
+            "label",
+            str(tmp_path / "task.yaml"),
+            *data,
+            "--teacher",
+            TINY_LM,
+            "--device",
+            "cpu",
+            "--out",
+            str(run),
+        ]
+    )
+    before = sorted(p.name for p in run.iterdir())
+    train = ["--student", TINY_ENCODER, "--epochs", "1", "--device", "cpu"]
+    main(["train", str(run), *train, "--out", str(new)])
+    assert sorted(p.name for p in run.iterdir()) == before  # the old run is untouched
+    assert (new / "student" / "config.json").exists()
+    assert (new / "train.jsonl").read_bytes() == (run / "train.jsonl").read_bytes()
+    main(["export", str(new)])
+    with pytest.raises(SystemExit, match="not empty"):
+        main(["train", str(run), *train, "--out", str(new)])

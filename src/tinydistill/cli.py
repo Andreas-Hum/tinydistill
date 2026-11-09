@@ -769,6 +769,35 @@ def _seed_dirs(run: Path, name: str) -> list[Path]:
     return [p for p in [run / name, *extra] if p.exists()]
 
 
+# what train, export and eval write: not copied by train --out
+_RUN_OUTPUTS = {
+    "results.json",
+    "results.md",
+    "status.json",
+    "status-log.jsonl",
+    "history-live.json",
+    "labels-live.json",
+    "command.json",
+    "analysis.html",
+}
+
+
+def _copy_labels(run: Path, out: Path) -> Path:
+    """A new run directory ``out`` with ``run``'s task, labels and settings (its files, not its models)."""
+    import shutil
+
+    if not (run / "train.jsonl").exists():
+        raise SystemExit(f"{run}/train.jsonl is missing: run `tinydistill label` first")
+    if out.exists() and any(out.iterdir()):
+        raise SystemExit(f"--out {out} is not empty: give a new directory")
+    out.mkdir(parents=True, exist_ok=True)
+    for f in run.iterdir():
+        if f.is_file() and f.name not in _RUN_OUTPUTS:
+            shutil.copy2(f, out / f.name)
+    log(f"training in {out.as_posix()}, with the labels of {run.as_posix()}")
+    return out
+
+
 def cmd_train(a: argparse.Namespace) -> None:
     import shutil
 
@@ -779,6 +808,9 @@ def cmd_train(a: argparse.Namespace) -> None:
     from .teacher import pick_device
 
     run = Path(a.run)
+    if getattr(a, "train_out", None):  # train --out: a new run with RUN's labels, RUN keeps its student
+        run = _copy_labels(run, Path(a.train_out))
+        a.run = str(run)
     _live(a, run)
     task = load_task(run / "task.yaml")
     rows = _read_jsonl(run / "train.jsonl")
@@ -2355,9 +2387,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "label", parents=[label, gold, common, live], help="score every label with the teacher"
     ).set_defaults(fn=cmd_label)
-    sub.add_parser(
+    train_cmd = sub.add_parser(
         "train", parents=[run_dir, train, gold, common, live], help="distil the student"
-    ).set_defaults(fn=cmd_train)
+    )
+    train_cmd.add_argument(
+        "--out",
+        dest="train_out",
+        metavar="DIR",
+        help="train in a new run directory DIR with a copy of RUN's labels, so RUN keeps its student (to "
+        "compare students on the same labels); then export and eval DIR",
+    )
+    train_cmd.set_defaults(fn=cmd_train)
     sub.add_parser(
         "export", parents=[run_dir, export, common], help="export the student to ONNX"
     ).set_defaults(fn=cmd_export)
