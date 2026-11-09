@@ -663,7 +663,7 @@ rare types as much as the common ones, from 0.585 to 0.633, but not the student'
 runs.
 
 Published results on TREC-50, reported in the paper and not rerun, use the same 5,452 training and 500 test
-questions (Yehudai and Bendel 2024, Tables 1 and 7, [arXiv 2404.12365](https://arxiv.org/abs/2404.12365)). With
+questions (Yehudai and Bandel 2024, Tables 1 and 7, [arXiv 2404.12365](https://arxiv.org/abs/2404.12365)). With
 5 and 10 gold labels per class: FastFit 80.3 and 84.1 with MPNet, 84.8 and 88.0 with RoBERTa large; SetFit 79.5
 and 83.7, and 83.9 and 86.4; a classifier fine-tuned on the gold labels 63.4 and 78.0, and 73.3 and 86.8. The
 student's 0.780 with 8 is below FastFit and SetFit with 5. Here the teacher itself (0.730) is below what these
