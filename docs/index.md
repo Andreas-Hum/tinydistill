@@ -54,41 +54,26 @@ clf.describe(["I still haven't received my new card", "My card got stolen"])
 ## How it fits together
 
 ```mermaid
-flowchart TB
-    A["Task file<br/>prompt and labels"]
-    U["Unlabelled texts<br/>yours, or from synth"]
-    K["About 8 gold labels<br/>per class (optional)"]
-    subgraph LABEL["1 · label: the teacher"]
-        R["Each text's 16 most<br/>similar gold examples"]
-        B["LLM teacher<br/>local · vLLM · hosted API"]
-        P["Linear probe on the<br/>teacher's hidden states"]
+flowchart LR
+    A["Task file,<br/>unlabelled texts"] --> B
+    K["About 8 gold labels<br/>per class"] --> B
+    subgraph LABEL["1 · label"]
+        B["LLM teacher<br/>+ linear probe"]
     end
-    subgraph TRAIN["2 · train: the student"]
-        C["Small encoder<br/>MiniLM · mpnet · static"]
+    subgraph TRAIN["2 · train"]
+        C["Small encoder<br/>MiniLM · mpnet"]
     end
-    subgraph SHIP["3 · export and deploy"]
-        D["ONNX int8<br/>milliseconds on a CPU"]
-        E["Python · HTTP server ·<br/>browser · Hugging Face Hub"]
-        F["Cascade: unsure<br/>texts to the LLM"]
+    subgraph SHIP["3 · deploy"]
+        D["ONNX int8<br/>ms on a CPU"]
     end
-    A --> B
-    U --> B
-    K --> R
-    R -- "in the prompt" --> B
-    B -- "hidden states" --> P
-    K -- "fit on" --> P
-    P == "soft labels" ==> C
-    B -. "or: a score for<br/>every label" .-> C
-    K -. "cross-entropy" .-> C
+    B == "soft labels" ==> C
     C --> D
-    D --> E
-    D -.-> F
 ```
 
 Each step is one command: `tinydistill label` (teacher), `train` (student), `export` (ONNX and int8) and
 `predict` (inference), or `run` for all of them. With gold labels and a local teacher, the teacher sees each
 text's most similar gold examples, and a linear probe on its hidden states gives the soft labels; without gold
-labels, or with `--probe`, the teacher scores every label. Dashed parts are optional. Around this: `tune`
+labels, or with `--probe`, the teacher scores every label. Around this: `tune`
 checks the task file, `synth` writes texts when there are none, `train --out` trains another student on the
 same labels, `refresh` retrains on what the cascade asked, and `improve` writes texts for the student's
 confusions.
