@@ -621,6 +621,51 @@ def test_multi_label_end_to_end(tmp_path, capsys):
     assert set(out) == {"text", "labels", "scores"} and set(out["scores"]) == set(task.labels)
 
 
+@pytest.mark.parametrize("multi", [False, True])
+def test_predict_csv_in_and_out(tmp_path, multi):
+    import csv
+
+    import torch
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+    from tinydistill.export import Predictor, export_onnx
+
+    torch.manual_seed(0)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        TINY_ENCODER,
+        num_labels=2,
+        id2label={0: "neg", 1: "pos"},
+        ignore_mismatched_sizes=True,
+        problem_type="multi_label_classification" if multi else None,
+    )
+    model.save_pretrained(tmp_path / "student")
+    AutoTokenizer.from_pretrained(TINY_ENCODER).save_pretrained(tmp_path / "student")
+    export_onnx(tmp_path / "student", tmp_path / "onnx")
+    # a spreadsheet export: a byte order mark, a gold `label` column, a comma inside a quoted text
+    (tmp_path / "in.csv").write_bytes(
+        '﻿id,review,label\n1,so good,pos\n2,"bad, very bad",neg\n3,café,pos\n'.encode()
+    )
+    with pytest.raises(SystemExit, match="--text-field"):
+        main(["predict", str(tmp_path / "onnx"), "--data", str(tmp_path / "in.csv")])
+
+    args = ["--data", str(tmp_path / "in.csv"), "--text-field", "review", "--out", str(tmp_path / "out.csv")]
+    main(["predict", str(tmp_path / "onnx"), *args])
+    with (tmp_path / "out.csv").open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert [(r["id"], r["review"], r["label"]) for r in rows] == [
+        ("1", "so good", "pos"),
+        ("2", "bad, very bad", "neg"),
+        ("3", "café", "pos"),
+    ]
+    want = Predictor(tmp_path / "onnx").describe([r["review"] for r in rows])
+    if multi:
+        assert [r["predicted_labels"] for r in rows] == ["|".join(w["labels"]) for w in want]
+        assert [float(r["predicted_scores_pos"]) for r in rows] == [w["scores"]["pos"] for w in want]
+    else:
+        assert [r["predicted_label"] for r in rows] == [w["label"] for w in want]
+        assert [float(r["predicted_confidence"]) for r in rows] == [w["confidence"] for w in want]
+
+
 def test_synth_command_runs(tmp_path):
     (tmp_path / "task.yaml").write_text(TASK)
     out = tmp_path / "synth.jsonl"

@@ -11,8 +11,16 @@ Banking77 mpnet student it lost 0.005 instead of 0.013, at the same latency
 
 ```sh
 tinydistill predict RUN/onnx "some text" "another text"     # JSON lines: label and confidence
-tinydistill predict RUN/onnx --data texts.csv               # a whole file
+tinydistill predict RUN/onnx --data texts.csv               # a whole file (.csv, .jsonl or hf:...)
+tinydistill predict RUN/onnx --data sheet.csv --text-field review --out labelled.csv
 ```
+
+`--text-field` names the column that holds the texts (default `text`). With `--out FILE.csv`, `predict` writes
+a CSV file instead of JSON lines: every column of the input, then `predicted_label` and `predicted_confidence`,
+plus `predicted_outside` for a model with an `outside` label and `predicted_by` with `--cascade`. A
+multi-label model writes `predicted_labels` (separated by `|`, as gold labels are read) and one
+`predicted_scores_<label>` column per label. A CSV saved by a spreadsheet program, byte order mark included,
+reads as it is.
 
 ```python
 from tinydistill import Predictor

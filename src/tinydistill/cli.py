@@ -1348,26 +1348,59 @@ def _run_teacher(run: Path, device: str):
 def cmd_predict(a: argparse.Namespace) -> None:
     from .export import Predictor
 
-    texts = list(a.texts)
+    if a.out and Path(a.out).suffix != ".csv":
+        raise SystemExit("--out writes a CSV file: give a path ending in .csv")
+    rows = [{a.text_field: t} for t in a.texts]
     if a.data:
-        from .data import read_examples
-        from .task import Task
+        from .data import _rows
 
-        field = Task("", ["a", "b"], ["a", "b"], "{text}", text_field=a.text_field, label_field=None)
-        texts += [e.text for e in read_examples(a.data, field)]
-    if not texts:
+        rows += list(_rows(a.data)[0])
+    if not rows:
         raise SystemExit("give texts as arguments or --data FILE")
+    texts = []
+    for row in rows:
+        if a.text_field not in row:
+            raise SystemExit(
+                f"{a.data}: no column {a.text_field!r}; name the text column with --text-field "
+                f"(the columns are: {', '.join(row)})"
+            )
+        texts.append(str(row[a.text_field]))
     pr = Predictor(a.model, int8=False if a.fp32 else None)
     if a.cascade:
         from .export import Cascade
 
         cascade = Cascade(pr, _run_teacher(Path(a.cascade), a.device), a.threshold, a.log)
-        for t, r in zip(texts, cascade.predict(texts), strict=True):
-            r["confidence"] = round(r["confidence"], 4)
-            print(json.dumps({"text": t, **r}, ensure_ascii=False))
+        results = [r | {"confidence": round(r["confidence"], 4)} for r in cascade.predict(texts)]
+    else:
+        results = pr.describe(texts)
+    if a.out:
+        _write_predictions(Path(a.out), rows, results)
+        log(f"wrote {len(rows)} predictions to {Path(a.out).as_posix()}")
         return
-    for t, r in zip(texts, pr.describe(texts), strict=True):
+    for t, r in zip(texts, results, strict=True):
         print(json.dumps({"text": t, **r}, ensure_ascii=False))
+
+
+def _write_predictions(path: Path, rows: list[dict], results: list[dict]) -> None:
+    """Each input row with its prediction added as `predicted_*` columns (so a gold `label` column stays): the
+    label and confidence, or (multi-label) the labels joined by "|" and one column per label's score."""
+    import csv
+
+    out = []
+    for row, r in zip(rows, results, strict=True):
+        cells = dict(row)
+        for k, v in r.items():
+            if isinstance(v, dict):
+                cells |= {f"predicted_{k}_{label}": x for label, x in v.items()}
+            elif isinstance(v, list):
+                cells[f"predicted_{k}"] = "|".join(v)
+            else:
+                cells[f"predicted_{k}"] = v
+        out.append(cells)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, list(dict.fromkeys(k for cells in out for k in cells)))
+        w.writeheader()
+        w.writerows(out)
 
 
 def cmd_serve(a: argparse.Namespace) -> None:
@@ -2420,7 +2453,13 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("model", help="directory written by `export` (run/onnx), or hf:user/name on the Hub")
     pr.add_argument("texts", nargs="*")
     pr.add_argument("--data", help="file with texts (.csv, .jsonl or hf:...)")
-    pr.add_argument("--text-field", default="text")
+    pr.add_argument("--text-field", default="text", help="the column of --data that holds the texts")
+    pr.add_argument(
+        "--out",
+        metavar="FILE.csv",
+        help="write a CSV file instead of printing JSON lines: each row of --data (or text) with its "
+        "predicted label and confidence added",
+    )
     pr.add_argument("--fp32", action="store_true", help="use the fp32 model even if an int8 one exists")
     pr.add_argument(
         "--cascade", metavar="RUN", help="send texts the student is unsure about to RUN's teacher"

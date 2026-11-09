@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `predict --out FILE.csv` writes the predictions as a CSV file: every column of the `--data` file, then the
+  predicted label and its confidence (multi-label: the labels and one score column per label). A missing
+  text column now says to name it with `--text-field`, and CSV files with a byte order mark (as spreadsheet
+  programs save them) are read.
+
 ## 0.7.1 (2026-11-09)
 
 - int8 export (`export --int8`, `run --int8`, the explainer and web models) quantises each weight matrix with one

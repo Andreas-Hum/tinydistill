@@ -68,7 +68,8 @@ def _rows(spec: str) -> tuple[Iterator[dict], dict[str, list[str]] | None]:
     if path.suffix == ".csv":
 
         def gen() -> Iterator[dict]:
-            with path.open(newline="", encoding="utf-8") as f:
+            # utf-8-sig: spreadsheet programs (Excel) start a UTF-8 CSV with a byte order mark
+            with path.open(newline="", encoding="utf-8-sig") as f:
                 yield from csv.DictReader(f)
 
         return gen(), None

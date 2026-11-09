@@ -118,7 +118,7 @@ Banking77 splits are sorted by intent, so a limited run only sees a few intents.
 | `tinydistill train RUN` | distils the student from the teacher's soft targets |
 | `tinydistill export RUN [--int8]` | writes `RUN/onnx` (ONNX, tokenizer, labels) |
 | `tinydistill eval RUN` | writes `RUN/results.md` and `RUN/results.json` |
-| `tinydistill predict RUN/onnx TEXT... [--data FILE]` | classifies texts, prints JSON lines |
+| `tinydistill predict RUN/onnx TEXT... [--data FILE] [--out FILE.csv]` | classifies texts, prints JSON lines or writes a CSV |
 | `tinydistill compare RUN...` | one table comparing runs, e.g. teachers or student sizes |
 | `tinydistill serve RUN/onnx [--cascade RUN]` | a JSON HTTP endpoint (`POST /predict`) |
 | `tinydistill web RUN/onnx --out site` | a static page that runs the model in the browser |
