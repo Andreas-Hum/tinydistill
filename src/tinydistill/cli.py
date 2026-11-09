@@ -181,7 +181,17 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     auto = bool(a.gold_per_class or a.gold_file) and not (
         a.no_probe or a.vllm_url or a.api_url or a.chunk_tokens or a.reason
     )
-    probe = a.probe or a.probe_only or auto
+    explicit = a.probe or a.probe_only
+    if auto and not explicit:  # the default: the probe alone, unless several prompts or teachers need joining
+        if variants or len(_teachers(a.teacher)) > 1 or a.few_shot_sets > 1:
+            a.probe = True
+        else:
+            a.probe_only = True
+            log(
+                "the default with gold labels: the probe on the teacher's hidden states is the teacher, so "
+                "no label is scored (--probe also scores every label: slower, a little more accurate)"
+            )
+    probe = a.probe or a.probe_only
     if probe:
         if a.vllm_url or a.api_url:
             raise SystemExit(
@@ -275,11 +285,11 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
     if probe:
         tests = {e.text for e in rows_of("test", a.test, a.test_limit, False)} if a.test else set()
         probe_gold = _probe_gold(
-            a, task, list(rows_of("train", a.data, a.limit)), tests, required=bool(a.probe or a.probe_only)
+            a, task, list(rows_of("train", a.data, a.limit)), tests, required=bool(explicit)
         )
         if not probe_gold:  # the default only: no gold-labelled training text to fit on
             log("no gold-labelled training texts for the probe to fit on: labelling without it")
-            probe = False
+            probe = a.probe = a.probe_only = False
 
     caches: list[ScoreCache] = []
     fingerprints, device, costs = [], "cpu", []
@@ -2233,19 +2243,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also fit a linear probe on the teacher's hidden state at each text's last token, on the gold "
         "labels train uses (--gold-per-class, --gold-file), and add its probabilities to the teacher's "
-        "(prompt-augmented linear probing); local teachers only. The default with gold labels and a local "
-        "teacher (not with --chunk-tokens or --reason)",
+        "(prompt-augmented linear probing); local teachers only. Slower than the default, --probe-only, "
+        "and a little more accurate; the default with several teachers, --prompts or --few-shot-sets",
     )
     label.add_argument(
         "--no-probe",
         action="store_true",
-        help="do not fit the probe, which is otherwise the default with gold labels and a local teacher",
+        help="do not fit the probe, which is otherwise the default with gold labels and a local teacher: "
+        "the teacher scores every label",
     )
     label.add_argument(
         "--probe-only",
         action="store_true",
         help="like --probe, but the probe alone is the teacher: no label is scored, only each text's state, "
-        "so labelling is much faster; one teacher, no --prompts or --few-shot-sets",
+        "so labelling is much faster; one teacher, no --prompts or --few-shot-sets. The default with gold "
+        "labels and a local teacher (not with --chunk-tokens or --reason)",
     )
     label.add_argument(
         "--probe-dev",

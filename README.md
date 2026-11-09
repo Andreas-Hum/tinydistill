@@ -171,8 +171,8 @@ gold labels. Latency is per text, one at a time:
   the prompt of Gemma 4 12B, averaged with a linear probe on its hidden states, the deployed student reaches
   0.859, against 0.574 zero-shot
   ([RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#the-newer-teachers-with-similar-examples-and-both-together)).
-- **Fast labelling.** With `--probe-only` the teacher scores no labels, it only gives the probe its hidden
-  states: on CLINC150 the deployed student reached 0.851 after 37 minutes of labelling instead of 0.859 after
+- **Fast labelling, by default.** With gold labels the probe is the whole teacher (`--probe-only`, the default
+  from 0.7.0): the teacher scores no labels, it only gives the probe its hidden states. On CLINC150 the deployed student reached 0.851 after 37 minutes of labelling instead of 0.859 after
   7.2 hours, and on Banking77 0.869 after 11.5 minutes instead of 0.872 after 35
   ([RESULTS.md](https://github.com/Andreas-Hum/tinydistill/blob/main/RESULTS.md#the-probe-alone-minutes-of-labelling-instead-of-hours)).
 - **A new task.** On HWU64 (64 intents), which none of the settings were tuned on, the settings the docs

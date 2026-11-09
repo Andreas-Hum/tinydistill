@@ -10,7 +10,7 @@ export OMP_NUM_THREADS=${OMP_NUM_THREADS:-2} MKL_NUM_THREADS=${MKL_NUM_THREADS:-
 data=hf:mteb/amazon_massive_intent:da
 base=(examples/massive-da/task.yaml --data "$data:train" --test "$data:test" --cache-dir runs/cache
       --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --teacher Qwen/Qwen2.5-7B-Instruct --load-4bit)
-few=(--few-shot 8 --gold-per-class 8)
+few=(--few-shot 8 --gold-per-class 8 --no-probe)
 
 tinydistill run "${base[@]}" --out runs/massive-da-7b --teacher-devices cuda
 tinydistill run "${base[@]}" "${few[@]}" --gold-only --upper-bound --out runs/massive-da-7b-8shot \

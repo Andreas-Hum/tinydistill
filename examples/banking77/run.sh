@@ -13,7 +13,7 @@ export OMP_NUM_THREADS=${OMP_NUM_THREADS:-2} MKL_NUM_THREADS=${MKL_NUM_THREADS:-
 base=(examples/banking77/task.yaml --data hf:PolyAI/banking77:train --test hf:PolyAI/banking77:test
       --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3
       --epochs 5)  # the default before 0.3.1; the lines that pass --epochs 20 override it
-few=(--few-shot 8 --gold-per-class 8 --gold-only)
+few=(--few-shot 8 --gold-per-class 8 --no-probe --gold-only)
 big=(--teacher Qwen/Qwen2.5-7B-Instruct --load-4bit)
 
 tinydistill run "${base[@]}" --upper-bound --out runs/banking77-1.5b --teacher-devices cpu,cuda
@@ -23,18 +23,18 @@ tinydistill run "${base[@]}" --upper-bound "${big[@]}" "${few[@]}" --out runs/ba
   --teacher-devices cuda
 for student in sentence-transformers/all-MiniLM-L12-v2 BAAI/bge-small-en-v1.5 \
                sentence-transformers/all-mpnet-base-v2; do
-  tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student "$student" \
+  tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --no-probe --student "$student" \
     --out "runs/banking77-students/${student##*/}" --skip-teacher-bench
 done
 # a static-embedding student (no attention), which wants a higher learning rate and more epochs
-tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student static --lr 1e-3 --epochs 20 \
+tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --no-probe --student static --lr 1e-3 --epochs 20 \
   --out runs/banking77-students/static --skip-teacher-bench
 # MiniLM-L6 at 10 epochs (the default from 0.3.1), and the two smallest transformer students trained as long
 # as the static one, for a like-for-like comparison
-tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --epochs 10 \
+tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --no-probe --epochs 10 \
   --out runs/banking77-students/all-MiniLM-L6-v2-10-epochs --skip-teacher-bench
 for student in sentence-transformers/all-MiniLM-L6-v2 sentence-transformers/all-MiniLM-L12-v2; do
-  tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student "$student" --epochs 20 \
+  tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --no-probe --student "$student" --epochs 20 \
     --out "runs/banking77-students/${student##*/}-20-epochs" --skip-teacher-bench
 done
 
@@ -45,10 +45,10 @@ done
 tinydistill compare runs/banking77-1.5b runs/banking77-1.5b-8shot runs/banking77-7b runs/banking77-7b-8shot \
   > examples/banking77/teachers.md
 # up to 20 epochs, keeping the epoch with the lowest loss on 5% held-out training texts
-tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --epochs 20 --val-share 0.05 \
+tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --no-probe --epochs 20 --val-share 0.05 \
   --out runs/banking77-students/all-MiniLM-L6-v2-best-of-20 --skip-teacher-bench
 # a ModernBERT student (it reads up to 8,192 tokens; Banking77's texts are short)
-tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --student answerdotai/ModernBERT-base \
+tinydistill run "${base[@]}" "${big[@]}" --few-shot 8 --gold-per-class 8 --no-probe --student answerdotai/ModernBERT-base \
   --epochs 20 --out runs/banking77-students/ModernBERT-base-20-epochs --skip-teacher-bench
 # SetFit on the same 8 gold labels per class, in its own environment (pip install setfit)
 "${SETFIT_PYTHON:-python}" examples/banking77/setfit_baseline.py

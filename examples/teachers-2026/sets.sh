@@ -8,7 +8,7 @@ export OMP_NUM_THREADS=${OMP_NUM_THREADS:-2} MKL_NUM_THREADS=${MKL_NUM_THREADS:-
 out=examples/teachers-2026/sets
 mkdir -p "$out"
 common=(--cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --load-4bit
-  --teacher Qwen/Qwen2.5-7B-Instruct --few-shot 8 --few-shot-similar 16 --gold-per-class 8 --teacher-devices cuda)
+  --teacher Qwen/Qwen2.5-7B-Instruct --few-shot 8 --few-shot-similar 16 --gold-per-class 8 --no-probe --teacher-devices cuda)
 tinydistill run examples/banking77/task.yaml --data hf:PolyAI/banking77:train --test hf:PolyAI/banking77:test \
   --epochs 10 "${common[@]}" --few-shot-sets 3 --out runs/banking77-7b-similar16-sets3
 clinc=(examples/clinc150/task.yaml --data hf:clinc/clinc_oos:plus:train --test hf:clinc/clinc_oos:plus:test

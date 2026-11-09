@@ -10,12 +10,12 @@ data=hf:google-research-datasets/go_emotions:simplified
 
 tinydistill run examples/go-emotions/task.yaml --data "$data:train" --limit 10000 --test "$data:test" \
   --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --upper-bound \
-  --gold-per-class 8 --gold-only --epochs 5 --out runs/go-emotions-1.5b --teacher-devices cpu,cuda
+  --gold-per-class 8 --no-probe --gold-only --epochs 5 --out runs/go-emotions-1.5b --teacher-devices cpu,cuda
 
 # the same with the 7B teacher in 4 bit (from 0.3.1: 10 epochs, best epoch on 5% held-out texts)
 tinydistill run examples/go-emotions/task.yaml --data "$data:train" --limit 10000 --test "$data:test" \
   --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --upper-bound \
-  --gold-per-class 8 --gold-only --teacher Qwen/Qwen2.5-7B-Instruct --load-4bit --val-share 0.05 \
+  --gold-per-class 8 --no-probe --gold-only --teacher Qwen/Qwen2.5-7B-Instruct --load-4bit --val-share 0.05 \
   --out runs/go-emotions-7b --teacher-devices cuda
 
 cp runs/go-emotions-7b/results.json examples/go-emotions/go-emotions-7b.json
@@ -28,7 +28,7 @@ python examples/update_readme.py
 # to 30 epochs, from the same cached labels.
 tinydistill run examples/go-emotions/task.yaml --data "$data:train" --limit 10000 --test "$data:test" \
   --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --upper-bound \
-  --gold-per-class 8 --gold-only --teacher Qwen/Qwen2.5-7B-Instruct --load-4bit --val-share 0.05 --epochs 30 \
+  --gold-per-class 8 --no-probe --gold-only --teacher Qwen/Qwen2.5-7B-Instruct --load-4bit --val-share 0.05 --epochs 30 \
   --out runs/go-emotions-7b-30-epochs --skip-teacher-bench
 cp runs/go-emotions-7b-30-epochs/results.json examples/go-emotions/go-emotions-7b-30-epochs.json
 cp runs/go-emotions-7b-30-epochs/results.md examples/go-emotions/go-emotions-7b-30-epochs.md

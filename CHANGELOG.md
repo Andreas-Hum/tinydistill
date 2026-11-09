@@ -2,8 +2,17 @@
 
 ## Unreleased
 
+- With gold labels and a local teacher, the probe alone is now the teacher by default (`--probe-only`): the
+  teacher scores no label and only gives the probe its hidden states, so labelling takes minutes instead of
+  hours, for a slightly weaker student (Banking77 0.869 against 0.872, CLINC150 0.851 against 0.859, HWU64
+  0.888 against 0.892, Danish MASSIVE 0.802 against 0.815). `--probe` keeps the earlier default (every label
+  scored, averaged with the probe), which is still the default with several teachers, `--prompts` or
+  `--few-shot-sets`; `--no-probe` turns the probe off. The Python API's `Distiller` does the same
+  (`probe_only=None`, the default; `probe_only=False` for the earlier behaviour).
 - `train RUN --out NEW` trains in a new run directory with a copy of RUN's labels and settings, so RUN keeps
   its student: to compare students on the same labels without running the teacher again.
+- The example scripts that ran without the probe now say `--no-probe`, and the HWU64 run that scores every
+  label says `--probe`, so they reproduce their saved results.
 - The HWU64 student is on the Hub (`Shroomy/tinydistill-hwu64-minilm`) and in the demo's model picker.
 
 ## 0.6.1 (2026-11-09)

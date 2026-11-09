@@ -47,8 +47,8 @@ tinydistill label task.yaml --data train.csv --teacher Qwen/Qwen2.5-7B-Instruct 
 ## In a probe on the teacher
 
 With a local teacher, `label` (and `run`) fits a linear probe on the teacher's hidden states with the gold
-labels of `--gold-per-class` and `--gold-file`, and averages its probabilities with the teacher's; it is on by
-default whenever there are gold labels, and `--no-probe` turns it off. See
+labels of `--gold-per-class` and `--gold-file`, and by default the probe alone is the teacher; `--probe` also
+scores every label and averages the two, and `--no-probe` turns the probe off. See
 [Choosing the teacher](teacher.md#a-probe-on-the-teachers-hidden-states).
 
 ## In the student's loss
@@ -75,14 +75,14 @@ belong to the old label set. With the probe that pass can be short:
 2. Find a few training texts that belong to it and give them the new label in a `--gold-file` (the same format
    as the training data; its labels apply to those training texts). Along with `--gold-per-class` for the
    other labels, the probe learns the new label from these examples.
-3. Run again with `--probe-only`. The teacher then scores no label, it only gives the probe its hidden states:
+3. Run again (the probe alone is the default). The teacher then scores no label, it only gives the probe its
+   hidden states:
    on Banking77 that took 74 seconds with a zero-shot prompt, and about 10 minutes on CLINC150
    ([Benchmarks](../results.md#the-probe-alone-minutes-of-labelling-instead-of-hours)).
 
 ```sh
 tinydistill run task.yaml --data train.csv --test test.csv --gold-per-class 8 --gold-file new-label.csv \
-  --probe-only --out run-with-new-label
+  --out run-with-new-label
 ```
 
-Without `--probe-only` the teacher scores every label again, as in the first run, which takes longer and is a
-little more accurate.
+With `--probe` the teacher also scores every label again, which takes longer and is a little more accurate.

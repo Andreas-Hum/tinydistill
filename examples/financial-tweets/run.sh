@@ -18,7 +18,7 @@ q7=Qwen/Qwen2.5-7B-Instruct
 real=(--data "$data:train" --upper-bound)  # the synthetic run has no gold labels, so no upper bound there
 
 tinydistill run "${base[@]}" "${real[@]}" --out runs/financial-tweets-1.5b --teacher-devices cpu,cuda
-tinydistill run "${base[@]}" "${real[@]}" --few-shot 8 --gold-per-class 8 --gold-only \
+tinydistill run "${base[@]}" "${real[@]}" --few-shot 8 --gold-per-class 8 --no-probe --gold-only \
   --out runs/financial-tweets-1.5b-8shot --teacher-devices cpu,cuda
 tinydistill run "${base[@]}" "${real[@]}" --teacher "$q7" --load-4bit --out runs/financial-tweets-7b \
   --teacher-devices cuda

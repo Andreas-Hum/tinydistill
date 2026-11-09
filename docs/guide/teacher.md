@@ -83,9 +83,11 @@ paying for reasoning on all your texts.
 
 ## A probe on the teacher's hidden states
 
-With gold labels (`--gold-per-class`, `--gold-file`) and a local teacher, `label` adds a second signal from them
-by default; `--no-probe` turns it off, and `--probe` asks for it explicitly (an error if it cannot be fit). It
-fits a linear classifier on the
+With gold labels (`--gold-per-class`, `--gold-file`) and a local teacher, `label` fits a probe on them by
+default, and the probe alone is the teacher ([below](#fast-labelling-probe-only)). `--probe` also scores every
+label and averages the two (slower, a little more accurate; the default with several teachers, `--prompts` or
+`--few-shot-sets`), and `--no-probe` turns the probe off, so the teacher scores every label. Both flags are an
+error if the probe cannot be fit. The probe fits a linear classifier on the
 teacher's own hidden state for the prompt plus each text, and its probabilities are one more ensemble member.
 This is prompt-augmented linear probing (PALP; Cho et al., AAAI 2023,
 [arXiv 2212.10873](https://arxiv.org/abs/2212.10873)): it matches in-context learning at a few labels per class
@@ -136,14 +138,15 @@ refuse it. It does not work with `--chunk-tokens`.
 
 ### Fast labelling: --probe-only
 
-With `--probe-only` the teacher scores no label at all: it runs the prompt and each text once, for the state the
+`--probe-only` is the default with gold labels and a local teacher (not with `--chunk-tokens` or `--reason`).
+The teacher scores no label at all: it runs the prompt and each text once, for the state the
 probe reads, and the probe's probabilities are the soft labels. Scoring the labels is most of the work, above
 all with many labels and for models that cannot pack texts, so this labels many times faster, for a slightly
 weaker student:
 
 ```sh
 tinydistill run task.yaml --data train.csv --test test.csv --teacher google/gemma-4-12B-it --load-4bit \
-  --gold-per-class 8 --few-shot 8 --few-shot-similar 16 --probe-only --out run
+  --gold-per-class 8 --out run   # with {examples} in the prompt: 16 similar examples and the probe alone
 ```
 
 On CLINC150 with Gemma 4 12B and each text's 16 most similar examples, the deployed student reached 0.851 after

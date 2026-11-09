@@ -425,6 +425,23 @@ def test_the_probe_is_the_default_with_gold_labels(tmp_path, data, capsys):
     meta = lambda run: json.loads((run / "meta.json").read_text(encoding="utf-8"))  # noqa: E731
     main(["label", *data, "--out", str(tmp_path / "gold"), "--gold-per-class", "3"])
     assert meta(tmp_path / "gold")["probe"]["n_gold"] == 6 and (tmp_path / "gold" / "probe.pt").exists()
+    assert meta(tmp_path / "gold")["probe"]["only"]  # the probe alone is the default teacher
+    main(["label", *data, "--out", str(tmp_path / "both"), "--gold-per-class", "3", "--probe"])
+    assert meta(tmp_path / "both")["probe"]["only"] is False  # --probe: every label scored as well
+    (tmp_path / "other.yaml").write_text(Path(data[0]).read_text())
+    main(
+        [
+            "label",
+            *data,
+            "--out",
+            str(tmp_path / "p"),
+            "--gold-per-class",
+            "3",
+            "--prompts",
+            str(tmp_path / "other.yaml"),
+        ]
+    )
+    assert meta(tmp_path / "p")["probe"]["only"] is False  # two prompts to join: the probe with them
     main(["label", *data, "--out", str(tmp_path / "off"), "--gold-per-class", "3", "--no-probe"])
     assert meta(tmp_path / "off")["probe"] is None
     main(["label", *data, "--out", str(tmp_path / "none")])  # no gold labels: no probe

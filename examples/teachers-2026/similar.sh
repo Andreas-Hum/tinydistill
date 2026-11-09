@@ -11,7 +11,7 @@ mkdir -p "$out"
 qwen=Qwen/Qwen3.5-9B
 gemma=google/gemma-4-12B-it
 common=(--cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --load-4bit
-  --few-shot 8 --few-shot-similar 16 --gold-per-class 8 --teacher-devices cuda)
+  --few-shot 8 --few-shot-similar 16 --gold-per-class 8 --no-probe --teacher-devices cuda)
 
 tasks=" ${*:-banking77 clinc150 massive-da financial-tweets} "
 

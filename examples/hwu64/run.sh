@@ -24,4 +24,4 @@ go() {  # name, then its own arguments
 }
 go hwu64-gemma4-12b-probe-only-zeroshot --probe-only --gold-only --few-shot-similar 0
 go hwu64-gemma4-12b-probe-only-similar16 "${similar[@]}" --probe-only
-go hwu64-gemma4-12b-similar16 "${similar[@]}"
+go hwu64-gemma4-12b-similar16 "${similar[@]}" --probe

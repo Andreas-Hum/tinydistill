@@ -123,6 +123,13 @@ def test_the_probe(tmp_path, task):
     assert len(list((tmp_path / "cache").glob("teacher-*.states.npz"))) == 1
     with pytest.raises(ValueError, match="probe_only needs gold labels"):
         Distiller(task, probe_only=True, log=quiet, **SMALL).fit(TEXTS)
+    assert np.allclose(
+        probed.teacher_scores_, only.teacher_scores_, atol=1e-5
+    )  # the default: the probe alone
+    both = Distiller(task, probe_only=False, log=quiet, **SMALL).fit(
+        TEXTS, gold
+    )  # every label scored as well
+    assert not np.allclose(both.teacher_scores_, only.teacher_scores_)
 
 
 def test_examples_in_the_prompt(task):

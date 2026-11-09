@@ -29,14 +29,14 @@ return and set the constructor's arguments, so scikit-learn tools such as `clone
 With gold labels and a task prompt with an `{examples}` line, `fit(texts, gold)` shows the teacher each text's 16
 most similar gold-labelled texts as examples, as `tinydistill label` does with `--gold-per-class`;
 `few_shot_similar=0` turns that off, and `few_shot=K` picks K per class to show (or to pick the similar ones
-from). With gold labels, `fit(texts, gold)` also fits a linear probe on the teacher's hidden states with them and
-averages its probabilities with the teacher's, as `tinydistill label` does by default
-([Choosing the teacher](../guide/teacher.md#a-probe-on-the-teachers-hidden-states)); `probe=False` turns it off.
-`probe_only=True` makes the probe the whole teacher: the teacher scores no label, it only gives the probe its
-hidden states, so labelling takes a fraction of the time:
+from). With gold labels, `fit(texts, gold)` also fits a linear probe on the teacher's hidden states with them,
+and the probe alone is the teacher, as `tinydistill label` does by default
+([Choosing the teacher](../guide/teacher.md#a-probe-on-the-teachers-hidden-states)): the teacher scores no label,
+it only gives the probe its hidden states, so labelling takes a fraction of the time. `probe_only=False` also
+scores every label and averages the two (slower, a little more accurate); `probe=False` turns the probe off:
 
 ```python
-clf = Distiller(task, teacher="Qwen/Qwen2.5-7B-Instruct", load_4bit=True, probe_only=True, cache_dir="cache")
+clf = Distiller(task, teacher="Qwen/Qwen2.5-7B-Instruct", load_4bit=True, cache_dir="cache")
 clf.fit(texts, gold)  # gold: a label for a few texts per class, None for the rest
 ```
 

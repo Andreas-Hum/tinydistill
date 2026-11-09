@@ -14,7 +14,7 @@ base=(examples/clinc150/outside.yaml --data "$data:train" --test "$data:test" --
       --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --teacher Qwen/Qwen2.5-7B-Instruct --load-4bit
       --val-share 0.05 --teacher-devices cuda --shortlist 20 --shortlist-keep oos)
 tinydistill run "${base[@]}" --out runs/clinc150-7b-outside
-tinydistill run "${base[@]}" --few-shot 8 --few-shot-similar 16 --gold-per-class 8 \
+tinydistill run "${base[@]}" --few-shot 8 --few-shot-similar 16 --gold-per-class 8 --no-probe \
   --out runs/clinc150-7b-outside-similar16
 for run in clinc150-7b-outside clinc150-7b-outside-similar16; do
   cp "runs/$run/results.json" "examples/clinc150/$run.json"

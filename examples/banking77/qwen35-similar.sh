@@ -8,7 +8,7 @@ export OMP_NUM_THREADS=${OMP_NUM_THREADS:-2} MKL_NUM_THREADS=${MKL_NUM_THREADS:-
 out=runs/banking77-qwen35-9b-similar16
 tinydistill run examples/banking77/task.yaml --data hf:PolyAI/banking77:train --test hf:PolyAI/banking77:test \
   --cache-dir runs/cache --device cuda --threads "$OMP_NUM_THREADS" --int8 --seeds 3 --epochs 10 \
-  --teacher Qwen/Qwen3.5-9B --load-4bit --few-shot 8 --few-shot-similar 16 --gold-per-class 8 \
+  --teacher Qwen/Qwen3.5-9B --load-4bit --few-shot 8 --few-shot-similar 16 --gold-per-class 8 --no-probe \
   --out $out --teacher-devices cuda
 cp $out/results.json examples/banking77/banking77-qwen35-9b-similar16.json
 cp $out/results.md examples/banking77/banking77-qwen35-9b-similar16.md
