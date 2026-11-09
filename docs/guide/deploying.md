@@ -2,8 +2,9 @@
 
 `tinydistill export RUN --int8` writes the student to `RUN/onnx`: the ONNX model (and int8 with `--int8`), the
 tokenizer and the labels. Everything below works from that folder, or from a model on the Hugging Face Hub as
-`hf:user/name`. The int8 model has one scale per output channel of each weight matrix: on five tasks it stayed
-within 0.004 of the fp32 model's accuracy, against up to 0.009 with one scale per matrix, at the same latency
+`hf:user/name`. The int8 model has one scale per output channel of each weight matrix: on five MiniLM students
+it stayed within 0.004 of the fp32 model's accuracy, against up to 0.009 with one scale per matrix, and on the
+Banking77 mpnet student it lost 0.005 instead of 0.013, at the same latency
 ([`examples/export/per-channel.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/export/per-channel.json)).
 
 ## Command line and Python

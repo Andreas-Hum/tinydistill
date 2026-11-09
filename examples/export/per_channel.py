@@ -6,7 +6,9 @@ exported the run.
     OMP_NUM_THREADS=2 python examples/export/per_channel.py runs/banking77-7b-similar16-probe \\
         runs/hwu64-gemma4-12b-similar16 runs/clinc150-gemma4-12b-similar16-probe \\
         runs/massive-da-students/paraphrase-multilingual-MiniLM-L12-v2-trimmed-gemma4-12b-similar16-probe \\
-        runs/financial-tweets-7b > examples/export/per-channel.json
+        runs/financial-tweets-7b runs/students/banking77-mpnet-pc > examples/export/per-channel.json
+
+runs/students/banking77-mpnet-pc is examples/students/mpnet.sh's Banking77 student, trained again.
 """
 
 import json

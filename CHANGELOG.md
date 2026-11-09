@@ -4,8 +4,8 @@
 
 - int8 export (`export --int8`, `run --int8`, the explainer and web models) quantises each weight matrix with one
   scale per output channel instead of one per matrix. On five tasks the int8 student stayed within 0.004 of the
-  fp32 student's accuracy, against up to 0.009 before, at the same latency
-  (`examples/export/per_channel.py`). Re-export a run to get it.
+  fp32 student's accuracy, against up to 0.009 before, and the Banking77 mpnet student lost 0.005 instead of
+  0.013, at the same latency (`examples/export/per_channel.py`). Re-export a run to get it.
 - Benchmarks: TREC-50 (50 question types), the second task the settings were not tuned on. The student
   reaches 0.780 deployed, below published 5-shot FastFit and SetFit results: the teacher (0.730) is the limit
   (`examples/trec50/`).

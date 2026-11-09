@@ -78,5 +78,21 @@
    "accuracy": 0.8228643216080402,
    "latency_ms_b1": 2.3652469349326566
   }
+ },
+ {
+  "run": "banking77-mpnet-pc",
+  "n_test": 3080,
+  "fp32": {
+   "accuracy": 0.8811688311688312,
+   "latency_ms_b1": 30.336749734706245
+  },
+  "int8_per_matrix": {
+   "accuracy": 0.8685064935064936,
+   "latency_ms_b1": 9.00848823483102
+  },
+  "int8_per_channel": {
+   "accuracy": 0.8766233766233766,
+   "latency_ms_b1": 9.01687758974731
+  }
  }
 ]
