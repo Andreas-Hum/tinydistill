@@ -31,7 +31,7 @@
     "n_examples": 476,
     "ce_weight": 1.0,
     "student_device": "cuda",
-    "train_seconds": 575.6,
+    "train_seconds": 446.4,
     "teacher_device": "cuda:0",
     "label_seconds": 0.0,
     "load_4bit": true,
@@ -75,7 +75,7 @@
       "top3_accuracy": 0.9082044384667115,
       "accuracy": 0.8080026899798252,
       "macro_f1": 0.7799361613130318,
-      "size_mb": 23919.549408
+      "size_mb": null
     },
     {
       "role": "student",
@@ -111,9 +111,9 @@
       ],
       "params_m": 90.49734,
       "size_mb": 362.013408,
-      "latency_ms_b1": 20.19261897657998,
-      "latency_ms_b32": 340.9679789911024,
-      "throughput_per_s": 93.85045509166432
+      "latency_ms_b1": 40.682785445824265,
+      "latency_ms_b32": 523.4747604117729,
+      "throughput_per_s": 61.12997687764035
     },
     {
       "role": "student",
@@ -124,54 +124,54 @@
       "macro_f1": 0.7917490895442653,
       "agreement": 0.863147276395427,
       "size_mb": 362.237125,
-      "latency_ms_b1": 15.04442052100785,
-      "latency_ms_b32": 325.7524615037255,
-      "throughput_per_s": 98.23410037266603
+      "latency_ms_b1": 25.858250039163977,
+      "latency_ms_b32": 557.8314295271412,
+      "throughput_per_s": 57.36500008098423
     },
     {
       "role": "student",
       "name": "student, ONNX int8",
       "device": "cpu",
-      "top3_accuracy": 0.9240080699394755,
-      "accuracy": 0.8211163416274377,
-      "macro_f1": 0.7905247388987972,
-      "agreement": 0.8641560188298588,
-      "size_mb": 91.314557,
-      "latency_ms_b1": 5.6083529780153185,
-      "latency_ms_b32": 119.5327200111933,
-      "throughput_per_s": 267.70912597825475
+      "top3_accuracy": 0.925689307330195,
+      "accuracy": 0.8207800941492939,
+      "macro_f1": 0.7907179034490925,
+      "agreement": 0.8648285137861466,
+      "size_mb": 91.733783,
+      "latency_ms_b1": 7.3517634882591665,
+      "latency_ms_b32": 142.70814205519855,
+      "throughput_per_s": 224.23387719267353
     }
   ],
   "cascade": [
     {
       "share_to_teacher": 0.0,
-      "threshold": 0.15549133718013763,
-      "accuracy": 0.8211163416274377,
-      "macro_f1": 0.7905247388987972
+      "threshold": 0.15711233019828796,
+      "accuracy": 0.8207800941492939,
+      "macro_f1": 0.7907179034490925
     },
     {
       "share_to_teacher": 0.09986550100874243,
-      "threshold": 0.5708088278770447,
-      "accuracy": 0.8275050437121722,
-      "macro_f1": 0.7998303547446882
+      "threshold": 0.5745435357093811,
+      "accuracy": 0.8268325487558843,
+      "macro_f1": 0.797153838722902
     },
     {
       "share_to_teacher": 0.2000672494956288,
-      "threshold": 0.7671592831611633,
-      "accuracy": 0.8217888365837256,
-      "macro_f1": 0.7954197726380597
+      "threshold": 0.7629140019416809,
+      "accuracy": 0.8211163416274377,
+      "macro_f1": 0.7947314551392984
     },
     {
       "share_to_teacher": 0.29993275050437124,
-      "threshold": 0.8846001029014587,
-      "accuracy": 0.8170813718897109,
-      "macro_f1": 0.7867232895156185
+      "threshold": 0.885458767414093,
+      "accuracy": 0.8180901143241426,
+      "macro_f1": 0.7878482972341873
     },
     {
       "share_to_teacher": 0.5,
-      "threshold": 0.9679825305938721,
-      "accuracy": 0.8113651647612643,
-      "macro_f1": 0.7837129832551071
+      "threshold": 0.9684195518493652,
+      "accuracy": 0.8120376597175522,
+      "macro_f1": 0.7835647349447428
     },
     {
       "share_to_teacher": 1.0,
