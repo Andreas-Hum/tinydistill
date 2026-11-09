@@ -1,5 +1,7 @@
 # How it works
 
+The same steps stated precisely, with the functions that implement them: [The method in equations](guide/method.md).
+
 ## Scoring the labels
 
 The teacher never generates free text. For an input x, the prompt is rendered with the model's chat template

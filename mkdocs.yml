@@ -51,6 +51,7 @@ nav:
       - Improving a run: guide/improving.md
       - Deploying: guide/deploying.md
       - No unlabelled data: guide/no-data.md
+      - The method in equations: guide/method.md
   - How it works: how-it-works.md
   - When to use it: when-to-use.md
   - Benchmarks: results.md
@@ -70,6 +71,8 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
+  - pymdownx.arithmatex:
+      generic: true
   - pymdownx.details
   - pymdownx.highlight
   - pymdownx.inlinehilite
@@ -98,6 +101,10 @@ plugins:
             docstring_style: sphinx
             show_signature_annotations: true
             separate_signature: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js
 
 hooks:
   - docs/hooks.py
