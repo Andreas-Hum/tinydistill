@@ -6,6 +6,8 @@
   predicted label and its confidence (multi-label: the labels and one score column per label). A missing
   text column now says to name it with `--text-field`, and CSV files with a byte order mark (as spreadsheet
   programs save them) are read.
+- `suggest --out FILE.json` writes the texts as Label Studio tasks, with the teacher's label as a prediction to
+  start from, and prints the labeling config; `--gold-file` reads Label Studio's JSON export.
 - Docs: "The method in equations", the teacher's scores, the probe, the student's loss, int8 export and the
   cascade as the code computes them (`docs/guide/method.md`).
 

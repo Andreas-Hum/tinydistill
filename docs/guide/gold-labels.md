@@ -55,7 +55,8 @@ scores every label and averages the two, and `--no-probe` turns the probe off. S
 
 `train --gold-per-class K` adds a cross-entropy term on those gold labels to the distillation loss (weight
 `--ce-weight`, default 1). `train --gold-file FILE` does the same with labels from a file, such as the texts
-[`suggest`](improving.md#label-the-texts-that-matter-suggest) picked.
+[`suggest`](improving.md#label-the-texts-that-matter-suggest) picked: a file in the training data's format, or
+a [Label Studio JSON export](improving.md#checking-labels-in-label-studio).
 
 ## As baselines
 

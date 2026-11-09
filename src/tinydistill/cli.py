@@ -1602,6 +1602,15 @@ def cmd_suggest(a: argparse.Namespace) -> None:
         raise SystemExit(f"{run}/onnx is missing: run `tinydistill export` first")
     q = Predictor(run / "onnx").predict_proba(texts)
     chosen = pick(priority(p, q, task.multi_label), p.argmax(-1), a.n)
+    disagree = sum(int(p[i].argmax() != q[i].argmax()) for i in chosen)
+    if Path(a.out).suffix == ".json":
+        _suggest_label_studio(task, texts, p, q, chosen, a.out)
+        log(
+            f"wrote {len(chosen)} Label Studio tasks to {a.out} ({disagree} where student and teacher "
+            "disagree). Import them into a project with the labeling config above, label them, export the "
+            "project as JSON and train with --gold-file EXPORT.json"
+        )
+        return
     field = task.label_field or "label"
     with Path(a.out).open("w", encoding="utf-8") as f:
         for i in chosen:
@@ -1613,11 +1622,40 @@ def cmd_suggest(a: argparse.Namespace) -> None:
                 "teacher_confidence": round(float(p[i].max()), 3),
             }
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
-    disagree = sum(int(p[i].argmax() != q[i].argmax()) for i in chosen)
     log(
         f"wrote {len(chosen)} texts to {a.out} ({disagree} where student and teacher disagree). Fill in "
         f"'{field}' and train with --gold-file {a.out}"
     )
+
+
+def _suggest_label_studio(task: Task, texts: list[str], p: Any, q: Any, chosen: list[int], out: str) -> None:
+    """suggest --out FILE.json: the texts as Label Studio tasks, each with the teacher's labels as a
+    prediction the annotator starts from, and the matching labeling config printed to stdout."""
+    from xml.sax.saxutils import quoteattr
+
+    tasks = []
+    for i in chosen:
+        if task.multi_label:
+            top = [task.labels[j] for j in range(len(task.labels)) if p[i][j] >= 0.5]
+        else:
+            top = [task.labels[int(p[i].argmax())]]
+        result = [{"from_name": "label", "to_name": "text", "type": "choices", "value": {"choices": top}}]
+        data = {
+            "text": texts[i],
+            "teacher_label": task.labels[int(p[i].argmax())],
+            "student_label": task.labels[int(q[i].argmax())],
+            "teacher_confidence": round(float(p[i].max()), 3),
+        }
+        tasks.append({"data": data, "predictions": [{"model_version": "teacher", "result": result}]})
+    Path(out).write_text(json.dumps(tasks, ensure_ascii=False, indent=1), encoding="utf-8")
+    choice = "multiple" if task.multi_label else "single"
+    print("<View>")
+    print('  <Text name="text" value="$text"/>')
+    print(f'  <Choices name="label" toName="text" choice="{choice}">')
+    for name in task.labels:
+        print(f"    <Choice value={quoteattr(name)}/>")
+    print("  </Choices>")
+    print("</View>")
 
 
 def cmd_tune(a: argparse.Namespace) -> None:
@@ -2318,8 +2356,9 @@ def build_parser() -> argparse.ArgumentParser:
     gold = argparse.ArgumentParser(add_help=False)
     gold.add_argument(
         "--gold-file",
-        help="gold labels for some training texts (same text and label fields as the task), e.g. the texts "
-        "`tinydistill suggest` picked, labelled by a person; used like --gold-per-class",
+        help="gold labels for some training texts (same text and label fields as the task, or a Label Studio "
+        "JSON export), e.g. the texts `tinydistill suggest` picked, labelled by a person; used like "
+        "--gold-per-class",
     )
     gold.add_argument(
         "--gold-per-class",
@@ -2614,7 +2653,12 @@ def build_parser() -> argparse.ArgumentParser:
     imp.set_defaults(fn=cmd_improve)
     sug = sub.add_parser("suggest", parents=[run_dir], help="which training texts a person should label next")
     sug.add_argument("--n", type=int, default=100, help="how many texts")
-    sug.add_argument("--out", default="to_label.jsonl", help="JSONL to write, with an empty label to fill in")
+    sug.add_argument(
+        "--out",
+        default="to_label.jsonl",
+        help="JSONL to write, with an empty label to fill in; a .json file: Label Studio tasks to import, "
+        "with the labeling config printed",
+    )
     sug.set_defaults(fn=cmd_suggest)
     ana = sub.add_parser(
         "analyse", parents=[run_dir], help="where the teacher and student go wrong (RUN/analysis.html)"

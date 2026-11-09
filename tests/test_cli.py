@@ -784,6 +784,82 @@ def test_suggest_then_train_with_the_gold_file(tmp_path, capsys):
     assert meta["n_gold_file"] == 4 and meta["n_gold"] == 4 and (run / "student-kgold").is_dir()
 
 
+def test_suggest_to_label_studio_and_back(tmp_path, capsys):
+    (tmp_path / "task.yaml").write_text(TASK)
+    write_jsonl(tmp_path / "d.jsonl", [{"review": f"text {i}"} for i in range(12)])
+    run = tmp_path / "run"
+    common = ["--teacher", TINY_LM, "--student", TINY_ENCODER, "--epochs", "1", "--batch-size", "4"]
+    fast = ["--reps", "2", "--teacher-reps", "2", "--device", "cpu"]
+    data = ["--data", str(tmp_path / "d.jsonl"), "--test", str(tmp_path / "d.jsonl")]
+    main(["run", str(tmp_path / "task.yaml"), *data, "--out", str(run), *common, *fast])
+    out = tmp_path / "to_label.json"
+    capsys.readouterr()
+    main(["suggest", str(run), "--n", "3", "--out", str(out)])
+    config = capsys.readouterr().out  # the labeling config to paste into the Label Studio project
+    assert '<Choices name="label" toName="text" choice="single">' in config
+    assert '<Choice value="pos"/>' in config and '<Text name="text" value="$text"/>' in config
+    tasks = json.loads(out.read_text(encoding="utf-8"))
+    assert len(tasks) == 3 and len({t["data"]["text"] for t in tasks}) == 3
+    for t in tasks:  # the teacher's label as a prediction the annotator starts from
+        (result,) = t["predictions"][0]["result"]
+        assert result["type"] == "choices" and (result["from_name"], result["to_name"]) == ("label", "text")
+        assert result["value"]["choices"] == [t["data"]["teacher_label"]]
+
+    def annotation(choice, when, cancelled=False):
+        value = {"choices": [choice]}
+        result = [{"from_name": "label", "to_name": "text", "type": "choices", "value": value}]
+        return {"result": result, "was_cancelled": cancelled, "updated_at": when}
+
+    a, b, c = (t["data"]["text"] for t in tasks)
+    export = [  # as Label Studio's JSON export writes it, trimmed to the fields that matter
+        {
+            "id": 1,
+            "data": {"text": a},
+            "annotations": [
+                annotation("pos", "2026-01-02T10:00:00.000000Z"),  # the latest wins
+                annotation("neg", "2026-01-01T10:00:00.000000Z"),
+                annotation("neg", "2026-01-03T10:00:00.000000Z", cancelled=True),  # skipped
+            ],
+        },
+        {"id": 2, "data": {"text": b}, "annotations": [annotation("neg", "2026-01-01T10:00:00Z")]},
+        {"id": 3, "data": {"text": c}, "annotations": []},  # not labelled yet
+    ]
+    (tmp_path / "export.json").write_text(json.dumps(export, indent=2), encoding="utf-8")
+    from tinydistill.data import read_examples
+    from tinydistill.task import load_task
+
+    task = load_task(run / "task.yaml")
+    assert [e.gold for e in read_examples(str(tmp_path / "export.json"), task)] == [0, 1, None]
+    capsys.readouterr()
+    gold = ["--gold-file", str(tmp_path / "export.json"), "--gold-only"]
+    main(["train", str(run), *gold, *common[2:], "--device", "cpu"])
+    assert "--gold-file: 2 of 2 labelled texts are in the training data" in capsys.readouterr().err
+    export[1]["annotations"][0]["result"][0]["value"]["choices"] = ["meh"]
+    (tmp_path / "export.json").write_text(json.dumps(export), encoding="utf-8")
+    with pytest.raises(ValueError, match="Label Studio task 2: unknown label 'meh'"):
+        list(read_examples(str(tmp_path / "export.json"), task))
+
+
+def test_label_studio_export_multi_label(tmp_path):
+    from tinydistill.data import read_examples
+    from tinydistill.task import load_task
+
+    (tmp_path / "task.yaml").write_text(MULTI_TASK)
+    choices = [["quality", "price"], []]
+    export = [
+        {
+            "data": {"text": f"review {i}"},
+            "annotations": [
+                {"result": [{"type": "choices", "value": {"choices": c}}], "was_cancelled": False}
+            ],
+        }
+        for i, c in enumerate(choices)
+    ]
+    (tmp_path / "export.json").write_text(json.dumps(export), encoding="utf-8")
+    task = load_task(tmp_path / "task.yaml")
+    assert [e.gold for e in read_examples(str(tmp_path / "export.json"), task)] == [[0, 2], []]
+
+
 def test_tune_tries_every_setting_on_a_dev_split(tmp_path, capsys):
     (tmp_path / "task.yaml").write_text(TASK.replace("  {labels}\n", "  {labels}\n  {examples}\n"))
     (tmp_path / "alt.yaml").write_text(TASK.replace("Classify the sentiment", "What is the sentiment"))

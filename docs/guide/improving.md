@@ -96,6 +96,40 @@ the empty label field and train again with those labels:
 tinydistill train RUN --gold-file to_label.jsonl
 ```
 
+### Checking labels in Label Studio
+
+With `--out` ending in `.json`, `suggest` writes the texts as [Label Studio](https://labelstud.io) tasks
+instead, and prints the labeling config that goes with them:
+
+```sh
+tinydistill suggest RUN --n 200 --out to_label.json > config.xml
+```
+
+Each task holds the text (`data.text`, next to the teacher's and the student's label and the teacher's
+confidence) and the teacher's label as a prediction, so the annotator starts from it and only changes what is
+wrong. The config is a `Choices` control over the task's labels, `choice="multiple"` for a multi-label task:
+
+```xml
+<View>
+  <Text name="text" value="$text"/>
+  <Choices name="label" toName="text" choice="single">
+    <Choice value="pos"/>
+    <Choice value="neg"/>
+  </Choices>
+</View>
+```
+
+Create a project, paste the config under Settings, Labeling Interface, Code, import `to_label.json`, label the
+tasks, and export the project in the JSON format. `--gold-file` reads that export as it is:
+
+```sh
+tinydistill train RUN --gold-file project-1-at-2026-01-01.json
+```
+
+Each task's label is the choice of its latest annotation that was not skipped (multi-label: all its
+choices), matched to the task's labels like any other gold label; a task without one is left out, and a choice
+that is not one of the labels stops with an error naming the task.
+
 ## Label on a budget: run --budget
 
 With a paid API teacher every labelled text costs money. `run --budget N` has the teacher label only N training

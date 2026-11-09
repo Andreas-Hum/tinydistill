@@ -48,6 +48,27 @@ def _gold_set(value: object, task: Task, names: list[str] | None) -> list[int] |
     return sorted(i for i in found if i is not None)
 
 
+def _label_studio_gold(task_row: dict, task: Task) -> int | list[int] | None:
+    """The gold label of a task in Label Studio's JSON export: the choices of its latest annotation that was
+    not cancelled (skipped), matched to the task's labels as other gold labels are."""
+    done = [a for a in task_row.get("annotations", []) if not a.get("was_cancelled")]
+    if not done:
+        return None
+    latest = sorted(done, key=lambda a: a.get("updated_at") or a.get("created_at") or "")[-1]
+    choices = []
+    for r in latest.get("result", []):
+        if r.get("type") == "choices":
+            choices += r["value"]["choices"]
+    try:
+        if task.multi_label:
+            return _gold_set(choices, task, None)
+        if len(choices) > 1:
+            raise ValueError(f"{len(choices)} choices {choices} for a single-label task")
+        return _gold_index(choices[0], task, None) if choices else None
+    except ValueError as e:
+        raise ValueError(f"Label Studio task {task_row.get('id')}: {e} {task.labels}") from e
+
+
 def _rows(spec: str) -> tuple[Iterator[dict], dict[str, list[str]] | None]:
     if spec.startswith("hf:"):
         # hf:<dataset>[:<config>]:<split>
@@ -73,6 +94,11 @@ def _rows(spec: str) -> tuple[Iterator[dict], dict[str, list[str]] | None]:
                 yield from csv.DictReader(f)
 
         return gen(), None
+    if path.suffix == ".json":
+        with path.open(encoding="utf-8") as f:
+            if f.read(64).lstrip().startswith("["):  # one list (Label Studio's export), not a row per line
+                f.seek(0)
+                return iter(json.load(f)), None
     if path.suffix in (".jsonl", ".json"):
 
         def gen() -> Iterator[dict]:
@@ -123,6 +149,9 @@ def read_examples(
     rows, class_names = _rows(spec)
     names = class_names.get(task.label_field or "") if class_names else None
     for row in islice(rows, limit):
+        if "annotations" in row and "data" in row:  # a task in Label Studio's JSON export
+            yield Example(str(row["data"]["text"]), _label_studio_gold(row, task) if with_gold else None)
+            continue
         if task.text_field not in row:
             raise KeyError(f"{spec}: no field {task.text_field!r} (set text_field in the task file)")
         gold = None
