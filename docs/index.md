@@ -54,27 +54,44 @@ clf.describe(["I still haven't received my new card", "My card got stolen"])
 ## How it fits together
 
 ```mermaid
-flowchart LR
-    A["Task prompt +<br/>unlabelled texts"] --> B["LLM teacher(s)<br/>Qwen · Gemma · Mistral · ..."]
-    T["tune: test and rewrite<br/>the task file"] -.-> B
-    S["Synthetic texts<br/>(synth)"] -.-> B
-    V["vLLM server ·<br/>hosted API"] -.-> B
-    K["A few gold labels<br/>per class"] -.-> B
-    K -.-> C
-    K -.-> P["Linear probe on the<br/>teacher's hidden states"]
-    B -. "hidden states" .-> P
-    P -. "averaged with<br/>the prompt's scores" .-> C
-    B -- "soft labels<br/>(ensembled)" --> C["Small encoder<br/>student"]
-    C --> D["ONNX / int8<br/>export"]
-    D --> E["Fast CPU<br/>inference"]
-    D --> W["Browser · server · Hub ·<br/>Python (Distiller)"]
-    E -.-> F["Cascade: unsure<br/>texts to the LLM"]
-    F -. "refresh: retrain<br/>on what it asked" .-> C
-    C -. "improve: new texts<br/>for its confusions" .-> S
+flowchart TB
+    A["Task file<br/>prompt and labels"]
+    U["Unlabelled texts<br/>yours, or from synth"]
+    K["About 8 gold labels<br/>per class (optional)"]
+    subgraph LABEL["1 · label: the teacher"]
+        R["Each text's 16 most<br/>similar gold examples"]
+        B["LLM teacher<br/>local · vLLM · hosted API"]
+        P["Linear probe on the<br/>teacher's hidden states"]
+    end
+    subgraph TRAIN["2 · train: the student"]
+        C["Small encoder<br/>MiniLM · mpnet · static"]
+    end
+    subgraph SHIP["3 · export and deploy"]
+        D["ONNX int8<br/>milliseconds on a CPU"]
+        E["Python · HTTP server ·<br/>browser · Hugging Face Hub"]
+        F["Cascade: unsure<br/>texts to the LLM"]
+    end
+    A --> B
+    U --> B
+    K --> R
+    R -- "in the prompt" --> B
+    B -- "hidden states" --> P
+    K -- "fit on" --> P
+    P == "soft labels" ==> C
+    B -. "or: a score for<br/>every label" .-> C
+    K -. "cross-entropy" .-> C
+    C --> D
+    D --> E
+    D -.-> F
 ```
 
 Each step is one command: `tinydistill label` (teacher), `train` (student), `export` (ONNX and int8) and
-`predict` (inference), or `run` for all of them. Dashed parts are optional.
+`predict` (inference), or `run` for all of them. With gold labels and a local teacher, the teacher sees each
+text's most similar gold examples, and a linear probe on its hidden states gives the soft labels; without gold
+labels, or with `--probe`, the teacher scores every label. Dashed parts are optional. Around this: `tune`
+checks the task file, `synth` writes texts when there are none, `train --out` trains another student on the
+same labels, `refresh` retrains on what the cascade asked, and `improve` writes texts for the student's
+confusions.
 
 ## Is it for you?
 
