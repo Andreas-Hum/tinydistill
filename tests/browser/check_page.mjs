@@ -133,10 +133,11 @@ console.log("page ok");
 // (no "Inside the model" view) and test/broken (its model files are missing)
 async function picker() {
   const p = await newPage({ width: 1280, height: 900 });
-  let broken = false;  // the 404s of test/broken's model files are on purpose
+  // the 404s of test/broken's model files and the failed loads while offline are on purpose; told apart by URL
+  // and error, since they can be logged after the page has already shown its message
   p.on("pageerror", (e) => problems.push(`picker: page error: ${e}`));
-  p.on("console", (m) => m.type() === "error" && !(broken && /404|Failed to load resource/.test(m.text()))
-    && problems.push(`picker: console error: ${m.text()}`));
+  p.on("console", (m) => m.type() === "error" && !/\/test\/broken\//.test(m.location().url)
+    && !/ERR_INTERNET_DISCONNECTED/.test(m.text()) && problems.push(`picker: console error: ${m.text()}`));
   const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 60000 });
   const labels = () => p.$$eval("#label-list li", (li) => li.map((x) => x.textContent));
   const model = () => new URL(p.url()).searchParams.get("model");
@@ -164,7 +165,6 @@ async function picker() {
   if (!(await p.getAttribute('#pick-list button[data-repo="test/multi"]', "aria-current") === "true")) problems.push("picker: the menu does not mark the model on show");
 
   // a model that does not load: a message, and the page keeps the one it had
-  broken = true;
   await pick("test/broken");
   await until(() => document.getElementById("pick-msg").classList.contains("err") && !document.getElementById("pick-msg").hidden)
     .catch(() => problems.push("picker: no message for a model that does not load"));
@@ -181,7 +181,6 @@ async function picker() {
     .catch(async () => problems.push(`picker: offline, the message says "${await p.textContent("#pick-msg")}"`));
   await p.context().setOffline(false);
   if (model() !== "test/multi") problems.push("picker: going offline lost the model");
-  broken = false;
 
   // ?model= opens the page on a model; one without the explainer says so and its tab goes to the page's own model
   await p.goto(`${url}?model=test/plain`);

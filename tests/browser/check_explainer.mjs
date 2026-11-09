@@ -334,9 +334,10 @@ async function tour(page, url, where) {
 // (no explainer, so not in this page's menu) and test/broken (its model files are missing)
 async function picker(url) {
   const p = await newPage({ viewport: { width: 1280, height: 820 } });
-  let broken = false;  // the 404s of test/broken's model files are on purpose
+  // the 404s of test/broken's model files are on purpose; told apart by their URL, since they can be logged
+  // after the page has already shown its message
   p.on("pageerror", (e) => problems.push(`picker: page error: ${e}`));
-  p.on("console", (m) => m.type() === "error" && !(broken && /404|Failed to load resource/.test(m.text()))
+  p.on("console", (m) => m.type() === "error" && !/\/test\/broken\//.test(m.location().url)
     && problems.push(`picker: console error: ${m.text()}`));
   const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 60000 });
   const rows = () => p.locator("#probs .prow:not(.out)").count();
@@ -361,13 +362,11 @@ async function picker(url) {
   await p.locator("#tokens .tok").nth(1).hover();  // the network is drawn for the new model, and hovering works
   if (!(await p.locator("#net .node.hl").count())) problems.push("picker: hovering a token after the switch highlights nothing");
 
-  broken = true;
   await pick("test/broken");
   await until(() => document.getElementById("pick-msg").classList.contains("err") && !document.getElementById("pick-msg").hidden)
     .catch(() => problems.push("picker: no message for a model that does not load"));
   console.log("picker, broken model:", await p.textContent("#pick-msg"));
   if (model() !== "test/multi" || (await rows()) !== 3) problems.push("picker: a failed model did not keep the old one");
-  broken = false;
 
   // back to the page's own model, with fewer labels: no rows of the last model's labels are left over
   await pick("");
