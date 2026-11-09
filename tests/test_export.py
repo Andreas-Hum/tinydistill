@@ -1,4 +1,5 @@
 import numpy as np
+import onnx
 import pytest
 import torch
 from conftest import TINY_ENCODER
@@ -30,6 +31,9 @@ def test_onnx_matches_pytorch(tmp_path):
 
     int8 = Predictor(tmp_path / "onnx")  # picks the int8 model when present
     assert int8.file.name == "model.int8.onnx"
+    # one scale per output channel of each weight matrix, not one per matrix
+    weights = onnx.load(int8.file).graph.initializer
+    assert any(w.name.endswith("_scale") and list(w.dims) not in ([], [1]) for w in weights)
     assert int8.logits(texts).shape == (3, 3)
     assert fp32.predict(texts)[0] in labels
     np.testing.assert_allclose(fp32.predict_proba(texts).sum(-1), 1.0, atol=1e-5)

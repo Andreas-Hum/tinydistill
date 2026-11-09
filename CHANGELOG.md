@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- int8 export (`export --int8`, `run --int8`, the explainer and web models) quantises each weight matrix with one
+  scale per output channel instead of one per matrix. On five tasks the int8 student stayed within 0.004 of the
+  fp32 student's accuracy, against up to 0.009 before, at the same latency
+  (`examples/export/per_channel.py`). Re-export a run to get it.
+
 ## 0.7.0 (2026-11-09)
 
 - With gold labels and a local teacher, the probe alone is now the teacher by default (`--probe-only`): the

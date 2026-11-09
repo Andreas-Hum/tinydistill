@@ -1,0 +1,82 @@
+[
+ {
+  "run": "banking77-7b-similar16-probe",
+  "n_test": 3080,
+  "fp32": {
+   "accuracy": 0.875,
+   "latency_ms_b1": 4.214229844801594
+  },
+  "int8_per_matrix": {
+   "accuracy": 0.8717532467532467,
+   "latency_ms_b1": 1.7023493099259213
+  },
+  "int8_per_channel": {
+   "accuracy": 0.874025974025974,
+   "latency_ms_b1": 1.6975785850081593
+  }
+ },
+ {
+  "run": "hwu64-gemma4-12b-similar16",
+  "n_test": 1076,
+  "fp32": {
+   "accuracy": 0.8977695167286245,
+   "latency_ms_b1": 3.6020102401380427
+  },
+  "int8_per_matrix": {
+   "accuracy": 0.8921933085501859,
+   "latency_ms_b1": 1.6978246901999228
+  },
+  "int8_per_channel": {
+   "accuracy": 0.8940520446096655,
+   "latency_ms_b1": 1.4332676300546154
+  }
+ },
+ {
+  "run": "clinc150-gemma4-12b-similar16-probe",
+  "n_test": 5500,
+  "fp32": {
+   "accuracy": 0.8605454545454545,
+   "latency_ms_b1": 3.917873059981503
+  },
+  "int8_per_matrix": {
+   "accuracy": 0.8594545454545455,
+   "latency_ms_b1": 1.4236781900399365
+  },
+  "int8_per_channel": {
+   "accuracy": 0.8621818181818182,
+   "latency_ms_b1": 1.4150477349176072
+  }
+ },
+ {
+  "run": "paraphrase-multilingual-MiniLM-L12-v2-trimmed-gemma4-12b-similar16-probe",
+  "n_test": 2974,
+  "fp32": {
+   "accuracy": 0.8180901143241426,
+   "latency_ms_b1": 7.285788749868516
+  },
+  "int8_per_matrix": {
+   "accuracy": 0.8150638870208473,
+   "latency_ms_b1": 2.9309508300502785
+  },
+  "int8_per_channel": {
+   "accuracy": 0.8147276395427034,
+   "latency_ms_b1": 3.3614457902149297
+  }
+ },
+ {
+  "run": "financial-tweets-7b",
+  "n_test": 2388,
+  "fp32": {
+   "accuracy": 0.8274706867671692,
+   "latency_ms_b1": 5.271574090002105
+  },
+  "int8_per_matrix": {
+   "accuracy": 0.8182579564489112,
+   "latency_ms_b1": 2.2222397397854365
+  },
+  "int8_per_channel": {
+   "accuracy": 0.8228643216080402,
+   "latency_ms_b1": 2.3652469349326566
+  }
+ }
+]
