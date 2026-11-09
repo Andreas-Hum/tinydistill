@@ -1033,7 +1033,11 @@ All latencies on the CPU with 2 threads.
 <!-- /results -->
 
 mpnet-base closes 0.034 of the 0.081 gap: 0.894 (0.902 deployed in int8, against 0.859), for 7 ms per text on a CPU
-instead of 0.8. On the other tasks, whose students already match or beat their teachers,
+instead of 0.8. Most of that gain is on the out-of-scope requests: on the 4,500 in-scope texts, scored as
+[above](#scored-as-the-few-shot-papers-score-it-150-intents), mpnet reaches 0.960 ± 0.001 (0.948 deployed)
+against 0.948 ± 0.002 (0.945) for MiniLM-L6 and 0.954 ± 0.000 (0.952) for MiniLM-L12
+([`in-scope.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/clinc150/in-scope.json)).
+On the other tasks, whose students already match or beat their teachers,
 [`examples/students/mpnet.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/students/mpnet.sh)
 trains mpnet on each task's best labels:
 

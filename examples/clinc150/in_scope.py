@@ -7,7 +7,9 @@ intents alone. This script takes saved runs and scores their teacher and student
 - accuracy_150: the best of the 150 intents, as a model trained without "oos" would answer;
 - accuracy_151: the model's own answer, so an in-scope text it calls "oos" counts as wrong.
 
-    python examples/clinc150/in_scope.py runs/clinc150-gemma4-12b-similar16-probe ... > in-scope.json
+    python examples/clinc150/in_scope.py runs/clinc150-gemma4-12b-similar16-probe \
+        runs/clinc150-gemma4-12b-probe-only-similar16 runs/clinc150-students/all-MiniLM-L12-v2 \
+        runs/clinc150-students/all-mpnet-base-v2 > examples/clinc150/in-scope.json
 """
 
 import json
