@@ -1,0 +1,68 @@
+# TREC question classification, fine-grained (Li and Roth, 2002): https://huggingface.co/datasets/SetFit/TREC-QC.
+# Open-domain questions, 50 answer types in 6 groups; 5,452 training and 500 test questions. The types are
+# very unevenly common (962 training questions for an individual, 4 for religions), and some are missing from
+# the test set. Each label id is the original type (GROUP:type); its name is the dataset's description of the
+# type with its group in front, so the teacher sees both.
+name: trec50
+text_field: text
+label_field: label_original
+prompt: |-
+  Here is a question. What type of answer does it ask for?
+  Options:
+  {labels}
+  {examples}
+
+  Question: {text}
+
+  Reply with one option, exactly as written.
+labels:
+- "ABBR:abb": "abbreviation: abbreviation"
+- "ABBR:exp": "abbreviation: expression abbreviated"
+- "DESC:def": "description: definition of something"
+- "DESC:desc": "description: description of something"
+- "DESC:manner": "description: manner of an action"
+- "DESC:reason": "description: reasons"
+- "ENTY:animal": "entity: animals"
+- "ENTY:body": "entity: organs of body"
+- "ENTY:color": "entity: colors"
+- "ENTY:cremat": "entity: inventions, books and other creative pieces"
+- "ENTY:currency": "entity: currency names"
+- "ENTY:dismed": "entity: diseases and medicine"
+- "ENTY:event": "entity: events"
+- "ENTY:food": "entity: food"
+- "ENTY:instru": "entity: musical instrument"
+- "ENTY:lang": "entity: languages"
+- "ENTY:letter": "entity: letters like a-z"
+- "ENTY:other": "entity: other entities"
+- "ENTY:plant": "entity: plants"
+- "ENTY:product": "entity: products"
+- "ENTY:religion": "entity: religions"
+- "ENTY:sport": "entity: sports"
+- "ENTY:substance": "entity: elements and substances"
+- "ENTY:symbol": "entity: symbols and signs"
+- "ENTY:techmeth": "entity: techniques and methods"
+- "ENTY:termeq": "entity: equivalent terms"
+- "ENTY:veh": "entity: vehicles"
+- "ENTY:word": "entity: words with a special property"
+- "HUM:desc": "human: description of a person"
+- "HUM:gr": "human: a group or organization of persons"
+- "HUM:ind": "human: an individual"
+- "HUM:title": "human: title of a person"
+- "LOC:city": "location: cities"
+- "LOC:country": "location: countries"
+- "LOC:mount": "location: mountains"
+- "LOC:other": "location: other locations"
+- "LOC:state": "location: states"
+- "NUM:code": "number: postcodes or other codes"
+- "NUM:count": "number: number of something"
+- "NUM:date": "number: dates"
+- "NUM:dist": "number: linear measures"
+- "NUM:money": "number: prices"
+- "NUM:ord": "number: ranks"
+- "NUM:other": "number: other numbers"
+- "NUM:perc": "number: fractions"
+- "NUM:period": "number: the lasting time of something"
+- "NUM:speed": "number: speed"
+- "NUM:temp": "number: temperature"
+- "NUM:volsize": "number: size, area and volume"
+- "NUM:weight": "number: weight"

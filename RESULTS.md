@@ -636,6 +636,41 @@ LLaMA-2 7B with a 4K prompt 0.9033, LLaMA-2 70B 0.8977, and 0.9173 with a 4K pro
 texts as theirs, but whether these 1,076 test texts are their test set or their validation set (both have
 1,076) is not stated by the dataset, so take the comparison as a rough one.
 
+## TREC-50: a teacher that is not good enough
+
+TREC-50 (50 types of answer to a question; 5,452 training and 500 test questions) is the second task the
+settings were not tuned on, and its types are very unevenly common: asked for 8 gold labels per class, the run
+finds 390, not 400. [`examples/trec50/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/trec50/run.sh) runs it as HWU64 above, with Gemma 4 12B and
+nothing else changed:
+
+<!-- results: trec50/summary.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| trec50-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.730 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.774 ± 0.016 | 0.622 ± 0.027 | 0.765 ± 0.008 | ONNX int8 | 0.8 | 23.8 | 23 |
+| trec50-gemma4-12b-probe-only-zeroshot | zero-shot, 4-bit, probe only `google/gemma-4-12B-it` | 0.722 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.765 ± 0.004 | 0.632 ± 0.017 | 0.780 ± 0.009 | ONNX int8 | 0.8 | 24.0 | 23 |
+| trec50-gemma4-12b-similar16 | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.706 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.741 ± 0.008 | 0.632 ± 0.007 | 0.763 ± 0.015 | ONNX int8 | 1.6 | 26.9 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+With the 16 similar examples the student reaches 0.774 (0.780 deployed in int8) after 11 minutes of labelling,
+against 0.765 (0.752 deployed) with the zero-shot prompt after 3 minutes, and 0.477 for the same student
+trained on the 390 gold labels alone
+([`trec50-gemma4-12b-probe-only-zeroshot.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/trec50/trec50-gemma4-12b-probe-only-zeroshot.json),
+`--gold-only`). The teacher scoring every label makes it worse: 4.5 hours of labelling for a teacher of 0.706
+against 0.730, and a student of 0.741 (0.740 deployed). It raises the teacher's macro-F1, which weighs the
+rare types as much as the common ones, from 0.585 to 0.633, but not the student's: 0.622 to 0.632 in all three
+runs.
+
+Published results on TREC-50, reported in the paper and not rerun, use the same 5,452 training and 500 test
+questions (Yehudai and Bendel 2024, Tables 1 and 7, [arXiv 2404.12365](https://arxiv.org/abs/2404.12365)). With
+5 and 10 gold labels per class: FastFit 80.3 and 84.1 with MPNet, 84.8 and 88.0 with RoBERTa large; SetFit 79.5
+and 83.7, and 83.9 and 86.4; a classifier fine-tuned on the gold labels 63.4 and 78.0, and 73.3 and 86.8. The
+student's 0.780 with 8 is below FastFit and SetFit with 5. Here the teacher itself (0.730) is below what these
+methods reach from the gold labels, and the student cannot get far past its teacher: on a task like this,
+with gold labels for every class, train on them directly
+([When to use it](https://andreas-hum.github.io/tinydistill/when-to-use/)).
+
 ## Newer teachers: Qwen3.5 and Gemma 4
 
 [`examples/teachers-2026/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/run.sh)
@@ -1042,6 +1077,24 @@ A layer about a quarter of the way back is a little better on two tasks (Banking
 layer -12 against 0.891). Nearer the middle the probe falls far behind on every task (0.386, 0.673 and 0.537 at
 the furthest layer measured). The default stays the LM head's input; with `--probe-only` a few layers can be
 compared in minutes per task.
+
+## Two changes to the probe that did not help
+
+Both refit the probe on the cached teacher states of the five probe-alone runs with 16 similar examples, so
+they need no GPU; [`variants.py`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe-variants/variants.py) writes the teacher's test
+accuracy for each to [`variants.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe-variants/variants.json).
+
+- **Self-training:** label the run's other training texts with the probe and refit on the gold labels plus the
+  most confident 10, 30, 50 or 100% of them. Which share helps depends on the task, and none helps on all five:
+  at 50%, TREC-50 0.760 against 0.730 and Danish MASSIVE 0.804 against 0.792, but Banking77 0.871 against
+  0.873, CLINC150 0.923 against 0.925 and HWU64 0.874 against 0.879.
+- **The label names as a prior:** pull the probe's weights toward the teacher's LM-head rows for each label's
+  tokens instead of toward zero. Those rows alone classify far worse than the probe (0.142 to 0.746). As a
+  prior, half the mean row over the label's tokens moves the teacher by 0.005 or less (Banking77 0.875,
+  CLINC150 0.924, HWU64 0.881, Danish MASSIVE 0.797, TREC-50 0.730), no setting tried gains more than 0.008
+  (Danish MASSIVE 0.800), and the first token's row at twice the scale loses on every task.
+
+Neither is in tinydistill.
 
 ## A larger student: when the teacher is far ahead
 

@@ -4,7 +4,9 @@
 or too large to run on every text: the student keeps most of its quality in a model that runs in about a
 millisecond on a CPU. It also fits when you have plenty of unlabelled texts and few or no labels.
 
-**Do not use it** when the LLM itself is not good at the task (the student inherits its mistakes), when you have
+**Do not use it** when the LLM itself is not good at the task (the student inherits its mistakes: on TREC-50 a teacher of
+0.730 gave a student of 0.780, below published few-shot classifiers;
+[Benchmarks](results.md#trec-50-a-teacher-that-is-not-good-enough)), when you have
 enough gold labels to train a classifier directly, or when the task needs generated text rather than a choice
 among labels. With only a few labels and no GPU, [SetFit](https://github.com/huggingface/setfit) is a good
 alternative: on Banking77, with the same 616 labels, it reached 0.797 against tinydistill's 0.813, trains in a

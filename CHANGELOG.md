@@ -6,6 +6,11 @@
   scale per output channel instead of one per matrix. On five tasks the int8 student stayed within 0.004 of the
   fp32 student's accuracy, against up to 0.009 before, at the same latency
   (`examples/export/per_channel.py`). Re-export a run to get it.
+- Benchmarks: TREC-50 (50 question types), the second task the settings were not tuned on. The student
+  reaches 0.780 deployed, below published 5-shot FastFit and SetFit results: the teacher (0.730) is the limit
+  (`examples/trec50/`).
+- Benchmarks: two changes to the probe that did not help, self-training on the unlabelled texts and the label
+  names as a prior (`examples/teachers-2026/probe-variants/`).
 
 ## 0.7.0 (2026-11-09)
 
