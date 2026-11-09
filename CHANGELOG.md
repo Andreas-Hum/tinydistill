@@ -16,6 +16,9 @@
   export can lose accuracy (`examples/clinc150/students.sh`, `examples/students/mpnet.sh`).
 - The example scripts that ran without the probe now say `--no-probe`, and the HWU64 run that scores every
   label says `--probe`, so they reproduce their saved results.
+- RESULTS.md: Gemma 4 12B against Qwen3.5-9B with the probe alone on Banking77, CLINC150, Danish MASSIVE and
+  HWU64 (`examples/teachers-2026/probe-only-teachers.sh`). Gemma 4 12B gives the better or an equal student on
+  all four; Qwen3.5-9B labels in a little over half the time.
 - The HWU64 student is on the Hub (`Shroomy/tinydistill-hwu64-minilm`) and in the demo's model picker.
 
 ## 0.6.1 (2026-11-09)

@@ -958,6 +958,34 @@ pack texts (Gemma 4) and with many labels. With the fixed prompt, labelling take
 the GPU time `label` measured (RTX 4090, 4 bit); for Danish MASSIVE, the labelling of the Gemma 4 12B probe run
 whose cache the multilingual student read (the same in context and probe labels).
 
+## Two teachers with the probe alone
+
+[`examples/teachers-2026/probe-only-teachers.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe-only-teachers.sh)
+runs the default for 8 gold labels per class (the probe alone, 16 similar examples) with `google/gemma-4-12B-it`
+and with `Qwen/Qwen3.5-9B`, both in 4 bit, on the four intent tasks:
+
+<!-- results: teachers-2026/probe-only-teachers/summary.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| banking77-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.873 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.870 ± 0.003 | 0.870 ± 0.003 | 0.906 ± 0.004 | ONNX int8 | 1.1 | 35.5 | 23 |
+| banking77-qwen35-9b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `Qwen/Qwen3.5-9B` | 0.863 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.868 ± 0.003 | 0.867 ± 0.003 | 0.897 ± 0.002 | ONNX int8 | 1.0 | 36.2 | 23 |
+| clinc150-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.925 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.852 ± 0.002 | 0.896 ± 0.004 | 0.859 ± 0.002 | ONNX int8 | 1.6 | 34.1 | 23 |
+| clinc150-qwen35-9b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `Qwen/Qwen3.5-9B` | 0.899 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.841 ± 0.004 | 0.889 ± 0.003 | 0.856 ± 0.003 | ONNX int8 | 0.9 | 23.3 | 23 |
+| massive-da-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.792 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 24 | 0.804 ± 0.002 | 0.777 ± 0.004 | 0.826 ± 0.003 | ONNX int8 | 1.6 | 40.6 | 24 |
+| massive-da-qwen35-9b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `Qwen/Qwen3.5-9B` | 0.776 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 24 | 0.794 ± 0.002 | 0.764 ± 0.001 | 0.844 ± 0.001 | ONNX int8 | 1.8 | 40.6 | 24 |
+| hwu64-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.879 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.891 ± 0.004 | 0.889 ± 0.004 | 0.897 ± 0.004 | ONNX int8 | 1.5 | 30.3 | 23 |
+| hwu64-qwen35-9b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `Qwen/Qwen3.5-9B` | 0.887 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.888 ± 0.004 | 0.885 ± 0.006 | 0.897 ± 0.006 | ONNX int8 | 0.8 | 22.4 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+Gemma 4 12B gives the better teacher on three of the four tasks and the better or an equal deployed student on
+all four: Banking77 0.869 against 0.866, CLINC150 0.851 against 0.837, Danish MASSIVE 0.802 against 0.791,
+HWU64 0.888 against 0.888. Qwen3.5-9B labels in a little over half the time (CLINC150 21 minutes against 37,
+Danish MASSIVE 16 against 27, HWU64 9 against 16; Banking77 16 minutes, where Gemma 4 12B read its labels from
+the cache), so it is the choice when labelling time matters more than a point. Gemma 4 31B in 4 bit, the next
+size up, does not fit next to its activations on a 24 GB GPU and labels too slowly there to compare.
+
 ## Which layer the probe reads
 
 By default the probe reads the input of the teacher's LM head, the last layer's output; `label --probe-layer L`
