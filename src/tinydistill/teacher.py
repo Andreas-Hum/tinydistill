@@ -305,8 +305,12 @@ class LabelScorer(_Prompt):
         # the layer whose output is the state (label --probe-layer; negative: from the end), or None: the
         # input of the LM head (the last layer's output, normed)
         self.state_layer: int | None = None
+        # which positions the state is read at (label --probe-pool): "last", the text's last token, or "mean",
+        # the mean over the text's own tokens (the text and the prompt after it, not the examples before it)
+        self.state_pool = "last"
         self.states: dict[str, torch.Tensor] = {}
         self._new_states: list[torch.Tensor] = []
+        self._own: list[int] = []  # see form_scores_many
 
     def _build_tree(self) -> None:
         """Prefix tree over the labels' input tokens (every label token except the last).
@@ -395,6 +399,8 @@ class LabelScorer(_Prompt):
             key["states_only"] = True
             if self.state_layer is not None:
                 key["state_layer"] = self.state_layer
+            if self.state_pool != "last":
+                key["state_pool"] = self.state_pool
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
     @torch.no_grad()
@@ -403,7 +409,13 @@ class LabelScorer(_Prompt):
         With a shortlist, continuations of labels outside a text's shortlist get NOT_SCORED."""
         if self._prefix_cache is None or (self.keep_states and self._prefix_state is None):
             self._encode_prefix()
-        ids = [self.text_ids(t, h) for t, h in zip(texts, self.heads(texts), strict=True)]
+        heads = self.heads(texts)
+        ids = [self.text_ids(t, h) for t, h in zip(texts, heads, strict=True)]
+        # per text, how many of its last positions are its own (the mean pools over them): all, unless its
+        # examples come before it
+        self._own = [
+            len(self.text_ids(t)) if h else len(x) for t, h, x in zip(texts, heads, ids, strict=True)
+        ]
         if self.states_only:  # no label's continuation: a pass runs the texts and keeps their last rows
             labels: list[list[int] | None] = [[] for _ in texts]
         else:
@@ -417,14 +429,14 @@ class LabelScorer(_Prompt):
 
     def _score_packs(self, ids: list[list[int]], views: list[_View]) -> torch.Tensor:
         out: list[torch.Tensor] = []
-        pack: list[tuple[list[int], _View]] = []
+        pack: list[tuple[list[int], _View, int]] = []
         used = 0
-        for x, view in zip(ids, views, strict=True):
+        for i, (x, view) in enumerate(zip(ids, views, strict=True)):
             cost = len(x) + len(view.tokens)
             if pack and used + cost > self.max_tokens:
                 out.append(self._score_pack(pack))
                 pack, used = [], 0
-            pack.append((x, view))
+            pack.append((x, view, i))
             used += cost
         if pack:
             out.append(self._score_pack(pack))
@@ -436,11 +448,16 @@ class LabelScorer(_Prompt):
         """The model's output and, with ``keep``, the states of that same pass: the input of its LM head
         (the last layer's normed hidden states of the rows the logits are computed for, ``logits_to_keep``),
         or with ``state_layer`` that layer's output at the positions ``rows`` (None: every position), so
-        that both come in the same rows. A hook records them, so there is no second pass."""
+        that both come in the same rows. With ``state_pool`` "mean", the states at every position: those
+        of ``state_layer``, or the LM head's input as the decoder's final norm outputs it. A hook records
+        them, so there is no second pass."""
         if not keep:
             return self.model(**kwargs), None
         seen: list[torch.Tensor] = []
-        if self.state_layer is None:
+        mean = self.state_pool == "mean"
+        if mean and self.state_layer is None:  # the head's own hook sees only the kept rows
+            hook = self._final_norm().register_forward_hook(lambda _, args, out: seen.append(out))
+        elif self.state_layer is None:
             head = self.model.get_output_embeddings()
             if head is None:
                 raise ValueError("--probe needs a teacher with an LM head to read its hidden states")
@@ -455,9 +472,27 @@ class LabelScorer(_Prompt):
         finally:
             hook.remove()
         state = seen[-1]
-        if self.state_layer is not None and rows is not None:
+        if self.state_layer is not None and rows is not None and not mean:
             state = state[:, rows]
         return out, state
+
+    def _final_norm(self) -> torch.nn.Module:
+        """The decoder's final norm, whose output at every position is the LM head's input."""
+        decoder = self.model.get_decoder() if hasattr(self.model, "get_decoder") else None
+        for name in ("norm", "final_layernorm", "ln_f"):
+            if isinstance(norm := getattr(decoder, name, None), torch.nn.Module):
+                return norm
+        raise ValueError(
+            "--probe-pool mean reads the LM head's input from the decoder's final norm, which this model "
+            "does not name (norm, final_layernorm or ln_f): give --probe-layer L"
+        )
+
+    def _pooled(self, rows: torch.Tensor, i: int) -> torch.Tensor:
+        """Text ``i``'s state from the states at its rows (positions, hidden): the last, or the mean over its
+        own last positions (at least the last)."""
+        if self.state_pool == "mean":
+            return rows[-max(1, min(self._own[i], len(rows))) :].float().mean(0)
+        return rows[-1].float()
 
     def _layers(self) -> torch.nn.ModuleList:
         """The model's decoder layers: its decoder's ``layers``, or else its longest list of modules."""
@@ -543,7 +578,8 @@ class LabelScorer(_Prompt):
                     first = torch.log_softmax(res.logits[:, -1].float(), -1)
                     src = list(range(len(group)))  # each text's row in the cache
                     if head is not None:
-                        kept.append((group, head[:, -1].float()))
+                        pooled = [self._pooled(h, i) for h, i in zip(head, group, strict=True)]
+                        kept.append((group, torch.stack(pooled)))
                 else:  # empty texts: the prompt itself predicts the first tokens
                     cache, src = self._prefix_cache, [0] * len(group)
                     first = self._prefix_last[None].expand(len(group), -1)
@@ -601,9 +637,9 @@ class LabelScorer(_Prompt):
             total[~view.scored] = NOT_SCORED
         return total
 
-    def _score_pack(self, pack: list[tuple[list[int], _View]]) -> torch.Tensor:
+    def _score_pack(self, pack: list[tuple[list[int], _View, int]]) -> torch.Tensor:
         dev, P = self.device, len(self.prefix_ids)
-        L = sum(len(x) + len(v.tokens) for x, v in pack)
+        L = sum(len(x) + len(v.tokens) for x, v, _ in pack)
         tokens = torch.empty(L, dtype=torch.long, device=dev)
         positions = torch.empty(L, dtype=torch.long, device=dev)
         allow = torch.zeros((L, P + L), dtype=torch.bool, device=dev)
@@ -611,8 +647,9 @@ class LabelScorer(_Prompt):
         keep: list[int] = []  # output rows to compute logits for
         first: list[int] = []  # per text: kept row predicting the first label token (-1: the prompt does)
         node_start: list[int] = []  # per text: kept row of its first tree node
+        ends: list[int] = []  # per text: the row after its last one
         o = 0
-        for x, view in pack:
+        for x, view, _ in pack:
             n, N = len(x), len(view.tokens)
             t = slice(o, o + n)  # this text's rows
             d = slice(o + n, o + n + N)  # its tree nodes
@@ -629,10 +666,11 @@ class LabelScorer(_Prompt):
             node_start.append(len(keep))
             keep.extend(range(o + n, o + n + N))
             o += n + N
+            ends.append(o - N)
         if not keep:  # empty texts and single-token continuations: the prompt predicts everything
             if self.keep_states:
                 self._new_states.append(cast(torch.Tensor, self._prefix_state)[None].expand(len(pack), -1))
-            return torch.stack([self._totals(self._prefix_last[v.targets], v) for _, v in pack])
+            return torch.stack([self._totals(self._prefix_last[v.targets], v) for _, v, _ in pack])
         try:
             res, head = self._forward(
                 self.keep_states,
@@ -650,11 +688,15 @@ class LabelScorer(_Prompt):
             if extra:
                 self._prefix_cache.crop(-extra)  # back to the prompt prefix
         if head is not None:  # each text's state: the kept row that predicts its first label token
-            self._new_states.append(
-                torch.stack(
-                    [head[0, f].float() if f >= 0 else cast(torch.Tensor, self._prefix_state) for f in first]
-                )
-            )
+            prefix = cast(torch.Tensor, self._prefix_state)  # an empty text's
+            if self.state_pool == "mean":  # or the mean over its own rows (head has every row)
+                states = [
+                    self._pooled(head[0, e - len(x) : e], i) if x else prefix
+                    for (x, _, i), e in zip(pack, ends, strict=True)
+                ]
+            else:
+                states = [head[0, f].float() if f >= 0 else prefix for f in first]
+            self._new_states.append(torch.stack(states))
         # log p(target) = logit(target) - logsumexp(logits): only the targets' logits are needed, so the
         # vocabulary-sized softmax is never materialised for all rows at once (with many labels a pass keeps
         # thousands of rows, and full float32 log-softmaxes fragment GPU memory until it spills to system RAM)
@@ -663,7 +705,7 @@ class LabelScorer(_Prompt):
         )
         n = len(logits)  # row n stands for the prompt's last position
         results = []
-        for (_, view), f, start in zip(pack, first, node_start, strict=True):
+        for (_, view, _), f, start in zip(pack, first, node_start, strict=True):
             rows = torch.where(view.rows < 0, f if f >= 0 else n, start + view.rows)
             at = rows.clamp(max=n - 1)
             lp = logits[at, view.targets].float() - lse[at]
@@ -1353,6 +1395,7 @@ def quick_key(
     bucket: int = 0,
     states_only: bool = False,
     state_layer: int | None = None,
+    state_pool: str = "last",
 ) -> str:
     """What decides a local teacher's cache fingerprint, from the tokenizer alone (no model weights): the
     rendered prompt and continuations, and how the model would be loaded. `label` maps it to the full
@@ -1384,6 +1427,8 @@ def quick_key(
         key["states_only"] = True
         if state_layer is not None:
             key["state_layer"] = state_layer
+        if state_pool != "last":
+            key["state_pool"] = state_pool
     return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
 
 
@@ -1397,14 +1442,15 @@ class ScoreCache:
     the states ``x`` (float16), rewritten every STATES_SAVE_EVERY texts and when filling ends; a text counts
     as cached only with both."""
 
-    def __init__(self, path: Path, states: bool = False, layer: int | None = None):
+    def __init__(self, path: Path, states: bool = False, layer: int | None = None, pool: str = "last"):
         self.path = path
         self.scores: dict[str, list[float]] = {}
         self.reasoning: dict[str, str] = {}
         self.states: dict[str, np.ndarray] | None = None
-        # the states of another layer than the LM head's input (label --probe-layer) go to a file of their own
-        name = ".states.npz" if layer is None else f".states-layer{layer}.npz"
-        self.states_path = path.with_name(path.stem + name)
+        # the states of another layer than the LM head's input (label --probe-layer), or pooled otherwise than
+        # at the last token (label --probe-pool), go to a file of their own
+        at = ("" if layer is None else f"-layer{layer}") + ("" if pool == "last" else f"-{pool}")
+        self.states_path = path.with_name(f"{path.stem}.states{at}.npz")
         if states:
             self.states = {}
             if self.states_path.exists():

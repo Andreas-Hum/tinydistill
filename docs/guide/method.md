@@ -86,7 +86,15 @@ softmax is zero.
 Prompt-augmented linear probing (Cho et al., AAAI 2023, [arXiv 2212.10873](https://arxiv.org/abs/2212.10873)).
 $h(x) \in \mathbb{R}^d$ is the teacher's state at the last position of $\pi(x)$, the one whose output predicts the
 first answer token: by default the input of its LM head (the last layer's output after the final norm), with
-`--probe-layer L` the output of decoder layer $L$ there (`LabelScorer._forward`). States are cached as float16.
+`--probe-layer L` the output of decoder layer $L$ there (`LabelScorer._forward`). With `--probe-pool mean` it is
+instead the mean over the text's own positions: if $s_1, \dots, s_m$ are those states at the last $m$ positions
+of $\pi(x)$, the tokens of the text and of the prompt after it (not the examples before it; at least one),
+
+$$
+h(x) = \frac{1}{m} \sum_{j=1}^{m} s_j
+$$
+
+(`LabelScorer._pooled`). States are cached as float16.
 
 The probe is fit on the gold texts $(x_i, y_i)$, $i = 1, \dots, N$, after standardising each feature $k$:
 

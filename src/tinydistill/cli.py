@@ -107,6 +107,7 @@ def _run_members(run: Path, meta: dict, task: Task, name: str, device: str, exam
         if probe.get("only"):  # as it labelled: the states alone
             cast(LabelScorer, members[0]).states_only = True
         cast(LabelScorer, members[0]).state_layer = probe.get("layer")
+        cast(LabelScorer, members[0]).state_pool = probe.get("pool", "last")
         member = ProbeScorer(cast(LabelScorer, members[0]), fit["weight"], fit["bias"])
         members = [member] if probe.get("only") else [*members, member]
     return members
@@ -318,13 +319,14 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
                     k,
                     a.probe_only,
                     a.probe_layer,
+                    a.probe_pool,
                 )
                 for t in (task, *variants)
                 for k in range(sets)
             ]
             known = [keys.get(q) for q in quick]
             cached = [
-                ScoreCache(cache_dir / f"teacher-{k}.jsonl", states and i == 0, a.probe_layer)
+                ScoreCache(cache_dir / f"teacher-{k}.jsonl", states and i == 0, a.probe_layer, a.probe_pool)
                 for i, k in enumerate(known)
                 if k
             ]
@@ -379,6 +381,7 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
                 cast(Any, member).states_only = True
             if states and pi == 0:
                 cast(Any, member).state_layer = a.probe_layer
+                cast(Any, member).state_pool = a.probe_pool
             fingerprints.append(member.fingerprint())
             if q and not a.dry_run:  # a dry run writes nothing
                 keys = json.loads(keys_file.read_text(encoding="utf-8")) if keys_file.exists() else {}
@@ -389,7 +392,9 @@ def cmd_label(a: argparse.Namespace, only: set[str] | None = None) -> None:
             keep = states and pi == 0  # (a local teacher: --probe refuses the others)
             if keep:
                 cast(Any, member).keep_states = True
-            cache = ScoreCache(cache_dir / f"teacher-{fingerprints[-1]}.jsonl", keep, a.probe_layer)
+            cache = ScoreCache(
+                cache_dir / f"teacher-{fingerprints[-1]}.jsonl", keep, a.probe_layer, a.probe_pool
+            )
             if cache.scores:
                 log(f"resuming: {len(cache.scores)} texts already scored")
             if a.dry_run:
@@ -614,6 +619,7 @@ def _probe(
     entry: dict[str, Any] = {
         "only": a.probe_only,
         "layer": a.probe_layer,
+        "pool": a.probe_pool,
         "l2": a.probe_l2,
         "steps": PROBE_STEPS,
         "dev_share": a.probe_dev,
@@ -2397,6 +2403,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="L",
         help="with --probe: the probe reads the output of the teacher's layer L (0: the first, -1: the last, "
         "-2: the one before) instead of the input of its LM head (the last layer's output, normed)",
+    )
+    label.add_argument(
+        "--probe-pool",
+        choices=["last", "mean"],
+        default="last",
+        help="with --probe: the state the probe reads, at the text's last token (default) or the mean over "
+        "the text's own tokens (the text and the prompt after it, not the examples before it)",
     )
     label.add_argument(
         "--probe-l2",

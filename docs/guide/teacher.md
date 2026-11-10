@@ -106,6 +106,12 @@ tinydistill run task.yaml --data train.csv --test test.csv --gold-per-class 8 --
   slightly worse than the default, and layers nearer the middle far worse
   ([Benchmarks](../results.md#which-layer-the-probe-reads)), so the default stays; with `--probe-only` a few
   layers can be compared quickly.
+- `--probe-pool mean` reads the mean of the states over the text's own tokens instead of the state at its last
+  token: the text and the prompt after it, not the examples shown before it. It averages the LM head's input
+  (hooked at the decoder's final norm, so at every position), or with `--probe-layer L` that layer's output, and
+  is cached in a file of its own. Zero-shot, it was better than the default with Gemma 4 12B at layer -12 and
+  worse with Qwen2.5-7B at layer -7, so the default stays `last`; see
+  [`examples/teachers-2026/probe-pool/`](https://github.com/Andreas-Hum/tinydistill/tree/main/examples/teachers-2026/probe-pool).
 - The states are cached next to the scores, as `teacher-<fingerprint>.states.npz` (text hashes and float16
   states). The fingerprint is the same as without the probe. A text whose scores are cached but not its state is
   scored again once, for the state.

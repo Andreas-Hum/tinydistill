@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `label --probe-pool mean`: the probe reads the mean of the teacher's states over the text's own tokens instead
+  of the state at its last token (default `last`, unchanged; see `docs/guide/teacher.md`).
 - `export RUN --labels FILE` (`.csv` or `.jsonl`) writes the run's training texts with their gold labels and
   the teacher's labels and probabilities, as a dataset to use elsewhere (not for a run labelled with
   `--chunk-tokens`, whose training rows are windows).

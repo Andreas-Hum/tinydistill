@@ -128,6 +128,98 @@ def test_batched_layer_states(teacher, task, request):
     check_layer_states(scorer, TEXTS, 0)
 
 
+@torch.no_grad()
+def mean_state(scorer: LabelScorer, text: str, head: str = "", layer: int | None = None) -> list[float]:
+    """The mean of the states over the text's own positions, the last len(text_ids(text)) (at least one), from
+    one plain forward pass over prompt + head + text: the LM head's input, or the output of ``layer``."""
+    ids = torch.tensor([scorer.prefix_ids + scorer.text_ids(text, head)])
+    if layer is None:
+        h = scorer.model.base_model(input_ids=ids).last_hidden_state[0]
+    else:
+        h = scorer.model(input_ids=ids, output_hidden_states=True).hidden_states[layer + 1][0]
+    return h[-max(1, len(scorer.text_ids(text))) :].mean(0).tolist()
+
+
+def check_mean_states(scorer: LabelScorer, texts: list[str], layer: int | None = None) -> None:
+    """--probe-pool mean: the scores are unchanged and each state is the mean over the text's own positions,
+    in a full pass and states-only (whose fingerprint then differs from the last token's)."""
+    plain = scorer.form_scores_many(texts)
+    scorer.keep_states, scorer.state_layer, scorer.state_pool = True, layer, "mean"
+    assert torch.equal(scorer.form_scores_many(texts), plain)
+    for t, head in zip(texts, scorer.heads(texts), strict=True):
+        assert scorer.states[t].tolist() == pytest.approx(mean_state(scorer, t, head, layer), abs=1e-4)
+    want = dict(scorer.states)
+    scorer.states_only, scorer.state_pool = True, "last"
+    last = scorer.fingerprint()
+    scorer.state_pool = "mean"
+    assert scorer.fingerprint() != last
+    scorer.form_scores_many(texts)
+    for t in texts:
+        assert scorer.states[t].tolist() == pytest.approx(want[t].tolist(), abs=1e-4)
+
+
+@pytest.mark.parametrize("layer", [None, 0])
+@pytest.mark.parametrize("max_tokens", [12, 10_000])
+def test_packed_mean_states(lm, task, max_tokens, layer):  # noqa: F811
+    model, tok = lm
+    check_mean_states(LabelScorer(model, tok, task, max_tokens=max_tokens), TEXTS, layer)
+    # no suffix: an empty text's state is the prompt's last one
+    bare = type(task)(**{**task.__dict__, "prompt": "Is this review positive?\n{labels}\n{text}"})
+    check_mean_states(LabelScorer(model, tok, bare, use_chat_template=False), ["", "fine", ""], layer)
+
+
+def test_mean_states_leave_out_similar_examples(lm, task):  # noqa: F811
+    """With similar examples, the mean is over the text and the prompt after it, not its examples."""
+    from tinydistill.shortlist import Retriever
+
+    model, tok = lm
+    shots = type(task)(**{**task.__dict__, "prompt": SHOTS})
+    scorer = LabelScorer(model, tok, shots, similar=Retriever(POOL, 2, TINY_ENCODER))
+    texts = ["a good movie", "awful plot", ""]
+    assert all(scorer.heads(texts))
+    check_mean_states(scorer, texts)
+
+
+@pytest.mark.parametrize("layer", [None, 0])
+@pytest.mark.parametrize("teacher", [unpackable("hybrid"), unpackable("sliding")])
+def test_batched_mean_states(teacher, task, request, layer):
+    model, tok = request.getfixturevalue(teacher)
+    shots = type(task)(**{**task.__dict__, "prompt": SHOTS})
+    scorer = LabelScorer(model, tok, shots, examples=POOL, max_tokens=12)
+    scorer._encode_prefix()
+    assert not scorer._packable
+    check_mean_states(scorer, TEXTS, layer)
+
+
+def test_the_last_token_pool_changes_no_fingerprint(lm, task, tmp_path):  # noqa: F811
+    """--probe-pool last is the default: the fingerprints, quick keys and state files of before; only the mean
+    has its own (states-only) fingerprint and state file."""
+    scorer = LabelScorer(*lm, task)
+    assert scorer.state_pool == "last"
+    plain = scorer.fingerprint()
+    scorer.keep_states, scorer.state_pool = True, "mean"
+    assert scorer.fingerprint() == plain  # with every label scored, the scores are the same
+    scorer.states_only = True
+    mean = scorer.fingerprint()
+    scorer.state_pool = "last"
+    assert scorer.fingerprint() != mean
+    key = quick_key(TINY_LM, task, "cpu", False, states_only=True)
+    assert quick_key(TINY_LM, task, "cpu", False, states_only=True, state_pool="last") == key
+    assert quick_key(TINY_LM, task, "cpu", False, states_only=True, state_pool="mean") != key
+    path = tmp_path / "teacher-x.jsonl"
+    names = [
+        ScoreCache(path, True, layer, pool).states_path.name
+        for layer in (None, 0)
+        for pool in ("last", "mean")
+    ]
+    assert names == [
+        "teacher-x.states.npz",
+        "teacher-x.states-mean.npz",
+        "teacher-x.states-layer0.npz",
+        "teacher-x.states-layer0-mean.npz",
+    ]
+
+
 def test_states_only_has_its_own_quick_key(task):
     assert quick_key(TINY_LM, task, "cpu", False) != quick_key(TINY_LM, task, "cpu", False, states_only=True)
 
@@ -227,6 +319,7 @@ def test_the_dev_report_holds_out_gold_texts(tmp_path):
     a = argparse.Namespace(
         probe_only=False,
         probe_layer=None,
+        probe_pool="last",
         probe_l2=1e-3,
         probe_dev=0.25,
         gold_per_class=10,
@@ -351,6 +444,30 @@ def test_probe_layer_round_trip(tmp_path, data):
     assert list((tmp_path / "cache").glob("*.states-layer0.npz"))
     test = read(run / "test.jsonl")
     teacher = _run_teacher(run, "cpu")
+    for r, g in zip(test, teacher.score_many([r["text"] for r in test]), strict=True):
+        assert g == pytest.approx(r["scores"], abs=1e-4)
+
+
+def test_probe_pool_round_trip(tmp_path, data):
+    """--probe-pool mean: its states go to a file of their own, meta.json records the pool and eval rebuilds
+    the teacher; --probe-pool last is the run without it."""
+    run, last, default = tmp_path / "mean", tmp_path / "last", tmp_path / "default"
+    args = ["--probe-only", "--gold-per-class", "3"]
+    main(["label", *data, "--out", str(run), *args, "--probe-pool", "mean"])
+    main(["label", *data, "--out", str(last), *args, "--probe-pool", "last"])
+    main(["label", *data, "--out", str(default), *args])
+    meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
+    assert meta["probe"]["pool"] == "mean"
+    assert list((tmp_path / "cache").glob(f"teacher-{meta['fingerprint']}.states-mean.npz"))
+    fingerprints = [
+        json.loads((r / "meta.json").read_text(encoding="utf-8"))["fingerprint"] for r in (last, default)
+    ]
+    assert fingerprints[0] == fingerprints[1] != meta["fingerprint"]
+    assert read(last / "test.jsonl") == read(default / "test.jsonl")
+    test = read(run / "test.jsonl")
+    assert test != read(default / "test.jsonl")
+    teacher = _run_teacher(run, "cpu")
+    assert isinstance(teacher, ProbeScorer) and teacher.base.state_pool == "mean"
     for r, g in zip(test, teacher.score_many([r["text"] for r in test]), strict=True):
         assert g == pytest.approx(r["scores"], abs=1e-4)
 

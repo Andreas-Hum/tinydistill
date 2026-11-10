@@ -241,6 +241,7 @@ def markdown_table(results: dict) -> str:
             )
             + " a linear probe on its hidden states"
             + (f" (layer {probe['layer']})" if probe.get("layer") is not None else "")
+            + (" (the mean over the text's tokens)" if probe.get("pool") == "mean" else "")
             + f", fit on {probe['n_gold']} gold training texts"
             + (
                 f"; fit on {dev['n_fit']} of them, teacher accuracy on the other {dev['n_dev']} is "
