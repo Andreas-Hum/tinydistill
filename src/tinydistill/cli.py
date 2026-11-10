@@ -1605,10 +1605,11 @@ def cmd_suggest(a: argparse.Namespace) -> None:
     disagree = sum(int(p[i].argmax() != q[i].argmax()) for i in chosen)
     if Path(a.out).suffix == ".json":
         _suggest_label_studio(task, texts, p, q, chosen, a.out)
+        config = Path(a.out).with_suffix(".xml").as_posix()
         log(
             f"wrote {len(chosen)} Label Studio tasks to {a.out} ({disagree} where student and teacher "
-            "disagree). Import them into a project with the labeling config above, label them, export the "
-            "project as JSON and train with --gold-file EXPORT.json"
+            f"disagree) and their labeling config to {config}. Import them into a project with that config, "
+            "label them, export the project as JSON and train with --gold-file EXPORT.json"
         )
         return
     field = task.label_field or "label"
@@ -1630,7 +1631,7 @@ def cmd_suggest(a: argparse.Namespace) -> None:
 
 def _suggest_label_studio(task: Task, texts: list[str], p: Any, q: Any, chosen: list[int], out: str) -> None:
     """suggest --out FILE.json: the texts as Label Studio tasks, each with the teacher's labels as a
-    prediction the annotator starts from, and the matching labeling config printed to stdout."""
+    prediction the annotator starts from, and the matching labeling config in FILE.xml."""
     from xml.sax.saxutils import quoteattr
 
     tasks = []
@@ -1649,13 +1650,13 @@ def _suggest_label_studio(task: Task, texts: list[str], p: Any, q: Any, chosen: 
         tasks.append({"data": data, "predictions": [{"model_version": "teacher", "result": result}]})
     Path(out).write_text(json.dumps(tasks, ensure_ascii=False, indent=1), encoding="utf-8")
     choice = "multiple" if task.multi_label else "single"
-    print("<View>")
-    print('  <Text name="text" value="$text"/>')
-    print(f'  <Choices name="label" toName="text" choice="{choice}">')
+    config = ["<View>", '  <Text name="text" value="$text"/>']
+    config.append(f'  <Choices name="label" toName="text" choice="{choice}">')
     for name in task.labels:
-        print(f"    <Choice value={quoteattr(name)}/>")
-    print("  </Choices>")
-    print("</View>")
+        config.append(f"    <Choice value={quoteattr(name)}/>")
+    config += ["  </Choices>", "</View>"]
+    # a file, not stdout: a redirected stdout on Windows is in the locale code page, which may lack the labels
+    Path(out).with_suffix(".xml").write_text("\n".join(config) + "\n", encoding="utf-8")
 
 
 def cmd_tune(a: argparse.Namespace) -> None:
@@ -2657,7 +2658,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         default="to_label.jsonl",
         help="JSONL to write, with an empty label to fill in; a .json file: Label Studio tasks to import, "
-        "with the labeling config printed",
+        "with their labeling config in a .xml file next to it",
     )
     sug.set_defaults(fn=cmd_suggest)
     ana = sub.add_parser(

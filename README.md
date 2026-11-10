@@ -332,8 +332,8 @@ results show the mean and standard deviation.
   where the student and the teacher disagree, then where the teacher is least sure, spread over labels. Fill
   in the empty label field and pass the file back with `train RUN --gold-file to_label.jsonl`; those labels
   join the cross-entropy term. With `--out to_label.json` it writes [Label Studio](https://labelstud.io) tasks
-  that start from the teacher's label, and prints their labeling config; `--gold-file` reads the project's
-  JSON export.
+  that start from the teacher's label, with their labeling config in `to_label.xml`; `--gold-file` reads the
+  project's JSON export.
 - `predict --cascade RUN --log cascade.jsonl` (and `serve --cascade ... --log`) records every text the cascade
   passed to the teacher, with the teacher's scores. `tinydistill refresh RUN --log cascade.jsonl --out RUN2`
   adds them to the training texts and trains, exports and evaluates a new student on the same test set, so

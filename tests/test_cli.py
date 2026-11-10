@@ -793,13 +793,18 @@ def test_suggest_to_label_studio_and_back(tmp_path, capsys):
     data = ["--data", str(tmp_path / "d.jsonl"), "--test", str(tmp_path / "d.jsonl")]
     main(["run", str(tmp_path / "task.yaml"), *data, "--out", str(run), *common, *fast])
     out = tmp_path / "to_label.json"
-    capsys.readouterr()
     main(["suggest", str(run), "--n", "3", "--out", str(out)])
-    config = capsys.readouterr().out  # the labeling config to paste into the Label Studio project
+    config = (tmp_path / "to_label.xml").read_text(encoding="utf-8")  # to paste into the Label Studio project
     assert '<Choices name="label" toName="text" choice="single">' in config
     assert '<Choice value="pos"/>' in config and '<Text name="text" value="$text"/>' in config
     tasks = json.loads(out.read_text(encoding="utf-8"))
     assert len(tasks) == 3 and len({t["data"]["text"] for t in tasks}) == 3
+    from tinydistill.data import read_examples
+    from tinydistill.task import load_task
+
+    task = load_task(run / "task.yaml")
+    with pytest.raises(ValueError, match="Label Studio tasks without annotations"):  # not exported yet
+        list(read_examples(str(out), task))
     for t in tasks:  # the teacher's label as a prediction the annotator starts from
         (result,) = t["predictions"][0]["result"]
         assert result["type"] == "choices" and (result["from_name"], result["to_name"]) == ("label", "text")
@@ -825,10 +830,6 @@ def test_suggest_to_label_studio_and_back(tmp_path, capsys):
         {"id": 3, "data": {"text": c}, "annotations": []},  # not labelled yet
     ]
     (tmp_path / "export.json").write_text(json.dumps(export, indent=2), encoding="utf-8")
-    from tinydistill.data import read_examples
-    from tinydistill.task import load_task
-
-    task = load_task(run / "task.yaml")
     assert [e.gold for e in read_examples(str(tmp_path / "export.json"), task)] == [0, 1, None]
     capsys.readouterr()
     gold = ["--gold-file", str(tmp_path / "export.json"), "--gold-only"]
@@ -838,6 +839,23 @@ def test_suggest_to_label_studio_and_back(tmp_path, capsys):
     (tmp_path / "export.json").write_text(json.dumps(export), encoding="utf-8")
     with pytest.raises(ValueError, match="Label Studio task 2: unknown label 'meh'"):
         list(read_examples(str(tmp_path / "export.json"), task))
+
+
+def test_label_studio_config_is_utf8(tmp_path):
+    # labels outside the locale code page: a redirected stdout on Windows could not encode them
+    import numpy as np
+
+    from tinydistill.cli import _suggest_label_studio
+    from tinydistill.task import load_task
+
+    yaml = TASK.replace("pos:", "正面:").replace("neg:", "負面:")
+    (tmp_path / "task.yaml").write_text(yaml, encoding="utf-8")
+    task = load_task(tmp_path / "task.yaml")
+    p = np.array([[0.9, 0.1]])
+    _suggest_label_studio(task, ["很好"], p, p, [0], str(tmp_path / "o.json"))
+    config = (tmp_path / "o.xml").read_text(encoding="utf-8")
+    assert '<Choice value="正面"/>' in config and config.endswith("</View>\n")
+    assert json.loads((tmp_path / "o.json").read_text(encoding="utf-8"))[0]["data"]["text"] == "很好"
 
 
 def test_label_studio_export_multi_label(tmp_path):

@@ -7,7 +7,9 @@
   text column now says to name it with `--text-field`, and CSV files with a byte order mark (as spreadsheet
   programs save them) are read.
 - `suggest --out FILE.json` writes the texts as Label Studio tasks, with the teacher's label as a prediction to
-  start from, and prints the labeling config; `--gold-file` reads Label Studio's JSON export.
+  start from, and their labeling config to `FILE.xml`; `--gold-file` reads Label Studio's JSON export. A `.json`
+  `--out` used to write JSON lines with an empty label field; use `.jsonl` for that file now. Passing the tasks
+  file itself to `--gold-file` says to label them in Label Studio and pass the export.
 - Docs: "The method in equations", the teacher's scores, the probe, the student's loss, int8 export and the
   cascade as the code computes them (`docs/guide/method.md`).
 

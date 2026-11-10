@@ -99,10 +99,11 @@ tinydistill train RUN --gold-file to_label.jsonl
 ### Checking labels in Label Studio
 
 With `--out` ending in `.json`, `suggest` writes the texts as [Label Studio](https://labelstud.io) tasks
-instead, and prints the labeling config that goes with them:
+instead (not JSON lines; use `.jsonl` for those), and the labeling config that goes with them next to it, in
+`to_label.xml`:
 
 ```sh
-tinydistill suggest RUN --n 200 --out to_label.json > config.xml
+tinydistill suggest RUN --n 200 --out to_label.json
 ```
 
 Each task holds the text (`data.text`, next to the teacher's and the student's label and the teacher's
@@ -120,7 +121,8 @@ wrong. The config is a `Choices` control over the task's labels, `choice="multip
 ```
 
 Create a project, paste the config under Settings, Labeling Interface, Code, import `to_label.json`, label the
-tasks, and export the project in the JSON format. `--gold-file` reads that export as it is:
+tasks, and export the project in the JSON format. `--gold-file` reads that export as it is (not `to_label.json`
+itself, which holds no annotations):
 
 ```sh
 tinydistill train RUN --gold-file project-1-at-2026-01-01.json

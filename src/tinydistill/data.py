@@ -153,6 +153,11 @@ def read_examples(
             yield Example(str(row["data"]["text"]), _label_studio_gold(row, task) if with_gold else None)
             continue
         if task.text_field not in row:
+            if "data" in row and "predictions" in row:  # the tasks suggest wrote, not the project's export
+                raise ValueError(
+                    f"{spec}: Label Studio tasks without annotations; import them into Label Studio, label "
+                    "them and pass the project's JSON export"
+                )
             raise KeyError(f"{spec}: no field {task.text_field!r} (set text_field in the task file)")
         gold = None
         if with_gold and task.label_field and task.label_field in row:
