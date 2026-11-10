@@ -1,0 +1,157 @@
+[
+ {
+  "run": "banking77-gemma4-12b-probe-only-similar16",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -12,
+  "n_layers": 48,
+  "n_gold": 616,
+  "n_test": 3080,
+  "seconds": 721.4,
+  "cached_states_compared": 3696,
+  "cached_states_min_cosine": 0.9853296875953674,
+  "last": {
+   "accuracy": 0.8707792207792208,
+   "macro_f1": 0.869803662917675
+  },
+  "mean": {
+   "accuracy": 0.8639610389610389,
+   "macro_f1": 0.8631440527953915
+  },
+  "last_layer": {
+   "accuracy": 0.8701298701298701,
+   "macro_f1": 0.8690861844398996
+  },
+  "mean_layer": {
+   "accuracy": 0.8769480519480519,
+   "macro_f1": 0.8762404140819902
+  },
+  "last_mean": {
+   "accuracy": 0.875,
+   "macro_f1": 0.874111354984779
+  }
+ },
+ {
+  "run": "clinc150-gemma4-12b-probe-only-similar16",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -12,
+  "n_layers": 48,
+  "n_gold": 1208,
+  "n_test": 5500,
+  "seconds": 1473.8,
+  "cached_states_compared": 6708,
+  "cached_states_min_cosine": 0.9942796230316162,
+  "last": {
+   "accuracy": 0.9243636363636364,
+   "macro_f1": 0.9435064537955232
+  },
+  "mean": {
+   "accuracy": 0.8941818181818182,
+   "macro_f1": 0.9198765735456891
+  },
+  "last_layer": {
+   "accuracy": 0.9274545454545454,
+   "macro_f1": 0.9457378182463523
+  },
+  "mean_layer": {
+   "accuracy": 0.9225454545454546,
+   "macro_f1": 0.9429331827156944
+  },
+  "last_mean": {
+   "accuracy": 0.9245454545454546,
+   "macro_f1": 0.9410263095960493
+  }
+ },
+ {
+  "run": "hwu64-gemma4-12b-probe-only-similar16",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -12,
+  "n_layers": 48,
+  "n_gold": 512,
+  "n_test": 1076,
+  "seconds": 194.3,
+  "cached_states_compared": 1588,
+  "cached_states_min_cosine": 0.9937382340431213,
+  "last": {
+   "accuracy": 0.8754646840148699,
+   "macro_f1": 0.8725931755332816
+  },
+  "mean": {
+   "accuracy": 0.8643122676579925,
+   "macro_f1": 0.8604880744127784
+  },
+  "last_layer": {
+   "accuracy": 0.8763940520446096,
+   "macro_f1": 0.8735166415621527
+  },
+  "mean_layer": {
+   "accuracy": 0.8931226765799256,
+   "macro_f1": 0.8914520644438911
+  },
+  "last_mean": {
+   "accuracy": 0.8745353159851301,
+   "macro_f1": 0.8720539959219625
+  }
+ },
+ {
+  "run": "massive-da-gemma4-12b-probe-only-similar16",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -12,
+  "n_layers": 48,
+  "n_gold": 467,
+  "n_test": 2974,
+  "seconds": 451.9,
+  "cached_states_compared": 3441,
+  "cached_states_min_cosine": 0.9796643257141113,
+  "last": {
+   "accuracy": 0.7874915938130465,
+   "macro_f1": 0.7735909319412425
+  },
+  "mean": {
+   "accuracy": 0.7397444519166106,
+   "macro_f1": 0.705147523639043
+  },
+  "last_layer": {
+   "accuracy": 0.800941492938803,
+   "macro_f1": 0.7754257521596313
+  },
+  "mean_layer": {
+   "accuracy": 0.808338937457969,
+   "macro_f1": 0.7849111888099884
+  },
+  "last_mean": {
+   "accuracy": 0.7689979825151312,
+   "macro_f1": 0.7504793403794401
+  }
+ },
+ {
+  "run": "trec50-gemma4-12b-probe-only-similar16",
+  "teacher": "google/gemma-4-12B-it",
+  "layer": -12,
+  "n_layers": 48,
+  "n_gold": 381,
+  "n_test": 500,
+  "seconds": 136.6,
+  "cached_states_compared": 881,
+  "cached_states_min_cosine": 0.9916424751281738,
+  "last": {
+   "accuracy": 0.728,
+   "macro_f1": 0.638049623023279
+  },
+  "mean": {
+   "accuracy": 0.756,
+   "macro_f1": 0.6439236198334014
+  },
+  "last_layer": {
+   "accuracy": 0.77,
+   "macro_f1": 0.6600526055471286
+  },
+  "mean_layer": {
+   "accuracy": 0.82,
+   "macro_f1": 0.747170092611051
+  },
+  "last_mean": {
+   "accuracy": 0.802,
+   "macro_f1": 0.695774359907325
+  }
+ }
+]

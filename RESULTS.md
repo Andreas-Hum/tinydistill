@@ -1078,6 +1078,53 @@ layer -12 against 0.891). Nearer the middle the probe falls far behind on every 
 the furthest layer measured). The default stays the LM head's input; with `--probe-only` a few layers can be
 compared in minutes per task.
 
+## The probe on the mean over the text
+
+The probe reads the teacher's state at the text's last token. Decoder LLMs are also used as text encoders by
+averaging their states over the text's tokens (Springer et al. 2024, [arXiv 2402.15449](https://arxiv.org/abs/2402.15449)).
+[`pool.py`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/probe-pool/pool.py) rebuilds the teacher of the probe-alone runs as it labelled,
+runs it once over their gold and test texts, and fits the same probe on the gold texts' states, read four
+ways: the last token or the mean over the text's own tokens (the text and the prompt after it, not the
+similar examples before it), at the LM head's input or at a layer a quarter of the way back. The last token at
+the LM head's input is the probe as it is, a control: it reproduces each run's own teacher accuracy to within
+0.006. With the zero-shot prompt:
+
+<!-- results: teachers-2026/probe-pool/zeroshot.md -->
+| Run | Teacher | Layer | last token, LM head input (default) | mean, LM head input | last token, layer | mean, layer |
+|---|---|---|---|---|---|---|
+| banking77-7b-probe-only-zeroshot | `Qwen/Qwen2.5-7B-Instruct` | -7 of 28 | 0.797 | 0.768 | 0.810 | 0.760 |
+| clinc150-gemma4-12b-probe-only-zeroshot | `google/gemma-4-12B-it` | -12 of 48 | 0.892 | 0.858 | 0.889 | 0.908 |
+| hwu64-gemma4-12b-probe-only-zeroshot | `google/gemma-4-12B-it` | -12 of 48 | 0.848 | 0.833 | 0.857 | 0.889 |
+| massive-da-gemma4-12b-probe-only-zeroshot | `google/gemma-4-12B-it` | -12 of 48 | 0.763 | 0.711 | 0.774 | 0.802 |
+| trec50-gemma4-12b-probe-only-zeroshot | `google/gemma-4-12B-it` | -12 of 48 | 0.722 | 0.754 | 0.742 | 0.766 |
+
+Test accuracy of the probe alone, fit on the same gold texts, reading the teacher's state at the text's last token or the mean of its states over the text's own tokens (the text and the prompt after it, not the examples before it), at the LM head's input or at the output of the layer given.
+<!-- /results -->
+
+With each text's 16 most similar gold examples in the prompt, the default:
+
+<!-- results: teachers-2026/probe-pool/similar16.md -->
+| Run | Teacher | Layer | last token, LM head input (default) | mean, LM head input | last token, layer | mean, layer |
+|---|---|---|---|---|---|---|
+| banking77-gemma4-12b-probe-only-similar16 | `google/gemma-4-12B-it` | -12 of 48 | 0.871 | 0.864 | 0.870 | 0.877 |
+| clinc150-gemma4-12b-probe-only-similar16 | `google/gemma-4-12B-it` | -12 of 48 | 0.924 | 0.894 | 0.927 | 0.923 |
+| hwu64-gemma4-12b-probe-only-similar16 | `google/gemma-4-12B-it` | -12 of 48 | 0.875 | 0.864 | 0.876 | 0.893 |
+| massive-da-gemma4-12b-probe-only-similar16 | `google/gemma-4-12B-it` | -12 of 48 | 0.787 | 0.740 | 0.801 | 0.808 |
+| trec50-gemma4-12b-probe-only-similar16 | `google/gemma-4-12B-it` | -12 of 48 | 0.728 | 0.756 | 0.770 | 0.820 |
+
+Test accuracy of the probe alone, fit on the same gold texts, reading the teacher's state at the text's last token or the mean of its states over the text's own tokens (the text and the prompt after it, not the examples before it), at the LM head's input or at the output of the layer given.
+<!-- /results -->
+
+With Gemma 4 12B, the mean at layer -12 of 48 is the best of the four on every task zero-shot, and with the
+similar examples on every task but CLINC150, where it is level with the probe as it is (0.923 against 0.924):
+TREC-50 0.820 against 0.728,
+Danish MASSIVE 0.808 against 0.787, HWU64 0.893 against 0.875 and Banking77 0.877 against 0.871 with the
+similar examples, and 0.766 to 0.908 against 0.722 to 0.892 zero-shot. The mean at the LM head's input is
+worse than the last token on four of the five tasks. With Qwen2.5-7B (Banking77, zero-shot) the mean at layer
+-7 of 28 is worse (0.760 against 0.797), while the last token there is better (0.810), as in
+[Which layer the probe reads](#which-layer-the-probe-reads). `label --probe-pool mean --probe-layer -12` reads
+the mean during labelling, for a model whose layer has been checked this way.
+
 ## Two changes to the probe that did not help
 
 Both refit the probe on the cached teacher states of the five probe-alone runs with 16 similar examples, so
@@ -1107,8 +1154,8 @@ trains MiniLM-L12 and mpnet-base on the same labels:
 | Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | clinc150-gemma4-12b-similar16-probe | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.941 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.860 ± 0.005 | 0.898 ± 0.004 | 0.870 ± 0.004 | ONNX int8 | 0.8 | 22.4 | 23 |
-| all-MiniLM-L12-v2 | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.941 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.872 ± 0.006 | 0.907 ± 0.003 | 0.880 ± 0.006 | ONNX int8 | 2.1 | 42.6 | 34 |
-| all-mpnet-base-v2 | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.941 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.894 ± 0.005 | 0.921 ± 0.003 | 0.905 ± 0.003 | ONNX int8 | 7.2 | 131.2 | 110 |
+| all-MiniLM-L12-v2 | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.941 | `sentence-transformers/all-MiniLM-L12-v2` | 33 | 0.872 ± 0.006 | 0.907 ± 0.003 | 0.880 ± 0.006 | ONNX int8 | 3.0 | 52.7 | 34 |
+| all-mpnet-base-v2 | 16 similar examples, 4-bit, probe `google/gemma-4-12B-it` | 0.941 | `sentence-transformers/all-mpnet-base-v2` | 110 | 0.894 ± 0.005 | 0.921 ± 0.003 | 0.905 ± 0.003 | ONNX int8 | 7.0 | 128.6 | 111 |
 
 All latencies on the CPU with 2 threads.
 <!-- /results -->
