@@ -17,6 +17,8 @@
   file itself to `--gold-file` says to label them in Label Studio and pass the export.
 - Docs: "The method in equations", the teacher's scores, the probe, the student's loss, int8 export and the
   cascade as the code computes them (`docs/guide/method.md`).
+- Benchmarks: a second student round, trained on the first student's predictions or on the teacher's labels
+  corrected by them, gains nothing on Banking77 and CLINC150 (`examples/students/round2.py`).
 
 ## 0.7.1 (2026-11-09)
 

@@ -1188,6 +1188,22 @@ Here mpnet gains less than a point (Banking77 0.878 against 0.875, Danish 0.818 
 matrix, it lost up to 0.027 (HWU64 0.864). A larger student pays when the teacher is well above the student,
 and otherwise the teacher is the limit.
 
+## A second round of students: no gain
+
+A student trained on a teacher's labels can be more accurate than the labels it learned from, so a second
+round could learn from the first student instead (born-again networks, Furlanello et al. 2018,
+[arXiv 1805.04770](https://arxiv.org/abs/1805.04770); for LLM teachers, Zhao 2023,
+[arXiv 2312.10185](https://arxiv.org/abs/2312.10185)). [`round2.py`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/students/round2.py) trains, per seed,
+a round-2 student exactly as the run trained its own, on other targets: the teacher's again (the control), the
+mean of the teacher's and the round-1 student's distributions, the round-1 student's alone, or the teacher's
+except where the round-1 student confidently (at least 0.9) picks another label. On Banking77
+([`round2-banking77.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/students/round2-banking77.json), 10,003 training texts) the control reaches
+0.875, as round 1 did, and the other three 0.874, 0.873 and 0.875; on CLINC150
+([`round2-clinc150.json`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/students/round2-clinc150.json), the probe-alone run) the control 0.852, the
+others 0.851, 0.850 and 0.852. The round-1 student agrees with its own training targets too closely to
+correct them: it overrules the teacher with confidence on 51 of Banking77's 10,003 texts and on 18 of
+CLINC150's 15,250. A second round is not worth its training time.
+
 ## A vLLM teacher agrees with the local one
 
 [`examples/vllm-smoke.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/vllm-smoke.sh)
