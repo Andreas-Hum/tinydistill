@@ -3,11 +3,12 @@
 ## Unreleased
 
 - `export RUN --labels FILE` (`.csv` or `.jsonl`) writes the run's training texts with their gold labels and
-  the teacher's labels and probabilities, as a dataset to use elsewhere.
-- `predict --out FILE.csv` writes the predictions as a CSV file: every column of the `--data` file, then the
-  predicted label and its confidence (multi-label: the labels and one score column per label). A missing
-  text column now says to name it with `--text-field`, and CSV files with a byte order mark (as spreadsheet
-  programs save them) are read.
+  the teacher's labels and probabilities, as a dataset to use elsewhere (not for a run labelled with
+  `--chunk-tokens`, whose training rows are windows).
+- `predict --out FILE.csv` writes the predictions as a CSV file (with a byte order mark, so Excel opens it as
+  UTF-8): every column of the `--data` file, then the predicted label and its confidence (multi-label: the
+  labels and one score column per label). A missing text column now says to name it with `--text-field`, and
+  CSV files with a byte order mark (as spreadsheet programs save them) are read.
 - `suggest --out FILE.json` writes the texts as Label Studio tasks, with the teacher's label as a prediction to
   start from, and their labeling config to `FILE.xml`; `--gold-file` reads Label Studio's JSON export. A `.json`
   `--out` used to write JSON lines with an empty label field; use `.jsonl` for that file now. Passing the tasks

@@ -1046,6 +1046,11 @@ def _write_labels(run: Path, path: Path) -> None:
     train = _read_jsonl(run / "train.jsonl")
     if not train:
         raise SystemExit(f"{run}/train.jsonl is missing or empty: run `tinydistill label` first")
+    if any("doc" in r for r in train):  # the documents' texts are not in the run, and windows overlap
+        raise SystemExit(
+            f"{run} was labelled with --chunk-tokens: its training texts are windows of the documents, each "
+            "with its document's gold label, not the documents themselves, so --labels cannot write them"
+        )
     scores = torch.tensor([r["scores"] for r in train], dtype=torch.float64)
     probs = (scores.sigmoid() if task.multi_label else scores.softmax(-1)).float().tolist()
     rows, results = [], []
@@ -1430,7 +1435,7 @@ def cmd_predict(a: argparse.Namespace) -> None:
 def _write_predictions(path: Path, rows: list[dict], results: list[dict], prefix: str = "predicted_") -> None:
     """Each input row with its prediction added as `predicted_*` columns (``prefix``; a gold `label` column
     stays): the label and confidence, or (multi-label) the labels joined by "|", and one column per label's
-    score if the prediction has them."""
+    score if the prediction has them. With a byte order mark, which Excel needs to read the file as UTF-8."""
     import csv
 
     out = []
@@ -1444,7 +1449,7 @@ def _write_predictions(path: Path, rows: list[dict], results: list[dict], prefix
             else:
                 cells[f"{prefix}{k}"] = v
         out.append(cells)
-    with path.open("w", encoding="utf-8", newline="") as f:
+    with path.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, list(dict.fromkeys(k for cells in out for k in cells)))
         w.writeheader()
         w.writerows(out)

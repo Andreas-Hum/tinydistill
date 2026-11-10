@@ -19,8 +19,8 @@ tinydistill predict RUN/onnx --data sheet.csv --text-field review --out labelled
 a CSV file instead of JSON lines: every column of the input, then `predicted_label` and `predicted_confidence`,
 plus `predicted_outside` for a model with an `outside` label and `predicted_by` with `--cascade`. A
 multi-label model writes `predicted_labels` (separated by `|`, as gold labels are read) and one
-`predicted_scores_<label>` column per label. A CSV saved by a spreadsheet program, byte order mark included,
-reads as it is.
+`predicted_scores_<label>` column per label. The CSV starts with a byte order mark, so Excel opens it as
+UTF-8; a CSV saved by a spreadsheet program, byte order mark included, reads as it is.
 
 ```python
 from tinydistill import Predictor
@@ -36,8 +36,9 @@ has the text and its gold label (empty if it has none) under the task's `text_fi
 file reads back as `--data`; then `teacher_label`, `teacher_confidence` and one `teacher_scores_<label>` column
 per label. The probabilities are the soft targets `train` uses: the softmax of the teacher's scores in
 `RUN/train.jsonl`, or for a multi-label task each label's sigmoid, with `teacher_labels` the labels above 0.5.
-In JSONL the scores are one object and multi-label labels are lists. Check the teacher's and the data's
-licences before you publish it.
+In JSONL the scores are one object and multi-label labels are lists. A run labelled with `--chunk-tokens` has
+windows of its documents, not their texts, so it cannot be exported this way. Check the teacher's and the
+data's licences before you publish it.
 
 ## HTTP server
 

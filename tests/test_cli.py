@@ -650,7 +650,8 @@ def test_predict_csv_in_and_out(tmp_path, multi):
 
     args = ["--data", str(tmp_path / "in.csv"), "--text-field", "review", "--out", str(tmp_path / "out.csv")]
     main(["predict", str(tmp_path / "onnx"), *args])
-    with (tmp_path / "out.csv").open(newline="", encoding="utf-8") as f:
+    assert (tmp_path / "out.csv").read_bytes().startswith("\ufeff".encode())  # for Excel
+    with (tmp_path / "out.csv").open(newline="", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
     assert [(r["id"], r["review"], r["label"]) for r in rows] == [
         ("1", "so good", "pos"),
@@ -1336,7 +1337,7 @@ def test_export_labels_writes_the_teachers_labels_as_a_dataset(tmp_path):
     ]
     write_jsonl(run / "train.jsonl", rows)
     main(["export", str(run), "--labels", str(tmp_path / "labels.csv")])
-    with (tmp_path / "labels.csv").open(encoding="utf-8", newline="") as f:
+    with (tmp_path / "labels.csv").open(encoding="utf-8-sig", newline="") as f:
         got = list(csv.DictReader(f))
     assert got == [
         {
@@ -1362,6 +1363,12 @@ def test_export_labels_writes_the_teachers_labels_as_a_dataset(tmp_path):
     assert [(e.text, e.gold) for e in examples] == [("so good", 0), ("café, bad", None)]
     with pytest.raises(SystemExit, match=r"\.csv or \.jsonl"):
         main(["export", str(run), "--labels", str(tmp_path / "labels.txt")])
+    examples = read_examples(str(tmp_path / "labels.csv"), load_task(run / "task.yaml"))  # past the BOM
+    assert [(e.text, e.gold) for e in examples] == [("so good", 0), ("café, bad", None)]
+    windows = [{"text": w, "gold": 0, "scores": [0.0, 0.0], "doc": 0} for w in ("a long", "long text")]
+    write_jsonl(run / "train.jsonl", windows)  # label --chunk-tokens: the rows are windows, not the texts
+    with pytest.raises(SystemExit, match="--chunk-tokens"):
+        main(["export", str(run), "--labels", str(tmp_path / "windows.csv")])
 
     (run / "task.yaml").write_text(MULTI_TASK)  # multi-label: the labels above 0.5, every probability
     write_jsonl(run / "train.jsonl", [{"text": "late and dear", "gold": [0, 1], "scores": [2.0, 0.5, -2.0]}])
@@ -1374,7 +1381,7 @@ def test_export_labels_writes_the_teachers_labels_as_a_dataset(tmp_path):
         "teacher_scores": {"price": 0.8808, "delivery": 0.6225, "quality": 0.1192},
     }
     main(["export", str(run), "--labels", str(tmp_path / "multi.csv")])
-    with (tmp_path / "multi.csv").open(encoding="utf-8", newline="") as f:
+    with (tmp_path / "multi.csv").open(encoding="utf-8-sig", newline="") as f:
         got = next(csv.DictReader(f))
     assert got["topics"] == "price|delivery" and got["teacher_labels"] == "price|delivery"
     assert got["teacher_scores_quality"] == "0.1192"
