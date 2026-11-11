@@ -1,0 +1,73 @@
+# Claim Stance (CS55) from the FewMany benchmark (Yehudai and Bandel, 2024; arXiv 2404.12365):
+# https://huggingface.co/datasets/FastFit/claim_stance_55, built from the claims of Bar-Haim et al. (2017).
+# Claims from Wikipedia that support or contest a debate topic, 55 topics; 1,675 training and 480 test claims,
+# no validation split. Between 3 and 131 training claims per topic, and 53 of the topics occur in the test
+# set. The gold label is the topic itself, as the dataset writes it; it is also the label's name.
+name: claim-stance55
+text_field: text
+label_field: label
+prompt: |-
+  Here is a claim made in a debate. Which debate topic is it about?
+  Options:
+  {labels}
+  {examples}
+
+  Claim: {text}
+
+  Reply with one option, exactly as written.
+labels:
+- "a mandatory retirement age"
+- "advertising"
+- "all nations a right to nuclear weapons"
+- "american jobs act"
+- "asean"
+- "atheism"
+- "austerity measures"
+- "barrier methods of contraception"
+- "blasphemy"
+- "boxing"
+- "bribery"
+- "burning the stars and stripes"
+- "children"
+- "collective bargaining rights claimed by trades unions"
+- "congressional earmarks"
+- "democratic governments should require voters to present photo identification at the polling station"
+- "democratization"
+- "endangered species"
+- "enforce term limits on the legislative branch of government"
+- "freedom of speech"
+- "fund education using a voucher scheme"
+- "gambling"
+- "governments should choose open source software"
+- "high rises for housing"
+- "holocaust denial"
+- "housewives should be paid for their work"
+- "hydroelectric dams"
+- "implement playoffs in collegiate level american football"
+- "intellectual property rights"
+- "israel's 2008-2009 military operations against gaza": "israel's 2008-2009 military operations against gaza"
+- "leaking of military documents"
+- "multiculturalism"
+- "national service"
+- "only teach abstinence for sex education in schools"
+- "open primaries"
+- "partial birth abortions"
+- "physical education"
+- "poor communities"
+- "raising the school leaving age to 18"
+- "re-engage with myanmar": "re-engage with myanmar"
+- "the blockade of gaza"
+- "the creation of private universities in the uk"
+- "the free market"
+- "the growing of tobacco"
+- "the keystone xl pipeline"
+- "the monarchy"
+- "the one-child policy of the republic of china": "the one-child policy of the republic of china"
+- "the right to asylum"
+- "the right to bear arms"
+- "the sale of violent video games to minors"
+- "the use of affirmative action"
+- "the use of performance enhancing drugs in professional sports"
+- "the use of truth and reconciliation commissions"
+- "wind power"
+- "year round schooling"

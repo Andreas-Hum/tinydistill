@@ -19,6 +19,9 @@
   cascade as the code computes them (`docs/guide/method.md`).
 - Benchmarks: a second student round, trained on the first student's predictions or on the teacher's labels
   corrected by them, gains nothing on Banking77 and CLINC150 (`examples/students/round2.py`).
+- Benchmarks: four tasks of the FastFit paper's FewMany benchmark on its test sets (claim stance, argument
+  topic, Amazon products, DBpedia): level with its 5-shot results where the teacher is good at the task,
+  below them on Amazon products, where it is not (`examples/claim-stance55/` and the others).
 
 ## 0.7.1 (2026-11-09)
 

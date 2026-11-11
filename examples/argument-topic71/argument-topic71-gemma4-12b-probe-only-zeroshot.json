@@ -1,0 +1,222 @@
+{
+  "task": "argument-topic71",
+  "teacher": "google/gemma-4-12B-it",
+  "student": "sentence-transformers/all-MiniLM-L6-v2",
+  "data": {
+    "train": "hf:FastFit/argument_topic_71:train",
+    "test": "hf:FastFit/argument_topic_71:test",
+    "n_train": 6640,
+    "n_test": 1898
+  },
+  "training": {
+    "epochs": 10,
+    "val_share": 0.0,
+    "patience": null,
+    "kept_epochs": null,
+    "lr": 0.0001,
+    "batch_size": 32,
+    "gold_per_class": 8,
+    "gold_file": null,
+    "n_gold_file": 0,
+    "n_gold": 568,
+    "upper_bound": false,
+    "gold_only": true,
+    "seeds": 3,
+    "n_gold_upper_bound": null,
+    "label_texts_scored": 8538,
+    "few_shot": 0,
+    "few_shot_similar": 0,
+    "few_shot_sets": 1,
+    "few_shot_model": null,
+    "n_examples": 0,
+    "ce_weight": 1.0,
+    "student_device": "cuda",
+    "train_seconds": 165.6,
+    "teacher_device": "cuda:0",
+    "label_seconds": 490.6,
+    "load_4bit": true,
+    "shortlist": null,
+    "shortlist_model": null,
+    "shortlist_keep": null,
+    "chunk_tokens": null,
+    "chunk_stride": null,
+    "budget": null,
+    "rounds": null,
+    "probe": {
+      "only": true,
+      "layer": null,
+      "pool": "last",
+      "l2": 0.001,
+      "steps": 200,
+      "dev_share": 0.2,
+      "gold_per_class": 8,
+      "gold_file": null,
+      "n_gold": 568,
+      "dev": {
+        "n_fit": 454,
+        "n_dev": 114,
+        "probe": 0.9298245614035088,
+        "in_context": null,
+        "combined": null
+      }
+    }
+  },
+  "environment": {
+    "cpu": "x86_64",
+    "cpu_threads": 2,
+    "torch": "2.15.0+cu132",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "omp_num_threads": "2"
+  },
+  "models": [
+    {
+      "role": "teacher",
+      "name": "teacher, zero-shot, 4-bit, probe only",
+      "device": "cuda",
+      "model": "google/gemma-4-12B-it",
+      "top3_accuracy": 0.9868282402528978,
+      "accuracy": 0.9768177028451,
+      "macro_f1": 0.9752835020312679,
+      "size_mb": 7503.924322,
+      "params_m": 6487.883776,
+      "latency_ms_b1": 151.10146300139604,
+      "throughput_per_s": 12.753045002318927,
+      "latency_ms_b32": 2509.204663998389
+    },
+    {
+      "role": "student",
+      "name": "student, PyTorch",
+      "device": "cpu",
+      "top3_accuracy": 0.9789251844046364,
+      "top3_accuracy_std": 0.0005268703898840821,
+      "top3_accuracy_seeds": [
+        0.9783983140147524,
+        0.9794520547945206,
+        0.9789251844046365
+      ],
+      "accuracy": 0.9597822269055146,
+      "accuracy_std": 0.0003041887614276179,
+      "accuracy_seeds": [
+        0.9594309799789252,
+        0.9599578503688093,
+        0.9599578503688093
+      ],
+      "macro_f1": 0.9582246989239782,
+      "macro_f1_std": 0.000280018733250993,
+      "macro_f1_seeds": [
+        0.958407266890424,
+        0.9583645257241308,
+        0.95790230415738
+      ],
+      "agreement": 0.9566210045662101,
+      "agreement_std": 0.0013259280708237894,
+      "agreement_seeds": [
+        0.9552160168598525,
+        0.9567966280295047,
+        0.9578503688092729
+      ],
+      "params_m": 22.740551,
+      "size_mb": 90.97422,
+      "latency_ms_b1": 7.570632000351907,
+      "latency_ms_b32": 177.9986240017024,
+      "throughput_per_s": 179.77667063141985
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX fp32",
+      "device": "cpu",
+      "top3_accuracy": 0.9783983140147524,
+      "accuracy": 0.9594309799789252,
+      "macro_f1": 0.958407266890424,
+      "agreement": 0.9552160168598525,
+      "size_mb": 91.095087,
+      "latency_ms_b1": 4.745013000501785,
+      "latency_ms_b32": 145.30940050099161,
+      "throughput_per_s": 220.2197510255479
+    },
+    {
+      "role": "student",
+      "name": "student, ONNX int8",
+      "device": "cpu",
+      "top3_accuracy": 0.9794520547945206,
+      "accuracy": 0.9604847207586934,
+      "macro_f1": 0.9585373121484204,
+      "agreement": 0.9557428872497366,
+      "size_mb": 23.176395,
+      "latency_ms_b1": 2.3854510000091977,
+      "latency_ms_b32": 69.06352000078186,
+      "throughput_per_s": 463.34157308572935
+    },
+    {
+      "role": "baseline",
+      "name": "baseline: student on 8 gold labels per class, no teacher",
+      "device": "cpu",
+      "top3_accuracy": 0.9648753073410608,
+      "top3_accuracy_std": 0.004418596988201318,
+      "top3_accuracy_seeds": [
+        0.969968387776607,
+        0.9625922023182297,
+        0.9620653319283456
+      ],
+      "accuracy": 0.9408148928696874,
+      "accuracy_std": 0.002901775841562773,
+      "accuracy_seeds": [
+        0.9436248682824026,
+        0.9409905163329821,
+        0.9378292939936775
+      ],
+      "macro_f1": 0.9386302230094811,
+      "macro_f1_std": 0.002331211840085188,
+      "macro_f1_seeds": [
+        0.941048145608456,
+        0.9384458525416813,
+        0.936396670878306
+      ],
+      "agreement": 0.9395855286266245,
+      "agreement_std": 0.00219353635349438,
+      "agreement_seeds": [
+        0.9420442571127503,
+        0.9388830347734457,
+        0.9378292939936775
+      ]
+    }
+  ],
+  "cascade": [
+    {
+      "share_to_teacher": 0.0,
+      "threshold": 0.12185536324977875,
+      "accuracy": 0.9604847207586934,
+      "macro_f1": 0.9585373121484204
+    },
+    {
+      "share_to_teacher": 0.10010537407797682,
+      "threshold": 0.9614020586013794,
+      "accuracy": 0.9768177028451,
+      "macro_f1": 0.9752000705860433
+    },
+    {
+      "share_to_teacher": 0.20021074815595363,
+      "threshold": 0.9799240827560425,
+      "accuracy": 0.9768177028451,
+      "macro_f1": 0.9752835020312679
+    },
+    {
+      "share_to_teacher": 0.29978925184404637,
+      "threshold": 0.9823541641235352,
+      "accuracy": 0.9768177028451,
+      "macro_f1": 0.9752835020312679
+    },
+    {
+      "share_to_teacher": 0.5,
+      "threshold": 0.985721230506897,
+      "accuracy": 0.9768177028451,
+      "macro_f1": 0.9752835020312679
+    },
+    {
+      "share_to_teacher": 1.0,
+      "threshold": 1.0,
+      "accuracy": 0.9768177028451,
+      "macro_f1": 0.9752835020312679
+    }
+  ]
+}

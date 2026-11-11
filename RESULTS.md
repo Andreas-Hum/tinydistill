@@ -671,6 +671,79 @@ methods reach from the gold labels, and the student cannot get far past its teac
 with gold labels for every class, train on them directly
 ([When to use it](https://andreas-hum.github.io/tinydistill/when-to-use/)).
 
+## The FewMany tasks: compared with FastFit
+
+Four more tasks the settings were not tuned on, from the FewMany benchmark of the FastFit paper (Yehudai and
+Bandel 2024, [arXiv 2404.12365](https://arxiv.org/abs/2404.12365)), with its training and test splits (its
+Table 7, on the Hub under `FastFit/`): claim stance (55 debate topics, 480 test claims), argument topic (71
+topics, 1,898 test arguments), Amazon products (106 categories, 6,148 test products) and DBpedia (70 article
+types, 60,794 test articles). Each `run.sh` runs them as TREC-50 above: Gemma 4 12B, the probe alone, 8 gold
+labels per class, zero-shot and with each text's 16 most similar gold examples. DBpedia is zero-shot only, and
+its teacher labels the first 30,000 of the 240,942 training articles (`--limit`).
+
+[`examples/claim-stance55/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/claim-stance55/run.sh):
+
+<!-- results: claim-stance55/summary.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| claim-stance55-gemma4-12b-probe-only-zeroshot | zero-shot, 4-bit, probe only `google/gemma-4-12B-it` | 0.896 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.844 ± 0.008 | 0.766 ± 0.018 | 0.837 ± 0.002 | ONNX int8 | 1.7 | 50.2 | 23 |
+| claim-stance55-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.919 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.853 ± 0.005 | 0.776 ± 0.015 | 0.866 ± 0.006 | ONNX int8 | 2.4 | 57.8 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+[`examples/argument-topic71/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/argument-topic71/run.sh):
+
+<!-- results: argument-topic71/summary.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| argument-topic71-gemma4-12b-probe-only-zeroshot | zero-shot, 4-bit, probe only `google/gemma-4-12B-it` | 0.977 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.960 ± 0.000 | 0.958 ± 0.000 | 0.957 ± 0.001 | ONNX int8 | 2.4 | 69.1 | 23 |
+| argument-topic71-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.983 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.961 ± 0.002 | 0.960 ± 0.001 | 0.962 ± 0.001 | ONNX int8 | 4.1 | 139.6 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+[`examples/ap106/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/ap106/run.sh):
+
+<!-- results: ap106/summary.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ap106-gemma4-12b-probe-only-zeroshot | zero-shot, 4-bit, probe only `google/gemma-4-12B-it` | 0.410 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.435 ± 0.001 | 0.378 ± 0.010 | 0.860 ± 0.003 | ONNX int8 | 3.8 | 244.4 | 23 |
+| ap106-gemma4-12b-probe-only-similar16 | 16 similar examples, 4-bit, probe only `google/gemma-4-12B-it` | 0.400 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.433 ± 0.002 | 0.383 ± 0.008 | 0.836 ± 0.007 | ONNX int8 | 2.9 | 161.5 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+[`examples/dbpedia70/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/dbpedia70/run.sh):
+
+<!-- results: dbpedia70/summary.md -->
+| Run | Teacher | Teacher accuracy | Student | Parameters (M) | Accuracy | Macro-F1 | Agreement with teacher | Deployed as | Latency, batch 1 (ms) | Latency, batch 32 (ms) | Size (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| dbpedia70-gemma4-12b-probe-only-zeroshot | zero-shot, 4-bit, probe only `google/gemma-4-12B-it` | 0.813 | `sentence-transformers/all-MiniLM-L6-v2` | 23 | 0.828 ± 0.001 | 0.823 ± 0.002 | 0.907 ± 0.001 | ONNX int8 | 10.7 | 655.8 | 23 |
+
+All latencies on the CPU with 2 threads.
+<!-- /results -->
+
+The paper reports, and these runs did not rerun, accuracy with 5 and with 10 gold labels per class, where these
+runs use 8, for FastFit and SetFit with MPNet and with RoBERTa large (its Table 1). The deployed students here
+(int8, the better prompt):
+
+- **Argument topic:** 0.963, against FastFit 95.4 and 96.2 with 5, 95.9 and 96.5 with 10; SetFit 94.8 and 95.6
+  with 5. Level with the best of them.
+- **Claim stance:** 0.856, against FastFit 86.1 and 87.5 with 5, 88.5 and 89.4 with 10; SetFit 84.1 and 87.8
+  with 5. Level with 5 gold labels per class, below 10. The teacher, 0.919, is above all of them: as on
+  CLINC150, a larger student would have room to gain ([below](#a-larger-student-when-the-teacher-is-far-ahead)).
+- **DBpedia:** 0.829, zero-shot, against FastFit 82.5 and 83.1 with 5, 87.8 and 88.7 with 10; SetFit 79.0 and
+  80.1 with 5. Level with 5, below 10.
+- **Amazon products:** 0.434, against FastFit 47.5 and 50.9 with 5, 54.5 and 57.5 with 10; SetFit 45.9 and
+  48.2 with 5. Below all of them but a classifier trained on 5 gold labels per class (30.4 with MPNet). The
+  teacher itself reaches only 0.400 to 0.410, so, as on TREC-50, the teacher is the limit.
+
+The same student trained on the gold labels alone (`--gold-only`, in each zero-shot run's JSON) reaches 0.784,
+0.941, 0.377 and 0.593. Where the teacher is good at the task, tinydistill's student is level with the
+published few-shot methods at about 8 gold labels per class, with a 23M-parameter student; where the teacher
+is weak, train on the gold labels directly.
+
 ## Newer teachers: Qwen3.5 and Gemma 4
 
 [`examples/teachers-2026/run.sh`](https://github.com/Andreas-Hum/tinydistill/blob/main/examples/teachers-2026/run.sh)

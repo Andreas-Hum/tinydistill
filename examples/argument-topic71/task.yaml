@@ -1,0 +1,89 @@
+# Argument Topic (AT71) from the FewMany benchmark (Yehudai and Bandel, 2024; arXiv 2404.12365):
+# https://huggingface.co/datasets/FastFit/argument_topic_71, built from the arguments of Gretz et al. (2020).
+# Arguments written for or against a debatable topic, 71 topics; 6,640 training, 949 validation and 1,898
+# test arguments; every topic has between 37 and 161 training arguments. The gold label is the topic itself,
+# as the dataset writes it; it is also the label's name.
+name: argument-topic71
+text_field: text
+label_field: label
+prompt: |-
+  Here is an argument from a debate. Which topic is it arguing about?
+  Options:
+  {labels}
+  {examples}
+
+  Argument: {text}
+
+  Reply with one option, exactly as written.
+labels:
+- "affirmative action"
+- "algorithmic trading"
+- "assisted suicide"
+- "atheism"
+- "austerity regime"
+- "blockade of the gaza strip"
+- "cancel pride parades"
+- "cannabis"
+- "capital punishment"
+- "collectivism"
+- "compulsory voting"
+- "cosmetic surgery"
+- "cosmetic surgery for minors"
+- "embryonic stem cell research"
+- "entrapment"
+- "executive compensation"
+- "factory farming"
+- "fast food"
+- "fight urbanization"
+- "flag burning"
+- "foster care"
+- "gender-neutral language": "gender-neutral language"
+- "guantanamo bay detention camp"
+- "holocaust denial"
+- "homeopathy"
+- "homeschooling"
+- "human cloning"
+- "intellectual property rights"
+- "intelligence tests"
+- "journalism"
+- "judicial activism"
+- "libertarianism"
+- "marriage"
+- "missionary work"
+- "multi-party system": "multi-party system"
+- "naturopathy"
+- "organ trade"
+- "payday loans"
+- "polygamy"
+- "private military companies"
+- "prostitution"
+- "racial profiling"
+- "retirement"
+- "safe spaces"
+- "school prayer"
+- "sex selection"
+- "social media"
+- "space exploration"
+- "stay-at-home dads": "stay-at-home dads"
+- "student loans"
+- "surrogacy"
+- "targeted killing"
+- "telemarketing"
+- "television"
+- "the abolition of nuclear weapons"
+- "the church of scientology"
+- "the development of autonomous cars"
+- "the olympic games"
+- "the right to keep and bear arms"
+- "the three-strikes laws": "the three-strikes laws"
+- "the use of child actors"
+- "the use of economic sanctions"
+- "the use of public defenders"
+- "the use of school uniform"
+- "the vow of celibacy"
+- "vocational education"
+- "whaling"
+- "wikipedia"
+- "women in combat"
+- "zero-tolerance policy in schools": "zero-tolerance policy in schools"
+- "zoos"

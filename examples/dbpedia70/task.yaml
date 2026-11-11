@@ -1,0 +1,88 @@
+# DBpedia, level 2 (DB70), from the FewMany benchmark (Yehudai and Bandel, 2024; arXiv 2404.12365):
+# https://huggingface.co/datasets/FastFit/dbpedia_70. The opening of a Wikipedia article, classed by the
+# second level of the DBpedia ontology, 70 classes; 240,942 training, 36,003 validation and 60,794 test
+# articles. The classes are very unevenly common (31,111 training articles for the most common, 129 for the
+# rarest). The gold label is the class name as the dataset writes it; it is also the label's name.
+name: dbpedia70
+text_field: text
+label_field: label
+prompt: |-
+  Here is the opening of a Wikipedia article. What type of thing is the article about?
+  Options:
+  {labels}
+  {examples}
+
+  Article: {text}
+
+  Reply with one option, exactly as written.
+labels:
+- "Actor"
+- "Amusement Park Attraction"
+- "Animal"
+- "Artist"
+- "Athlete"
+- "Body Of Water"
+- "Boxer"
+- "British Royalty"
+- "Broadcaster"
+- "Building"
+- "Cartoon"
+- "Celestial Body"
+- "Cleric"
+- "Clerical Administrative Region"
+- "Coach"
+- "Comic"
+- "Comics Character"
+- "Company"
+- "Database"
+- "Educational Institution"
+- "Engine"
+- "Eukaryote"
+- "Fictional Character"
+- "Flowering Plant"
+- "Football League Season"
+- "Genre"
+- "Gridiron Football Player"
+- "Group"
+- "Horse"
+- "Infrastructure"
+- "Legal Case"
+- "Motorcycle Rider"
+- "Musical Artist"
+- "Musical Work"
+- "Natural Event"
+- "Natural Place"
+- "Olympics"
+- "Organisation"
+- "Organisation Member"
+- "Periodical Literature"
+- "Person"
+- "Plant"
+- "Politician"
+- "Presenter"
+- "Race"
+- "Race Track"
+- "Racing Driver"
+- "Route Of Transportation"
+- "Satellite"
+- "Scientist"
+- "Settlement"
+- "Societal Event"
+- "Software"
+- "Song"
+- "Sport Facility"
+- "Sports Event"
+- "Sports League"
+- "Sports Manager"
+- "Sports Team"
+- "Sports Team Season"
+- "Station"
+- "Stream"
+- "Tournament"
+- "Tower"
+- "Venue"
+- "Volleyball Player"
+- "Winter Sport Player"
+- "Wrestler"
+- "Writer"
+- "Written Work"
